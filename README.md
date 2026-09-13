@@ -43,10 +43,10 @@ Browser libraries are included under `vendor/`; no frontend build is needed.
 
 Graph keeps Codeflow's file nodes, connections, layouts and folder filtering.
 Compiler references enrich the same graph alongside source-analysis relationships,
-including links from tests, documentation and other languages. Dependencies and
-generated source remain available
-under the normal collection rules; use the existing exclusions control to choose
-what belongs in your view.
+including links from tests, documentation and other languages. Mix dependency and
+build directories (`deps`, `_build`, `.elixir_ls`) are excluded by default, including
+nested umbrella projects. Application source, tests and documentation remain in
+the inventory. The exclusions dialog lists these defaults alongside custom patterns.
 
 Code view uses the existing source cards. The File panel adds an ElixirLS outline;
 Command-click (or Ctrl-click) source text to go to a definition, and add Shift to

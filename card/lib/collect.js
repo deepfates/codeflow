@@ -10,7 +10,7 @@ const { matchesExcludePattern } = require('./exclude.js');
 
 const DEFAULT_IGNORES = new Set([
   '.git',
-  'node_modules',
+  'node_modules', '_build', 'deps', '.elixir_ls',
   'vendor',
   '.next',
   '.nuxt',

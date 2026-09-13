@@ -2457,3 +2457,18 @@ test('UI prefs keep the default when localStorage access throws', () => {
     delete context.window;
   }
 });
+
+test('explicit source navigation opens a thirteenth card without dropping the investigation', () => {
+  const start=htmlSource.indexOf('    function openCodeFile(path,replace){');
+  const end=htmlSource.indexOf('    function closeCodeCard(',start);
+  const paths=Array.from({length:13},(_,i)=>`lib/source${i}.ex`);
+  const sandbox={...context,
+    data:{files:paths.map(path=>({path,folder:'lib'}))},folderFilter:'lib',openedCodePaths:paths.slice(0,12),
+    pendingFlyToRef:{current:null},setFolderFilter:()=>{},selectFile:path=>{sandbox.selectedPath=path;},
+    setOpenedCodePaths:update=>{sandbox.openedCodePaths=update(sandbox.openedCodePaths);}};
+  vm.createContext(sandbox);vm.runInContext(htmlSource.slice(start,end),sandbox);
+  sandbox.openCodeFile(paths[12]);
+  assert.deepEqual(Array.from(sandbox.openedCodePaths),paths);
+  assert.equal(sandbox.selectedPath,paths[12]);
+  assert.equal(sandbox.pendingFlyToRef.current,paths[12]);
+});
