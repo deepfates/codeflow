@@ -128,7 +128,10 @@ test('focused-canvas assertion rejects a temporary regression to rendering every
   const mutant = {};
   vm.createContext(mutant);
   const source = context.beamCodeCanvasFiles.toString();
-  const broken = source.replace(/\{/, '{ return data.files;');
+  const bodyStart = source.indexOf('{') + 1;
+  assert.ok(bodyStart > 0);
+  // Insert a deliberate early return at the function body, not an escaping rule.
+  const broken = source.slice(0, bodyStart) + ' return data.files;' + source.slice(bodyStart);
   assert.notEqual(broken, source);
   vm.runInContext(broken, mutant);
   assert.throws(() => assertFocusedCanvas(mutant.beamCodeCanvasFiles), { name: 'AssertionError' });
