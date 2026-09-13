@@ -442,7 +442,7 @@ export function createCodeflowServer(options) {
       if (url.pathname === '/__codeflow/analysis') {
         const state = analysis?.session?.status() || analysis?.state || { state: 'unavailable' };
         const { log, ...publicState } = state;
-        sendJson(res, 200, { language: publicState, assessment: analysis?.assessment || { status: 'unavailable', findings: [] } });
+        sendJson(res, 200, { language: publicState, graphRevision: options.beamGraph?.producer?.collectedAt || null, assessment: analysis?.assessment || { status: 'unavailable', findings: [] } });
         return;
       }
       if (url.pathname === '/__codeflow/assess') {
@@ -570,12 +570,24 @@ async function main() {
   const beam = parsed.beam || existsSync(path.join(watchRoot, 'mix.exs'));
   const beamGraph = beam ? await collectBeamGraph(watchRoot) : undefined;
   const analysis = beam && !parsed.sourceOnly ? { state: { state: 'starting' }, session: null, assessment: { status: 'pending', findings: [] } } : null;
-  const app = createCodeflowServer({ uiRoot, watchRoot, beamGraph, analysis, node: parsed.node });
+  const serverOptions = { uiRoot, watchRoot, beamGraph, analysis, node: parsed.node };
+  const app = createCodeflowServer(serverOptions);
   const { server } = app;
   if (analysis) {
     import('./elixir-analysis.mjs').then(async ({ createElixirSession, collectCredo }) => {
       if (analysis.closed) return;
-      analysis.session = await createElixirSession(watchRoot);
+      let lastBuild = null, graphJob = Promise.resolve();
+      analysis.session = await createElixirSession(watchRoot, { onUpdate(status) {
+        if (analysis.closed || status.build.state !== 'ready' || status.build.completedAt === lastBuild) return;
+        lastBuild = status.build.completedAt;
+        // ElixirLS 0.31.1 owns this build root (Build.reload_project post_config).
+        // MIX_BUILD_PATH is environment-specific; pointing at its parent yields an empty graph.
+        const buildPath = path.join('.elixir_ls', 'build', status.producer.environment);
+        graphJob = graphJob.then(async () => {
+          if (analysis.closed) return;
+          serverOptions.beamGraph = await collectBeamGraph(watchRoot, { environment: status.producer.environment, buildPath });
+        }).catch(() => {});
+      } });
       if (analysis.closed) { await analysis.session.dispose(); return; }
       analysis.assessment = await collectCredo(watchRoot);
     }).catch(error => { analysis.state = { state: 'error', reason: error.message }; });

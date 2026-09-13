@@ -1789,7 +1789,7 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /codeSourceInFlightRef/);
   assert.match(htmlSource, /analysisHydrationId/);
   assert.match(htmlSource, /currentHydrationId/);
-  assert.match(htmlSource, /openedSceneRef\.current=currentHydrationId/);
+  assert.match(htmlSource, /openedSceneRef\.current=sceneIdentity/);
   assert.match(htmlSource, /hydratedSourceIsCurrent/);
   assert.match(htmlSource, /codeCardDragDelta/);
   assert.match(htmlSource, /openCodeFileRef\.current\(seed,true\)/);

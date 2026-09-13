@@ -9090,6 +9090,7 @@ function App(){
     var _pendingDel=useState(null),pendingRecentDelete=_pendingDel[0],setPendingRecentDelete=_pendingDel[1];
     var _cli=useState(null),cliStatus=_cli[0],setCliStatus=_cli[1];
     var [beamAnalysis,setBeamAnalysis]=useState(null);
+    var beamGraphRevisionRef=useRef(null);
     var [beamSymbols,setBeamSymbols]=useState([]),[beamLocations,setBeamLocations]=useState(null);
     var [beamNavigationError,setBeamNavigationError]=useState(null);
     var [runtimeNode,setRuntimeNode]=useState(''),[runtimeSnapshot,setRuntimeSnapshot]=useState(null),[runtimeBusy,setRuntimeBusy]=useState(false);
@@ -9097,7 +9098,13 @@ function App(){
         if(!data||!data.beam||!cliStatus||!cliStatus.ok)return;
         var cancelled=false,timer;
         async function poll(){
-            try{var response=await fetch('/__codeflow/analysis');if(response.ok){var result=await response.json();if(!cancelled)setBeamAnalysis(result);}}catch(e){}
+            try{var response=await fetch('/__codeflow/analysis');if(response.ok){var result=await response.json();if(!cancelled){
+                    setBeamAnalysis(result);
+                    if(result.graphRevision&&beamGraphRevisionRef.current!==result.graphRevision){
+                        var graphResponse=await fetch('/__codeflow/beam');
+                        if(graphResponse.ok){var graph=await graphResponse.json();if(!cancelled){beamGraphRevisionRef.current=result.graphRevision;setData(function(prev){return prev&&prev.beam?buildBeamAnalysisData({analyzed:prev.files,snapshot:graph,excludePatterns:prev.excludePatterns}):prev;});}}
+                    }
+                }}}catch(e){}
             if(!cancelled)timer=setTimeout(poll,2500);
         }
         poll();setRuntimeNode(cliStatus.runtimeNode||'');
@@ -9118,6 +9125,7 @@ function App(){
     }
     function openBeamLocation(location){
         if(!location.path){setBeamNavigationError('Source is outside this project.');return;}
+        if(!data.files.some(function(file){return file.path===location.path;})){setBeamNavigationError('Source is excluded or unavailable in this project.');return;}
         setGraphConfig(function(prev){return Object.assign({},prev,{vizType:'code'});});
         if(!codeCardUserSizeRef.current[location.path])codeCardUserSizeRef.current[location.path]={height:640};
         openCodeFile(location.path);setRightTab('details');
@@ -10591,8 +10599,17 @@ function App(){
         var resolved=resolveOpenCodeCard(openedCodePaths,path,data&&data.beam?Infinity:null,allowReplace,hidden);
         if(!resolved.opened)return;
         setOpenedCodePaths(function(prev){return openCodeCardPaths(prev,path,data&&data.beam?Infinity:null,allowReplace,hiddenOpenedCodePaths(prev,data,nextFilter));});
-        if(resolved.inserted)pendingFlyToRef.current=path;
+        if(resolved.inserted||data&&data.beam)pendingFlyToRef.current=path;
         selectFile(path);
+    }
+    function closeBeamCard(path){
+        var remaining=openedCodePaths.filter(function(opened){return opened!==path;});
+        setOpenedCodePaths(remaining);
+        delete codeCardPlacementRef.current[path];codeCardUserPinnedRef.current.delete(path);
+        if(selected&&selected.path===path){
+            if(remaining.length){pendingFlyToRef.current=remaining[remaining.length-1];selectFile(remaining[remaining.length-1]);}
+            else{setSelected(null);selectedPathRef.current=null;setBlastRadius(null);}
+        }
     }
     function retryCodeSource(path){
         if(!path)return;
@@ -10828,8 +10845,10 @@ function App(){
         return files;
     },[data,openedCodePaths,folderFilter,graphConfig.vizType,selected&&selected.path,codeRootGateActive]);
     useEffect(function(){
-        if(currentHydrationId===openedSceneRef.current)return;
-        openedSceneRef.current=currentHydrationId;
+        var source=currentAnalysisSource();if(!source)return;
+        var sceneIdentity=source.sourceType+':'+source.sourceKey;
+        if(sceneIdentity===openedSceneRef.current)return;
+        openedSceneRef.current=sceneIdentity;
         codeCardPlacementRef.current=Object.create(null);
         codeSourceInFlightRef.current=Object.create(null);
         setCodeSourceFailed(Object.create(null));
@@ -11165,9 +11184,20 @@ function App(){
         });
         var flyPath=pendingFlyToRef.current;
         if(flyPath&&codeViewCameraReadyRef.current&&!opts.skipFly){
-            var place=placements[flyPath];
-            if(place)flyToOpenedCodeCard(place);
-            pendingFlyToRef.current=null;
+            if(data&&data.beam){
+                // The graph effect may rebuild its zoom after this layout effect.
+                // Focus after that redraw, using the current placement and zoom.
+                requestAnimationFrame(function(){requestAnimationFrame(function(){
+                    if(pendingFlyToRef.current!==flyPath)return;
+                    var current=codeCardPlacementRef.current[flyPath];
+                    if(current)flyToOpenedCodeCard(current);
+                    pendingFlyToRef.current=null;
+                });});
+            }else{
+                var place=placements[flyPath];
+                if(place)flyToOpenedCodeCard(place);
+                pendingFlyToRef.current=null;
+            }
         }
     }
     function placeRemainingCodeNodes(){
@@ -11498,7 +11528,7 @@ function App(){
         node.append('rect').attr('class','nb').attr('x',function(d){return -graphColorBlockSize(d)/2;}).attr('y',function(d){return -graphColorBlockSize(d)/2;}).attr('width',graphColorBlockSize).attr('height',graphColorBlockSize).attr('rx',3).attr('fill',function(d){return graphColorBlockFill(getC(d));}).attr('stroke',function(d){var c=d3.color(graphColorBlockFill(getC(d)));return c?c.darker(0.35):'#000';}).attr('stroke-width',1).attr('display','none');
         // Hide labels for large graphs to reduce DOM overhead. Code view keeps titles readable.
         if(keepReadable||!isLargeGraph||graphConfig.showLabels){
-            node.append('text').attr('class','node-label').attr('text-anchor','middle').attr('dy',0).attr('fill',theme==='light'?'#333':'#eee').attr('font-size',function(d){return (keepReadable?Math.max(9,Math.min(12,getR(d)*0.7)):Math.max(6,Math.min(10,getR(d)*0.6)))+'px';}).attr('font-family','JetBrains Mono').attr('font-weight','600').attr('pointer-events','none').text(function(d){if(d.groupPath)return d.name;var n=d.name.replace(/\.[^.]+$/,'');if(keepReadable)return n.length>18?n.slice(0,17)+'…':n;var maxLen=Math.max(4,Math.floor(getR(d)/2));return n.length>maxLen+1?n.slice(0,maxLen)+'…':n;});
+            node.append('text').attr('class','node-label').attr('text-anchor','middle').attr('dy',function(d){return data.beam&&!keepReadable&&!d.groupPath?getR(d)+12:0;}).attr('fill',theme==='light'?'#333':'#eee').attr('font-size',function(d){if(data.beam&&!keepReadable)return '11px';return (keepReadable?Math.max(9,Math.min(12,getR(d)*0.7)):Math.max(6,Math.min(10,getR(d)*0.6)))+'px';}).attr('font-family','JetBrains Mono').attr('font-weight','600').attr('pointer-events','none').text(function(d){if(d.groupPath||data.beam&&!keepReadable)return d.name;var n=d.name.replace(/\.[^.]+$/,'');if(keepReadable)return n.length>18?n.slice(0,17)+'…':n;var maxLen=Math.max(4,Math.floor(getR(d)/2));return n.length>maxLen+1?n.slice(0,maxLen)+'…':n;});
         }
         function liveNodesByFolder(){
             var live=(simRef.current&&simRef.current.nodes())||nodes;
@@ -13160,19 +13190,19 @@ function App(){
             return React.createElement('details',{key:id,open:process.type==='supervisor',style:{margin:'8px 0 8px 10px'}},
                 React.createElement('summary',null,process.label||process.module||process.pid),
                 React.createElement('div',{style:{color:'var(--t3)',margin:'6px 0'}},process.pid,' · ',process.metrics&&process.metrics.status,' · queue ',process.metrics&&process.metrics.messageQueueLength),
-                process.sourcePath&&React.createElement('button',{className:'top-btn',onClick:function(){openBeamLocation({path:process.sourcePath});}},'Source'),
+                process.sourcePath&&data.files.some(function(f){return f.path===process.sourcePath;})&&React.createElement('button',{className:'top-btn',onClick:function(){openBeamLocation({path:process.sourcePath});}},'Source'),
                 (process.children||[]).map(function(child){return processTree(child,next);}));
         }
         return React.createElement(React.Fragment,null,
             React.createElement('form',{onSubmit:connectBeamRuntime,style:{display:'flex',gap:6,marginBottom:12}},
                 React.createElement('input',{value:runtimeNode,onChange:function(e){setRuntimeNode(e.target.value);},placeholder:'name@hostname','aria-label':'BEAM node',style:{minWidth:0,flex:1}}),
                 React.createElement('button',{className:'top-btn',disabled:runtimeBusy||!runtimeNode.trim(),type:'submit'},runtimeBusy?'Connecting…':snapshot&&snapshot.status==='ready'?'Refresh':'Connect')),
-            snapshot&&snapshot.status!=='ready'&&React.createElement('p',{role:'status'},snapshot.reason||snapshot.error||'Runtime unavailable'),
+            snapshot&&snapshot.status!=='ready'&&React.createElement('p',{role:'status'},snapshot.reason||snapshot.error||(snapshot.warnings||[]).join(' ')||'Runtime unavailable'),
             snapshot&&snapshot.status==='ready'&&React.createElement(React.Fragment,null,
                 React.createElement('div',{style:{color:'var(--t3)'}},'Snapshot · '+new Date(snapshot.collectedAt).toLocaleTimeString()),
-                (snapshot.applications||[]).map(function(app){return React.createElement('details',{key:app.name},React.createElement('summary',{style:{padding:'8px 0'}},app.name),processTree(app.rootId,new Set()));}),
+                (snapshot.applications||[]).slice().sort(function(a,b){function local(app){var p=processes.get(app.rootId);return p&&p.sourcePath?1:0;}return local(b)-local(a)||a.name.localeCompare(b.name);}).map(function(app){return React.createElement('details',{key:app.name},React.createElement('summary',{style:{padding:'8px 0'}},app.name),processTree(app.rootId,new Set()));}),
                 React.createElement('details',null,React.createElement('summary',{style:{padding:'8px 0'}},'Other processes'),(snapshot.processes||[]).filter(function(p){return !p.parentId&&!p.application;}).map(function(p){return processTree(p.id,new Set());})),
-                snapshot.truncated&&React.createElement('p',null,'Some processes were omitted from this snapshot.')));
+                (snapshot.warnings||[]).map(function(warning,i){return React.createElement('p',{key:i,role:'status'},warning);})));
     }
     function renderOverviewPane(){
         if(!data)return renderSidebarEmpty('No Repository','Enter a GitHub URL, open a folder, or load a ZIP archive');
@@ -13185,14 +13215,14 @@ function App(){
                 )
             ),
             (cachedFromId||cliDirty.length>0)&&React.createElement('div',{className:'stale-banner'},
-                React.createElement('span',null,cliDirty.length?(data.beam?'Sources changed; compiler snapshot remains unchanged. Recompile and restart Codeflow to refresh relationships.':'Watched files changed. Re-analyze to refresh.'):'Cached analysis. Re-analyze to refresh.'),
+                React.createElement('span',null,cliDirty.length?(data.beam?'Sources changed. Relationships refresh after compilation.':'Watched files changed. Re-analyze to refresh.'):'Cached analysis. Re-analyze to refresh.'),
                 React.createElement('button',{className:'top-btn primary',onClick:refreshAnalysis,disabled:loading},'Re-analyze')
             ),
             React.createElement('div',{className:'stats-grid'},
                 React.createElement('div',{className:'stat-card'},React.createElement('div',{className:'stat-value'},data.stats.files),React.createElement('div',{className:'stat-label'},'Files')),
-                React.createElement('div',{className:'stat-card'},React.createElement('div',{className:'stat-value'},data.beam?'—':data.stats.functions),React.createElement('div',{className:'stat-label'},'Functions')),
+                !data.beam&&React.createElement('div',{className:'stat-card'},React.createElement('div',{className:'stat-value'},data.stats.functions),React.createElement('div',{className:'stat-label'},'Functions')),
                 React.createElement('div',{className:'stat-card'},React.createElement('div',{className:'stat-value'},data.stats.connections),React.createElement('div',{className:'stat-label'},'Links')),
-                React.createElement('div',{className:'stat-card'+(data.stats.dead>10?' warn':''),style:{cursor:data.stats.dead>0?'pointer':'default'},onClick:function(){if(data.stats.dead>0)setShowUnused(true);}},React.createElement('div',{className:'stat-value'},data.beam?'—':data.stats.dead),React.createElement('div',{className:'stat-label'},'Unused'))
+                !data.beam&&React.createElement('div',{className:'stat-card'+(data.stats.dead>10?' warn':''),style:{cursor:data.stats.dead>0?'pointer':'default'},onClick:function(){if(data.stats.dead>0)setShowUnused(true);}},React.createElement('div',{className:'stat-value'},data.beam?'—':data.stats.dead),React.createElement('div',{className:'stat-label'},'Unused'))
             ),
             React.createElement('div',{className:'loc-stat'},
                 React.createElement('div',{className:'loc-value'},data.stats.loc?data.stats.loc.toLocaleString():'0'),
@@ -13383,9 +13413,9 @@ function App(){
                 body=React.createElement('pre',{className:'file-preview-code'},
                     diffLines.map(function(lineHtml,i){
                         var row=diffRows[i]||{type:'same'};
-                        return React.createElement('div',{key:i,className:'file-preview-line'+codeCardDiffClass(row)},
+                        return React.createElement('div',{key:i,'data-line':row.newLine||undefined,className:'file-preview-line'+codeCardDiffClass(row)},
                             React.createElement('span',{className:'file-preview-linenum'},codeCardDiffLineNo(row)),
-                            React.createElement('span',{className:'file-preview-text',onClick:data.beam?function(e){beamSourceClick(e,file.path,i);}:undefined,dangerouslySetInnerHTML:{__html:annotateHtmlWithSymbols(lineHtml||' ',codeViewSymbols,activeSymbol)}})
+                            React.createElement('span',{className:'file-preview-text',onClick:data.beam&&row.newLine?function(e){beamSourceClick(e,file.path,row.newLine-1);}:undefined,dangerouslySetInnerHTML:{__html:annotateHtmlWithSymbols(lineHtml||' ',codeViewSymbols,activeSymbol)}})
                         );
                     })
                 );
@@ -13395,7 +13425,7 @@ function App(){
                     lines.map(function(lineHtml,i){
                         return React.createElement('div',{key:i,'data-line':i+1,className:'file-preview-line'},
                             React.createElement('span',{className:'file-preview-linenum'},i+1),
-                            React.createElement('span',{className:'file-preview-text',dangerouslySetInnerHTML:{__html:annotateHtmlWithSymbols(lineHtml||' ',codeViewSymbols,activeSymbol)}})
+                            React.createElement('span',{className:'file-preview-text',onClick:data.beam?function(e){beamSourceClick(e,file.path,i);}:undefined,dangerouslySetInnerHTML:{__html:annotateHtmlWithSymbols(lineHtml||' ',codeViewSymbols,activeSymbol)}})
                         );
                     })
                 );
@@ -13447,7 +13477,8 @@ function App(){
                     React.createElement('div',{className:'code-card-name'},file.name),
                     React.createElement('div',{className:'code-card-path'},file.path)
                 ),
-                React.createElement('span',{className:'badge badge-default'},isPrimary?'selected':'open')
+                React.createElement('span',{className:'badge badge-default'},isPrimary?'selected':'open'),
+                data.beam&&React.createElement('button',{className:'top-btn',type:'button','aria-label':'Close '+file.name,title:'Close file',onPointerDown:function(e){e.stopPropagation();},onClick:function(e){e.stopPropagation();closeBeamCard(file.path);}},React.createElement(Icon,{name:'close',size:'s'}))
             ),
             React.createElement('div',{className:'code-card-body',onClick:function(e){
                 var mark=e.target.closest?e.target.closest('[data-sym]'):null;
@@ -14054,7 +14085,7 @@ function App(){
                                     ):React.createElement('div',{style:{fontSize:10,color:'var(--t3)',padding:8}},'No ownership data available')
                                 )
                             ),
-                            React.createElement('div',{className:'card'},
+                            !data.beam&&React.createElement('div',{className:'card'},
                                 React.createElement('div',{className:'card-header',onClick:function(){toggleCard('fns');}},React.createElement('div',{className:'card-title'},React.createElement('span',{className:'card-toggle'+(expandedCards.has('fns')?' open':'')},'▶'),React.createElement(Icon,{name:'bolt',size:'s'}),' Functions (',data.beam?'not assessed':selected.functions.length,')')),
                                 expandedCards.has('fns')&&React.createElement('div',{className:'card-body',style:{padding:8}},
                                     selected.functions.length===0?React.createElement('div',{style:{fontSize:10,color:'var(--t3)',padding:8,textAlign:'center'}},data.beam?'Function analysis is unavailable in compiler file graphs. Open the source to inspect definitions.':'No functions detected'):

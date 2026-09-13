@@ -42,6 +42,12 @@ test('collector uses bounded no-shell no-compile Mix invocation and surfaces abs
     assert.equal(opts.maxBuffer, 16 * 1024 * 1024);
     return { stdout: JSON.stringify(raw), stderr: 'sample diagnostic' };
   } });
+  const languageGraph = await collectBeamGraph(root, { environment: 'test', buildPath: '.elixir_ls/build/test', execute: async (_cmd, _args, options) => {
+    assert.equal(options.env.MIX_BUILD_PATH, path.join(root, '.elixir_ls/build/test'));
+    assert.equal(options.env.MIX_ENV, 'test');
+    return {stdout:JSON.stringify(raw)};
+  } });
+  assert.equal(languageGraph.producer.buildPath, '.elixir_ls/build/test');
   assert.equal(graph.status, 'ready');
   assert.equal(graph.producer.freshness, 'unverified');
   assert.ok(graph.nodes.every(n => n.sourceMissing));

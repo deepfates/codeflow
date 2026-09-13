@@ -65,12 +65,14 @@ node must already be running locally with matching distribution naming and cooki
 Refresh collects applications, supervision trees, process metrics and source links.
 It does not start the application, inspect process state or record messages.
 
-Graph relationships come from a snapshot of existing Mix compiler manifests.
+Graph relationships come from Mix compiler manifests. After each successful
+ElixirLS build, Codeflow collects its updated graph and refreshes the current view
+without clearing open cards. With `--source-only`, the graph is the initial snapshot
+of ordinary build artifacts; recompile and restart to update it.
 [`mix xref`](https://mix.hexdocs.pm/Mix.Tasks.Xref.html) distinguishes compile,
 export and runtime dependencies; a runtime edge means a reference inside function
-code, not an observed execution. Arrows point from dependency to consumer. Recompile
-and restart Codeflow to refresh this snapshot. Source and language-server results
-may be newer than it. Missing artifacts leave source exploration available without
+code, not an observed execution. Arrows point from dependency to consumer. Source and language-server results may be newer than the latest successful
+compiler snapshot. Missing artifacts leave source exploration available without
 guessed dependency edges. Elixir function usage and health grades are not inferred
 from missing cross-file calls.
 
@@ -168,7 +170,7 @@ See [card/](./card/) for setup, or jump to the [style gallery](#card-style-galle
 
 **Your code stays on your machine.** CodeFlow:
 
-- Runs 100% in the browser
+- Runs static exploration in the browser; the optional local CLI runs Elixir tooling on your machine
 - Makes API calls directly from your browser to GitHub
 - Never stores your code or tokens
 - Works with private repos (just add your token locally)
@@ -409,7 +411,7 @@ We love contributions! Here's how:
 3. Test locally (just open in browser)
 4. Submit a PR
 
-Node.js unit tests live under `tests/` and run with no dependencies. Test files
+Node.js tests live under `tests/`. Install dependencies with `npm ci`. Test files
 run sequentially so other workers do not compete with the existing two-second
 large-repository benchmark (parallel CI execution exceeded that limit):
 
@@ -417,6 +419,10 @@ large-repository benchmark (parallel CI execution exceeded that limit):
 npm test
 # Also exercise a real disposable Mix project (requires Elixir 1.19+)
 npm run test:beam
+# Repeat the complete browser navigation / graph refresh / restoration journey
+npx playwright install chromium
+npm run test:browser
+# Or use an installed Chrome: CODEFLOW_BROWSER_CHANNEL=chrome npm run test:browser
 ```
 
 `tests/verify-brain-vault.mjs` is an optional end-to-end script that always verifies the bundled fixtures and will also scan a real local vault when you explicitly set `BRAIN_VAULT=/path/to/vault`.
@@ -433,7 +439,7 @@ npm run test:beam
 ## FAQ
 
 **Q: How does it work without a backend?**
-> CodeFlow runs entirely in your browser. It calls the GitHub API directly from your browser and processes everything client-side.
+> Static repository exploration runs in your browser. The local CLI adds filesystem watching, ElixirLS, Credo and BEAM inspection through a loopback server.
 
 **Q: Is my code safe?**
 > Yes. Your code is fetched directly from GitHub to your browser. Nothing is sent to any server we control. The app and its pinned browser dependencies are checked into this repository for inspection.

@@ -55,12 +55,16 @@ export async function collectBeamGraph(root, options = {}) {
   try {
     const run = options.execute || execute;
     const { stdout, stderr } = await run('mix', XREF_ARGS, {
-      cwd: root, env: { ...process.env, MIX_ENV: environment, MIX_QUIET: '1' },
+      cwd: root, env: { ...process.env, MIX_ENV: environment, MIX_QUIET: '1', ...(options.buildPath ? { MIX_BUILD_PATH: path.resolve(root, options.buildPath) } : {}) },
       timeout: options.timeout ?? 30000, maxBuffer: options.maxBuffer ?? 16 * 1024 * 1024,
       killSignal: 'SIGKILL', windowsHide: true
     });
     const graph = translateXref(JSON.parse(stdout), root, environment);
     graph.producer.collectedAt = new Date().toISOString();
+    if (options.buildPath) {
+      graph.producer.buildPath = options.buildPath;
+      graph.warnings[0] = 'Snapshot collected after an ElixirLS build. Source changes may be newer than this successful compilation.';
+    }
     // Mix allows custom build paths. Do not guess freshness from a timestamp:
     // these source mtimes are evidence for inspection, not proof of a matching build.
     const missing = [];

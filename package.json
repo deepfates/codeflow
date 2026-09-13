@@ -21,9 +21,13 @@
   "scripts": {
     "start": "node cli/codeflow.mjs .",
     "test": "node --test --test-concurrency=1 tests/*.test.mjs tests/*.smoke.js",
-    "test:beam": "CODEFLOW_TEST_MIX=1 node --test tests/beam-compiler.test.mjs tests/beam-native.test.mjs"
+    "test:beam": "CODEFLOW_TEST_MIX=1 node --test tests/beam-compiler.test.mjs tests/beam-native.test.mjs",
+    "test:browser": "CODEFLOW_TEST_BROWSER=1 node --test tests/beam-browser.test.mjs"
   },
   "dependencies": {
     "vscode-jsonrpc": "9.0.2"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
   }
 }
