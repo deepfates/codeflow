@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 import { collectBeamGraph, unavailableBeam } from './beam.mjs';
+import { collectRuntimeSnapshot } from './runtime.mjs';
 
 const IGNORE = new Set([
   'node_modules', '_build', 'deps', '.elixir_ls', '.git', 'vendor', 'dist', 'build', 'out', 'coverage',
@@ -108,8 +109,14 @@ export function parseCliArgs(argv) {
   let target = '.';
   let beam = false;
   let noOpen = false;
+  let node;
+  let sourceOnly = false;
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--no-open') {
+    if (args[i] === '--node' && args[i + 1]) {
+      node = args[++i];
+    } else if (args[i] === '--source-only') {
+      sourceOnly = true;
+    } else if (args[i] === '--no-open') {
       noOpen = true;
     } else if (args[i] === '--beam') {
       beam = true;
@@ -121,7 +128,7 @@ export function parseCliArgs(argv) {
       target = args[i];
     }
   }
-  return { port, target, ...(beam ? { beam: true } : {}), ...(noOpen ? { noOpen: true } : {}) };
+  return { port, target, ...(node ? { node } : {}), ...(sourceOnly ? { sourceOnly: true } : {}), ...(beam ? { beam: true } : {}), ...(noOpen ? { noOpen: true } : {}) };
 }
 
 export async function listWatchFiles(root) {
@@ -401,10 +408,19 @@ export function createCodeflowServer(options) {
   const name = path.basename(watchRoot);
   const clients = new Set();
   const watchRevs = new Map();
+  let runtimeJob = null;
+  let runtimeNode = options.node || null;
+  const analysis = options.analysis;
+  let assessmentJob = null;
 
   const watchSession = startFileWatchers(watchRoot, (rel) => {
     const pathKey = normalizeWatchRel(rel);
     const rev = bumpWatchRev(watchRevs, pathKey);
+    if (analysis?.session && /\.exs?$/.test(pathKey)) {
+      resolveSafeExistingPath(watchRoot, pathKey).then(async safe => {
+        if (safe && (await fs.stat(safe)).size <= CLI_FILE_MAX_BYTES) await analysis.session.change(pathKey, await fs.readFile(safe, 'utf8'), { save: true });
+      }).catch(() => {});
+    }
     const payload = `data: ${JSON.stringify({ type: 'change', path: pathKey, rev })}\n\n`;
     for (const client of clients) client.write(payload);
   });
@@ -423,12 +439,51 @@ export function createCodeflowServer(options) {
         return;
       }
       const url = parsed.url;
+      if (url.pathname === '/__codeflow/analysis') {
+        const state = analysis?.session?.status() || analysis?.state || { state: 'unavailable' };
+        const { log, ...publicState } = state;
+        sendJson(res, 200, { language: publicState, assessment: analysis?.assessment || { status: 'unavailable', findings: [] } });
+        return;
+      }
+      if (url.pathname === '/__codeflow/assess') {
+        if (!analysis) { sendJson(res, 409, { error: 'Elixir analysis is not enabled' }); return; }
+        if (!assessmentJob) {
+          analysis.assessment = { status: 'running', findings: [] };
+          assessmentJob = import('./elixir-analysis.mjs').then(({ collectCredo }) => collectCredo(watchRoot)).then(result => analysis.assessment = result).catch(() => analysis.assessment = { status: 'unavailable', findings: [], reason: 'Assessment failed' }).finally(() => { assessmentJob = null; });
+        }
+        sendJson(res, 202, analysis.assessment);
+        return;
+      }
+      if (url.pathname === '/__codeflow/language') {
+        if (!analysis?.session) { sendJson(res, 503, { error: analysis?.state?.reason || 'Language services are starting' }); return; }
+        const method = url.searchParams.get('method');
+        const relative = url.searchParams.get('path');
+        const safe = await resolveSafeExistingPath(watchRoot, relative);
+        if (!safe || (await fs.stat(safe)).size > CLI_FILE_MAX_BYTES) { sendJson(res, 404, { error: 'Source unavailable' }); return; }
+        let result;
+        if (method === 'symbols') result = await analysis.session.symbols(relative);
+        else if (method === 'definition' || method === 'references') {
+          const line = Number(url.searchParams.get('line')), character = Number(url.searchParams.get('character'));
+          if (!url.searchParams.has('line') || !url.searchParams.has('character') || !Number.isInteger(line) || line < 0 || !Number.isInteger(character) || character < 0) { sendJson(res, 400, { error: 'Invalid source position' }); return; }
+          result = await analysis.session[method](relative, { line, character });
+        } else { sendJson(res, 400, { error: 'Unknown language operation' }); return; }
+        sendJson(res, 200, result);
+        return;
+      }
+      if (url.pathname === '/__codeflow/runtime') {
+        const target = url.searchParams.get('node') || runtimeNode;
+        if (runtimeJob && target !== runtimeNode) { sendJson(res, 409, { error: 'A node snapshot is already running' }); return; }
+        runtimeNode = target;
+        if (!runtimeJob) runtimeJob = collectRuntimeSnapshot(watchRoot, { node: target }).finally(() => { runtimeJob = null; });
+        sendJson(res, 200, await runtimeJob);
+        return;
+      }
       if (url.pathname === '/__codeflow/beam') {
         sendJson(res, 200, options.beamGraph || unavailableBeam(watchRoot, 'Restart the local CLI with --beam to explicitly collect compiler evidence.'));
         return;
       }
       if (url.pathname === '/__codeflow/status') {
-        sendJson(res, 200, { ok: true, root: watchRoot, name, beam: !!options.beamGraph, watch: !!watchSession.watching });
+        sendJson(res, 200, { ok: true, root: watchRoot, name, beam: !!options.beamGraph, runtimeNode, language: !!analysis, watch: !!watchSession.watching });
         return;
       }
       if (url.pathname === '/__codeflow/files') {
@@ -485,6 +540,8 @@ export function createCodeflowServer(options) {
     server,
     close() {
       watchSession.close();
+      if (analysis) analysis.closed = true;
+      analysis?.session?.dispose();
       for (const client of clients) client.end();
       return new Promise((resolve) => server.close(resolve));
     }
@@ -494,7 +551,7 @@ export function createCodeflowServer(options) {
 async function main() {
   const parsed = parseCliArgs(process.argv);
   if (parsed.help) {
-    console.log('Usage: npx codeflow [folder] [--port 4173] [--beam] [--no-open]\n--beam evaluates a trusted local Mix project to read existing compiler manifests (Elixir 1.19+), without compiling.\nOpens the same Codeflow UI and watches that folder.');
+    console.log('Usage: codeflow [folder] [--port 4173] [--node name@host] [--source-only] [--no-open]\nMix projects start ElixirLS and Credo automatically. Only open trusted projects.\n--source-only disables those tools; saved compiler relationships remain available.\n--beam explicitly enables Mix compiler collection for a local project.');
     process.exit(0);
   }
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -510,8 +567,20 @@ async function main() {
     process.exit(1);
   }
 
-  const beamGraph = parsed.beam ? await collectBeamGraph(watchRoot) : undefined;
-  const { server } = createCodeflowServer({ uiRoot, watchRoot, beamGraph });
+  const beam = parsed.beam || existsSync(path.join(watchRoot, 'mix.exs'));
+  const beamGraph = beam ? await collectBeamGraph(watchRoot) : undefined;
+  const analysis = beam && !parsed.sourceOnly ? { state: { state: 'starting' }, session: null, assessment: { status: 'pending', findings: [] } } : null;
+  const app = createCodeflowServer({ uiRoot, watchRoot, beamGraph, analysis, node: parsed.node });
+  const { server } = app;
+  if (analysis) {
+    import('./elixir-analysis.mjs').then(async ({ createElixirSession, collectCredo }) => {
+      if (analysis.closed) return;
+      analysis.session = await createElixirSession(watchRoot);
+      if (analysis.closed) { await analysis.session.dispose(); return; }
+      analysis.assessment = await collectCredo(watchRoot);
+    }).catch(error => { analysis.state = { state: 'error', reason: error.message }; });
+  }
+  for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { app.close().finally(() => process.exit(0)); });
   await new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(parsed.port, '127.0.0.1', resolve);

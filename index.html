@@ -5462,22 +5462,24 @@ async function buildAnalysisData(options){
 // possible from this evidence, so those assessments stay explicitly absent.
 function buildBeamAnalysisData(options){
     var snapshot=options.snapshot;
-    if(!snapshot||snapshot.schemaVersion!==1||snapshot.status!=='ready')throw new Error((snapshot&&snapshot.warnings||['Compiler evidence unavailable']).join(' '));
-    var compiled=new Set(snapshot.nodes.map(function(n){return n.path;}));
-    var files=options.analyzed.filter(function(f){return compiled.has(f.path);}).map(function(f){
-        return Object.assign({},f,{functions:[],dependencies:[],layer:'source',parserProvenance:'mix xref',complexity:null});
+    snapshot=snapshot||{schemaVersion:1,status:'unavailable',nodes:[],edges:[],warnings:['Compiler evidence unavailable']};
+    var compiled=new Set((snapshot.nodes||[]).map(function(n){return n.path;}));
+    var files=options.analyzed.map(function(f){
+        return Object.assign({},f,{functions:[],dependencies:[],layer:f.path.startsWith('test/')?'test':f.isCode?'source':'note',compiled:compiled.has(f.path),parserProvenance:compiled.has(f.path)?'mix xref':'source',complexity:null});
     });
     var included=new Set(files.map(function(f){return f.path;}));
-    var connections=snapshot.edges.filter(function(e){return included.has(e.source)&&included.has(e.target);}).map(function(e){
+    var connections=(snapshot.status==='ready'?snapshot.edges||[]:[]).filter(function(e){return included.has(e.source)&&included.has(e.target);}).map(function(e){
         // Native Codeflow arrows run from provider to consumer (calcBlast).
         // Mix arrows run from consumer to dependency: reverse at this boundary.
         return {source:e.target,target:e.source,kind:e.kind,evidence:'mix xref',fn:null,count:1};
     });
+    var byPath=new Map(files.map(function(f){return[f.path,f];}));
+    connections.forEach(function(c){byPath.get(c.target).dependencies.push(c.source);});
     var loc=files.reduce(function(n,f){return n+f.lines;},0);
     var langs={};files.forEach(function(f){var ext=f.name.split('.').pop();langs[ext]=(langs[ext]||0)+f.lines;});
     return {files:files,functions:[],connections:connections,fnStats:{},folders:[...new Set(files.map(function(f){return f.folder;}))].sort(),tree:buildTree(files),
         issues:[],patterns:[],securityIssues:[],duplicates:[],layerViolations:[],deadFunctions:[],suggestions:[],excludePatterns:options.excludePatterns||[],
-        beam:Object.assign({},snapshot,{coverage:{compiled:snapshot.nodes.length,included:files.length}}),
+        beam:Object.assign({},snapshot,{coverage:{compiled:(snapshot.nodes||[]).length,included:files.filter(function(f){return f.compiled;}).length}}),
         stats:{files:files.length,functions:null,connections:connections.length,dead:null,patterns:null,security:null,duplicates:null,violations:null,skipped:files.filter(function(f){return f.analysisSkipped;}).length,loc:loc,
             languages:Object.keys(langs).map(function(ext){return {ext:ext,lines:langs[ext],pct:loc?Math.round(langs[ext]/loc*100):0};}),parserModes:[{mode:'mix xref',files:files.length}]}}
 }
@@ -6628,8 +6630,45 @@ function countCodeViewRootFiles(data){
     return n;
 }
 
+// A scope is a real directory. Aggregate relations at that boundary rather than
+// truncating files or asking the user to choose a render limit.
+function restoreBeamWorkspace(saved,data){
+    if(!saved||saved.version!==1)return null;
+    var paths=new Set(data.files.map(function(f){return f.path;}));
+    var result={version:1,scope:typeof saved.scope==='string'&&data.files.some(function(f){return f.path.startsWith(saved.scope+'/');})?saved.scope:null,
+        selected:paths.has(saved.selected)?saved.selected:null,opened:(Array.isArray(saved.opened)?saved.opened:[]).filter(function(p){return paths.has(p);}),
+        view:saved.view==='code'?'code':'graph',placements:{},sizes:{},pinned:[],camera:snapshotZoomTransform(saved.camera)};
+    Object.keys(saved.placements||{}).forEach(function(path){var p=saved.placements[path];if(paths.has(path)&&p&&Number.isFinite(p.x)&&Number.isFinite(p.y))result.placements[path]=p;});
+    Object.keys(saved.sizes||{}).forEach(function(path){var size=saved.sizes[path];if(paths.has(path)&&size&&typeof size==='object')result.sizes[path]=size;});
+    result.pinned=(Array.isArray(saved.pinned)?saved.pinned:[]).filter(function(path){return paths.has(path);});
+    return result;
+}
+
+function projectGraphScope(data,scope){
+    var prefix=scope?scope+'/':'';
+    var groups=new Map(),owners=new Map(),visible=[];
+    (data.files||[]).forEach(function(file){
+        if(prefix&&!file.path.startsWith(prefix))return;
+        var rest=file.path.slice(prefix.length),slash=rest.indexOf('/');
+        if(slash<0){visible.push(file);owners.set(file.path,file.path);return;}
+        var folder=prefix+rest.slice(0,slash),id='folder:'+folder;
+        if(!groups.has(id))groups.set(id,{path:id,name:rest.slice(0,slash),folder:folder,groupPath:folder,members:[],functions:[],lines:0,layer:'source',churn:0});
+        var group=groups.get(id);group.members.push(file.path);group.lines+=file.lines||0;group.churn+=file.churn||0;
+        owners.set(file.path,id);
+    });
+    var edges=new Map();
+    (data.connections||[]).forEach(function(edge){
+        var source=owners.get(edge.source),target=owners.get(edge.target);
+        if(!source||!target||source===target)return;
+        var key=JSON.stringify([source,target,edge.kind||'',edge.evidence||'']);
+        if(!edges.has(key))edges.set(key,Object.assign({},edge,{source:source,target:target,count:0}));
+        edges.get(key).count+=edge.count||1;
+    });
+    return {files:visible.concat(Array.from(groups.values())),connections:Array.from(edges.values())};
+}
+
 function codeViewRootGateActive(data,folderFilter,selectedPath,openedPaths,threshold){
-    if(!data||!data.files||!data.files.length)return false;
+    if(!data||!data.files||!data.files.length||data.beam)return false;
     if(folderFilter)return false;
     if(selectedPath)return false;
     if(openedPaths&&openedPaths.length)return false;
@@ -9050,6 +9089,69 @@ function App(){
     var _activeSym=useState(null),activeSymbol=_activeSym[0],setActiveSymbol=_activeSym[1];
     var _pendingDel=useState(null),pendingRecentDelete=_pendingDel[0],setPendingRecentDelete=_pendingDel[1];
     var _cli=useState(null),cliStatus=_cli[0],setCliStatus=_cli[1];
+    var [beamAnalysis,setBeamAnalysis]=useState(null);
+    var [beamSymbols,setBeamSymbols]=useState([]),[beamLocations,setBeamLocations]=useState(null);
+    var [beamNavigationError,setBeamNavigationError]=useState(null);
+    var [runtimeNode,setRuntimeNode]=useState(''),[runtimeSnapshot,setRuntimeSnapshot]=useState(null),[runtimeBusy,setRuntimeBusy]=useState(false);
+    useEffect(function(){
+        if(!data||!data.beam||!cliStatus||!cliStatus.ok)return;
+        var cancelled=false,timer;
+        async function poll(){
+            try{var response=await fetch('/__codeflow/analysis');if(response.ok){var result=await response.json();if(!cancelled)setBeamAnalysis(result);}}catch(e){}
+            if(!cancelled)timer=setTimeout(poll,2500);
+        }
+        poll();setRuntimeNode(cliStatus.runtimeNode||'');
+        return function(){cancelled=true;clearTimeout(timer);};
+    },[currentHydrationId,cliStatus&&cliStatus.root,!!(data&&data.beam)]);
+    useEffect(function(){
+        setBeamSymbols([]);setBeamLocations(null);setBeamNavigationError(null);
+        if(!data||!data.beam||!selected||!/\.exs?$/.test(selected.path)||!beamAnalysis||beamAnalysis.language.state!=='ready')return;
+        var cancelled=false;
+        beamLanguage('symbols',selected.path).then(function(items){if(!cancelled)setBeamSymbols(items);}).catch(function(error){if(!cancelled)setBeamNavigationError(error.message);});
+        return function(){cancelled=true;};
+    },[selected&&selected.path,beamAnalysis&&beamAnalysis.language.build&&beamAnalysis.language.build.completedAt,beamAnalysis&&beamAnalysis.language.state]);
+    async function beamLanguage(method,path,position){
+        var query=new URLSearchParams({method:method,path:path});
+        if(position){query.set('line',position.line);query.set('character',position.character);}
+        var response=await fetch('/__codeflow/language?'+query);var result=await response.json();
+        if(!response.ok)throw new Error(result.error||'Navigation unavailable');return result;
+    }
+    function openBeamLocation(location){
+        if(!location.path){setBeamNavigationError('Source is outside this project.');return;}
+        setGraphConfig(function(prev){return Object.assign({},prev,{vizType:'code'});});
+        if(!codeCardUserSizeRef.current[location.path])codeCardUserSizeRef.current[location.path]={height:640};
+        openCodeFile(location.path);setRightTab('details');
+        var line=location.range?location.range.start.line+1:1,attempts=0;
+        function reveal(){
+            var card=Array.from(document.querySelectorAll('[data-code-card]')).find(function(el){return el.getAttribute('data-code-card')===location.path;});
+            var target=card&&card.querySelector('[data-line="'+line+'"]');
+            if(target){var place=codeCardPlacementRef.current[location.path];if(place)flyToOpenedCodeCard(place);card.querySelectorAll('.highlighted').forEach(function(el){el.classList.remove('highlighted');});target.classList.add('highlighted');target.scrollIntoView({block:'center',inline:'nearest'});}
+            else if(++attempts<40)setTimeout(reveal,150);
+        }
+        setTimeout(reveal,100);
+    }
+    async function navigateBeamSymbol(method,path,position){
+        setBeamNavigationError(null);
+        try{var locations=await beamLanguage(method,path,position);if(method==='definition'&&locations.length===1)openBeamLocation(locations[0]);else setBeamLocations({title:method==='references'?'References':'Definitions',items:locations});}
+        catch(error){setBeamNavigationError(error.message);}
+    }
+    function beamSourceClick(event,path,line){
+        if(!event.metaKey&&!event.ctrlKey)return;
+        event.preventDefault();event.stopPropagation();
+        var caret=document.caretPositionFromPoint?document.caretPositionFromPoint(event.clientX,event.clientY):document.caretRangeFromPoint(event.clientX,event.clientY);
+        if(!caret)return;
+        var node=caret.offsetNode||caret.startContainer,offset=caret.offset===undefined?caret.startOffset:caret.offset;
+        if(!event.currentTarget.contains(node))return;
+        var range=document.createRange();range.selectNodeContents(event.currentTarget);range.setEnd(node,offset);
+        navigateBeamSymbol(event.shiftKey?'references':'definition',path,{line:line,character:range.toString().length});
+    }
+    async function connectBeamRuntime(event){
+        if(event)event.preventDefault();setRuntimeBusy(true);
+        try{var response=await fetch('/__codeflow/runtime?'+new URLSearchParams({node:runtimeNode}));var result=await response.json();setRuntimeSnapshot(result);}
+        catch(error){setRuntimeSnapshot({status:'unavailable',reason:error.message});}
+        finally{setRuntimeBusy(false);}
+    }
+
     var _cliDirty=useState([]),cliDirty=_cliDirty[0],setCliDirty=_cliDirty[1];
     var _cliLive=useState(Object.create(null)),cliLiveByPath=_cliLive[0],setCliLiveByPath=_cliLive[1];
     var isMobile=viewportWidth<=980;
@@ -9086,6 +9188,7 @@ function App(){
     var codeCardIgnoreClickRef=useRef(false);
     var codeCardPlacementRef=useRef(Object.create(null));
     var openedSceneRef=useRef('');
+    var beamWorkspaceKeyRef=useRef(null),beamWorkspaceRestoreRef=useRef(null);
     var codeViewSessionRef=useRef(false);
     var pendingFlyToRef=useRef(null);
     var openCodeFileRef=useRef(null);
@@ -9656,7 +9759,7 @@ function App(){
             cliWatchReadRef.current=Object.create(null);
             cliWatchSnapRevRef.current=Object.create(null);
             setData(dataObj);
-            if(dataObj.beam){setGraphConfig(function(prev){return Object.assign({},prev,{vizType:'code'});});setLeftTab('files');setRightTab('details');}
+            if(dataObj.beam){setGraphConfig(function(prev){return Object.assign({},prev,{vizType:'graph'});});setLeftTab('files');setRightTab('details');}
             setExpandedPaths(new Set(['']));
             setRepoInfo(cliInfo);
             setCachedFromId(null);
@@ -10484,10 +10587,10 @@ function App(){
         var reveal=nextFilter!==folderFilter;
         if(reveal)setFolderFilter(nextFilter);
         var hidden=hiddenOpenedCodePaths(openedCodePaths,data,nextFilter);
-        var allowReplace=!!(replace||reveal);
-        var resolved=resolveOpenCodeCard(openedCodePaths,path,null,allowReplace,hidden);
+        var allowReplace=data&&data.beam?!!replace:!!(replace||reveal);
+        var resolved=resolveOpenCodeCard(openedCodePaths,path,data&&data.beam?Infinity:null,allowReplace,hidden);
         if(!resolved.opened)return;
-        setOpenedCodePaths(function(prev){return openCodeCardPaths(prev,path,null,allowReplace,hiddenOpenedCodePaths(prev,data,nextFilter));});
+        setOpenedCodePaths(function(prev){return openCodeCardPaths(prev,path,data&&data.beam?Infinity:null,allowReplace,hiddenOpenedCodePaths(prev,data,nextFilter));});
         if(resolved.inserted)pendingFlyToRef.current=path;
         selectFile(path);
     }
@@ -10718,7 +10821,7 @@ function App(){
         if(!data||codeRootGateActive)return[];
         var paths=openedCodePaths;
         var files=filesForOpenedCodePaths(paths,data,folderFilter);
-        if((!files.length)&&graphConfig.vizType==='code'){
+        if((!files.length)&&graphConfig.vizType==='code'&&(!data.beam||selected)){
             var seed=codeViewSeedPath(selected&&selected.path,data,folderFilter);
             if(seed)files=filesForOpenedCodePaths([seed],data,folderFilter);
         }
@@ -10734,6 +10837,33 @@ function App(){
         pendingFlyToRef.current=null;
     },[currentHydrationId]);
     useEffect(function(){
+        if(!data||!data.beam){beamWorkspaceKeyRef.current=null;return;}
+        var source=currentAnalysisSource(),key='codeflow:beam-workspace:'+source.sourceKey;
+        if(beamWorkspaceKeyRef.current===key)return;
+        beamWorkspaceKeyRef.current=key;
+        var restored;
+        try{restored=restoreBeamWorkspace(JSON.parse(localStorage.getItem(key)),data);}catch(e){}
+        if(!restored)return;
+        beamWorkspaceRestoreRef.current=restored;
+        codeCardPlacementRef.current=restored.placements;
+        codeCardUserSizeRef.current=restored.sizes;
+        codeCardUserPinnedRef.current=new Set(restored.pinned);
+        setOpenedCodePaths(restored.opened);setFolderFilter(restored.scope);
+        if(restored.selected)selectFile(restored.selected);
+        setGraphConfig(function(prev){return Object.assign({},prev,{vizType:restored.view});});
+    },[currentHydrationId]);
+    useEffect(function(){
+        if(!data||!data.beam)return;
+        function save(){
+            if(!beamWorkspaceKeyRef.current||beamWorkspaceRestoreRef.current)return;
+            try{localStorage.setItem(beamWorkspaceKeyRef.current,JSON.stringify({version:1,scope:folderFilter,selected:selected&&selected.path,
+                opened:openedCodePaths,view:graphConfig.vizType,placements:codeCardPlacementRef.current,sizes:codeCardUserSizeRef.current,
+                pinned:Array.from(codeCardUserPinnedRef.current),camera:snapshotZoomTransform(codeZoomTransformRef.current)}));}catch(e){}
+        }
+        var timer=setInterval(save,1000);window.addEventListener('pagehide',save);
+        return function(){clearInterval(timer);window.removeEventListener('pagehide',save);};
+    },[currentHydrationId,folderFilter,selected&&selected.path,openedCodePaths,graphConfig.vizType]);
+    useEffect(function(){
         var inCode=graphConfig.vizType==='code'&&!!data;
         if(!inCode){
             codeViewSessionRef.current=false;
@@ -10744,6 +10874,7 @@ function App(){
             return;
         }
         codeViewSessionRef.current=true;
+        if(data.beam&&!selected&&!openedCodePaths.length)return;
         var seed=codeViewSeedPath(selected&&selected.path,data,folderFilter);
         if(!seed)return;
         if(openCodeFileRef.current)openCodeFileRef.current(seed,true);
@@ -10983,6 +11114,7 @@ function App(){
         var w=svgRef.current.clientWidth||800;
         var h=svgRef.current.clientHeight||600;
         var t=snapshotZoomTransform(codeZoomTransformRef.current);
+        if(data&&data.beam)t.k=Math.min(1,Math.max(0.8,t.k));
         var next=d3.zoomIdentity.translate(w/2-place.x*t.k,h/2-place.y*t.k).scale(t.k);
         d3.select(svgRef.current).transition().duration(260).call(zoomRef.current.transform,next);
     }
@@ -11110,20 +11242,28 @@ function App(){
         var w=svgRef.current.clientWidth;
         var h=svgRef.current.clientHeight;
         var filteredFiles=folderFilter?data.files.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}):data.files;
-        if(data.beam&&graphConfig.vizType==='code')filteredFiles=beamCodeCanvasFiles(data,folderFilter,selected&&selected.path,openedCodePaths);
+        var sceneConnections=data.connections;
+        if(data.beam){
+            if(graphConfig.vizType==='code'&&(selected||openedCodePaths.length)){
+                filteredFiles=beamCodeCanvasFiles(data,null,selected&&selected.path,openedCodePaths);
+            }else{
+                var scopeGraph=projectGraphScope(data,folderFilter);
+                filteredFiles=scopeGraph.files;sceneConnections=scopeGraph.connections;
+            }
+        }
         var fileIds=new Set(filteredFiles.map(function(f){return f.path;}));
-        var nodes=filteredFiles.map(function(f){return{id:f.path,name:f.name,folder:f.folder,fnCount:f.functions.length,layer:f.layer,churn:f.churn||0};});
+        var nodes=filteredFiles.map(function(f){return{id:f.path,name:f.name,folder:f.folder,groupPath:f.groupPath,members:f.members,fnCount:f.functions.length,layer:f.layer,churn:f.churn||0};});
         var linkMap=new Map();
-        data.connections.forEach(function(c){
+        sceneConnections.forEach(function(c){
             if(!fileIds.has(c.source)||!fileIds.has(c.target))return;
             if(c.source===c.target)return;// Skip self-links
-            var k=c.source+'|'+c.target;
-            if(!linkMap.has(k))linkMap.set(k,{source:c.source,target:c.target,count:0,fn:c.fn||null});
+            var k=JSON.stringify([c.source,c.target,c.kind||'']);
+            if(!linkMap.has(k))linkMap.set(k,{source:c.source,target:c.target,kind:c.kind,count:0,fn:c.fn||null});
             linkMap.get(k).count+=c.count;
             if(!linkMap.get(k).fn&&c.fn)linkMap.get(k).fn=c.fn;
         });
         var links=Array.from(linkMap.values());
-        function getR(d){return Math.max(8,Math.min(24,5+d.fnCount*0.8));}
+        function getR(d){return d.groupPath?Math.min(42,25+Math.log2(1+d.members.length)*2):Math.max(8,Math.min(24,5+d.fnCount*0.8));}
         function getC(d){
             if(colorMode==='folder')return colorMap[d.folder]||COLORS[0];
             if(colorMode==='layer')return LAYER_COLORS[d.layer]||LAYER_COLORS['utils'];
@@ -11145,13 +11285,16 @@ function App(){
             codeViewSceneRef.current=sceneKey;
             codeViewCameraReadyRef.current=false;
         }
+        var workspaceRestore=beamWorkspaceRestoreRef.current;
+        var restoringWorkspace=workspaceRestore&&workspaceRestore.view===graphConfig.vizType&&workspaceRestore.scope===(folderFilter||null);
+        if(restoringWorkspace){codeZoomTransformRef.current=workspaceRestore.camera;codeViewCameraReadyRef.current=true;}
         var savedZoom=snapshotZoomTransform(codeZoomTransformRef.current);
         var prevNodesById=Object.create(null);
         if(simRef.current){
             simRef.current.nodes().forEach(function(n){if(n&&n.id)prevNodesById[n.id]=n;});
         }
         if(keepReadable&&codeViewCameraReadyRef.current)preserveGraphNodeState(nodes,prevNodesById);
-        if(!keepReadable){
+        if(!keepReadable&&!restoringWorkspace){
             codeZoomTransformRef.current={k:1,x:0,y:0};
             codeViewCameraReadyRef.current=false;
         }
@@ -11330,12 +11473,13 @@ function App(){
         }));
         node.on('click',function(e,d){
             e.stopPropagation();
+            if(d.groupPath){setFolderFilter(d.groupPath);setSelected(null);setTooltip(null);return;}
             if(keepReadable&&openCodeFileRef.current)openCodeFileRef.current(d.id);
             else if(selectFileRef.current)selectFileRef.current(d.id);
         });
         node.classed('has-code-card',function(d){return keepReadable&&nodeReplacedByCard(d.id,codeCardPathsRef.current);});
         node.attr('display',function(d){return keepReadable&&nodeReplacedByCard(d.id,codeCardPathsRef.current)?'none':null;});
-        node.on('mouseenter',function(e,d){if(keepReadable&&codeCardPathsRef.current.has(d.id))return;var r=svgRef.current.getBoundingClientRect();setTooltip({x:e.clientX-r.left+10,y:e.clientY-r.top,title:d.name,content:data.beam?'Compiled source file · relationships from Mix xref':d.fnCount+' functions\n'+d.layer+' layer\n'+d.churn+' recent commits'});}).on('mouseleave',function(){setTooltip(null);});
+        node.on('mouseenter',function(e,d){if(keepReadable&&codeCardPathsRef.current.has(d.id))return;var r=svgRef.current.getBoundingClientRect();setTooltip({x:e.clientX-r.left+10,y:e.clientY-r.top,title:d.name,content:d.groupPath?d.members.length+' files':data.beam?'Source file':d.fnCount+' functions\n'+d.layer+' layer\n'+d.churn+' recent commits'});}).on('mouseleave',function(){setTooltip(null);});
         svg.on('click',function(e){
             if(!isCodeCanvasDeselectTarget(e.target,svgRef.current))return;
             setSelected(null);
@@ -11354,7 +11498,7 @@ function App(){
         node.append('rect').attr('class','nb').attr('x',function(d){return -graphColorBlockSize(d)/2;}).attr('y',function(d){return -graphColorBlockSize(d)/2;}).attr('width',graphColorBlockSize).attr('height',graphColorBlockSize).attr('rx',3).attr('fill',function(d){return graphColorBlockFill(getC(d));}).attr('stroke',function(d){var c=d3.color(graphColorBlockFill(getC(d)));return c?c.darker(0.35):'#000';}).attr('stroke-width',1).attr('display','none');
         // Hide labels for large graphs to reduce DOM overhead. Code view keeps titles readable.
         if(keepReadable||!isLargeGraph||graphConfig.showLabels){
-            node.append('text').attr('class','node-label').attr('text-anchor','middle').attr('dy',0).attr('fill',theme==='light'?'#333':'#eee').attr('font-size',function(d){return (keepReadable?Math.max(9,Math.min(12,getR(d)*0.7)):Math.max(6,Math.min(10,getR(d)*0.6)))+'px';}).attr('font-family','JetBrains Mono').attr('font-weight','600').attr('pointer-events','none').text(function(d){var n=d.name.replace(/\.[^.]+$/,'');if(keepReadable)return n.length>18?n.slice(0,17)+'…':n;var maxLen=Math.max(4,Math.floor(getR(d)/2));return n.length>maxLen+1?n.slice(0,maxLen)+'…':n;});
+            node.append('text').attr('class','node-label').attr('text-anchor','middle').attr('dy',0).attr('fill',theme==='light'?'#333':'#eee').attr('font-size',function(d){return (keepReadable?Math.max(9,Math.min(12,getR(d)*0.7)):Math.max(6,Math.min(10,getR(d)*0.6)))+'px';}).attr('font-family','JetBrains Mono').attr('font-weight','600').attr('pointer-events','none').text(function(d){if(d.groupPath)return d.name;var n=d.name.replace(/\.[^.]+$/,'');if(keepReadable)return n.length>18?n.slice(0,17)+'…':n;var maxLen=Math.max(4,Math.floor(getR(d)/2));return n.length>maxLen+1?n.slice(0,maxLen)+'…':n;});
         }
         function liveNodesByFolder(){
             var live=(simRef.current&&simRef.current.nodes())||nodes;
@@ -11432,6 +11576,11 @@ function App(){
             }
             sim.alpha(0);
         }
+        if(restoringWorkspace){
+            svg.call(zoom.transform,d3.zoomIdentity.translate(savedZoom.x,savedZoom.y).scale(savedZoom.k));
+            beamWorkspaceRestoreRef.current=null;
+        }
+        if(data.beam&&!keepReadable&&!restoringWorkspace)sim.on('end.fit',function(){var fit=computeGraphFitTransform(160);if(fit)svg.call(zoom.transform,fit);});
         updateHullsRef.current=updateHulls;
         if(drawMinimapRef.current)drawMinimapRef.current();
         }catch(e){console.error('Force graph error:',e);svg.selectAll('*').remove();svg.append('text').attr('x',20).attr('y',30).attr('fill','var(--t3)').text('Graph rendering error: '+e.message);}
@@ -12951,7 +13100,7 @@ function App(){
                 React.createElement('button',{type:'button',className:'color-by-btn'+(codeViewExpand?' active':''),'aria-pressed':codeViewExpand?'true':'false',onClick:function(){setCodeViewExpand(!codeViewExpand);}},'Expand All'),
                 React.createElement('button',{type:'button',className:'color-by-btn'+(codeViewWrap?' active':''),'aria-pressed':codeViewWrap?'true':'false',onClick:function(){setCodeViewWrap(!codeViewWrap);}},'Wrap Text')
             ),
-            React.createElement('div',{className:'code-view-prefs-row',role:'group','aria-label':'Load Files'},
+            !data.beam&&React.createElement('div',{className:'code-view-prefs-row',role:'group','aria-label':'Load Files'},
                 React.createElement('span',{className:'color-by-label',title:data&&data.beam?'Pick a file before loading a compiler graph this large':'Skip Code cards when this many files sit at the project root'},'Load Files'),
                 CODE_VIEW_ROOT_GATE_STEPS.map(function(n){
                     return React.createElement('button',{key:n,type:'button',className:'color-by-btn'+(codeViewRootGate===n?' active':''),'aria-pressed':codeViewRootGate===n?'true':'false',title:data&&data.beam?'Pick a file before loading a compiler graph this large':'Skip Code cards when this many files sit at the project root',onClick:function(){persistCodeViewRootGate(n);}},String(n));
@@ -12968,13 +13117,62 @@ function App(){
     }
     function renderBeamEvidence(){
         return React.createElement('div',{className:'card'},
-            React.createElement('div',{className:'card-header'},'Mix compiler evidence'),
+            React.createElement('div',{className:'card-header'},'Elixir project'),
             React.createElement('div',{className:'card-body'},
-                React.createElement('p',null,data.beam.coverage.included+' of '+data.beam.coverage.compiled+' compiled source files · '+data.beam.project.environment),
-                React.createElement('p',null,'Arrows run from dependency to consumer. Compile: needed during compilation. Export: depends on the exported interface. Runtime: a compiler reference, not an observed execution.'),
-                React.createElement('p',null,'Collected '+(data.beam.producer.collectedAt||'at an unknown time')+'. Snapshot freshness is unverified. Source cards show current files.'),
-                React.createElement('p',null,'Function usage, dead code, security, and health are not assessed in this mode. Uncompiled tests and documentation are outside this graph.'),
-                data.beam.warnings.map(function(w,i){return React.createElement('p',{key:i,style:{color:'var(--t3)'}},w);})));
+                React.createElement('div',null,data.beam.coverage.included+' compiled files · '+(data.beam.project&&data.beam.project.environment||'dev')),
+                React.createElement('div',{style:{color:'var(--t3)',marginTop:8}},beamAnalysis&&beamAnalysis.language.state==='ready'?'ElixirLS connected':beamAnalysis&&beamAnalysis.language.state==='starting'?'Starting ElixirLS…':'Source exploration'),
+                React.createElement('button',{className:'top-btn',style:{marginTop:12},onClick:function(){setRightTab('findings');}},'Findings')));
+    }
+    function renderBeamSymbols(items){
+        return items.map(function(symbol,i){return React.createElement('div',{key:i,style:{paddingLeft:8}},
+            React.createElement('div',{style:{display:'flex',gap:6,marginBottom:4}},
+                React.createElement('button',{className:'top-btn',style:{flex:1,textAlign:'left',overflowWrap:'anywhere'},onClick:function(){openBeamLocation({path:selected.path,range:symbol.selectionRange||symbol.range});}},symbol.name),
+                React.createElement('button',{className:'top-btn',title:'Find references',onClick:function(){navigateBeamSymbol('references',selected.path,(symbol.selectionRange||symbol.range).start);}},'Refs')),
+            symbol.children&&renderBeamSymbols(symbol.children));});
+    }
+    function renderBeamNavigation(){
+        return React.createElement(React.Fragment,null,
+            beamNavigationError&&React.createElement('p',{role:'status'},beamNavigationError),
+            beamSymbols.length>0&&React.createElement('div',{className:'card'},React.createElement('div',{className:'card-header'},'Outline'),React.createElement('div',{className:'card-body'},renderBeamSymbols(beamSymbols))),
+            beamLocations&&React.createElement('div',{className:'card'},React.createElement('div',{className:'card-header'},beamLocations.title),React.createElement('div',{className:'card-body'},
+                beamLocations.items.length===0?'No locations found.':beamLocations.items.map(function(location,i){return React.createElement('button',{key:i,className:'top-btn',style:{display:'block',width:'100%',textAlign:'left',marginBottom:5},onClick:function(){openBeamLocation(location);}},(location.path||location.uri)+':'+(location.range.start.line+1));}))));
+    }
+    function renderBeamFindings(){
+        var language=beamAnalysis&&beamAnalysis.language,assessment=beamAnalysis&&beamAnalysis.assessment;
+        var findings=(language&&language.diagnostics||[]).concat(assessment&&assessment.findings||[]);
+        return React.createElement(React.Fragment,null,
+            React.createElement('div',{className:'panel-title'},'Findings'),
+            (!language||language.state!=='ready')&&React.createElement('p',null,language&&language.state==='starting'?'Starting ElixirLS…':'ElixirLS unavailable'),
+            language&&language.reason&&React.createElement('details',null,React.createElement('summary',null,'Language server details'),React.createElement('pre',{style:{whiteSpace:'pre-wrap'}},language.reason)),
+            assessment&&assessment.status!=='ready'&&React.createElement('p',null,assessment.status==='pending'||assessment.status==='running'?'Running Credo…':'Credo unavailable'),
+            assessment&&assessment.reason&&React.createElement('details',null,React.createElement('summary',null,'Credo details'),React.createElement('pre',{style:{whiteSpace:'pre-wrap'}},assessment.reason)),
+            findings.length===0&&language&&language.state==='ready'&&assessment&&assessment.status==='ready'&&React.createElement('p',null,'No findings.'),
+            findings.map(function(finding,i){return React.createElement('div',{key:i,className:'card',style:{marginTop:10}},
+                React.createElement('div',{className:'card-header'},finding.source||'Compiler'),
+                React.createElement('div',{className:'card-body'},React.createElement('div',null,finding.message),
+                    finding.path&&React.createElement('button',{className:'top-btn',style:{marginTop:8,maxWidth:'100%',overflowWrap:'anywhere'},onClick:function(){openBeamLocation(finding);}},finding.path+(finding.range?':'+(finding.range.start.line+1):''))));}));
+    }
+    function renderBeamRuntime(){
+        var snapshot=runtimeSnapshot,processes=new Map((snapshot&&snapshot.processes||[]).map(function(p){return[p.id,p];}));
+        function processTree(id,seen){
+            var process=processes.get(id);if(!process||seen.has(id))return null;
+            var next=new Set(seen);next.add(id);
+            return React.createElement('details',{key:id,open:process.type==='supervisor',style:{margin:'8px 0 8px 10px'}},
+                React.createElement('summary',null,process.label||process.module||process.pid),
+                React.createElement('div',{style:{color:'var(--t3)',margin:'6px 0'}},process.pid,' · ',process.metrics&&process.metrics.status,' · queue ',process.metrics&&process.metrics.messageQueueLength),
+                process.sourcePath&&React.createElement('button',{className:'top-btn',onClick:function(){openBeamLocation({path:process.sourcePath});}},'Source'),
+                (process.children||[]).map(function(child){return processTree(child,next);}));
+        }
+        return React.createElement(React.Fragment,null,
+            React.createElement('form',{onSubmit:connectBeamRuntime,style:{display:'flex',gap:6,marginBottom:12}},
+                React.createElement('input',{value:runtimeNode,onChange:function(e){setRuntimeNode(e.target.value);},placeholder:'name@hostname','aria-label':'BEAM node',style:{minWidth:0,flex:1}}),
+                React.createElement('button',{className:'top-btn',disabled:runtimeBusy||!runtimeNode.trim(),type:'submit'},runtimeBusy?'Connecting…':snapshot&&snapshot.status==='ready'?'Refresh':'Connect')),
+            snapshot&&snapshot.status!=='ready'&&React.createElement('p',{role:'status'},snapshot.reason||snapshot.error||'Runtime unavailable'),
+            snapshot&&snapshot.status==='ready'&&React.createElement(React.Fragment,null,
+                React.createElement('div',{style:{color:'var(--t3)'}},'Snapshot · '+new Date(snapshot.collectedAt).toLocaleTimeString()),
+                (snapshot.applications||[]).map(function(app){return React.createElement('details',{key:app.name},React.createElement('summary',{style:{padding:'8px 0'}},app.name),processTree(app.rootId,new Set()));}),
+                React.createElement('details',null,React.createElement('summary',{style:{padding:'8px 0'}},'Other processes'),(snapshot.processes||[]).filter(function(p){return !p.parentId&&!p.application;}).map(function(p){return processTree(p.id,new Set());})),
+                snapshot.truncated&&React.createElement('p',null,'Some processes were omitted from this snapshot.')));
     }
     function renderOverviewPane(){
         if(!data)return renderSidebarEmpty('No Repository','Enter a GitHub URL, open a folder, or load a ZIP archive');
@@ -13187,7 +13385,7 @@ function App(){
                         var row=diffRows[i]||{type:'same'};
                         return React.createElement('div',{key:i,className:'file-preview-line'+codeCardDiffClass(row)},
                             React.createElement('span',{className:'file-preview-linenum'},codeCardDiffLineNo(row)),
-                            React.createElement('span',{className:'file-preview-text',dangerouslySetInnerHTML:{__html:annotateHtmlWithSymbols(lineHtml||' ',codeViewSymbols,activeSymbol)}})
+                            React.createElement('span',{className:'file-preview-text',onClick:data.beam?function(e){beamSourceClick(e,file.path,i);}:undefined,dangerouslySetInnerHTML:{__html:annotateHtmlWithSymbols(lineHtml||' ',codeViewSymbols,activeSymbol)}})
                         );
                     })
                 );
@@ -13195,7 +13393,7 @@ function App(){
                 var lines=asCodeLines(highlightSyntax(file.content||'',file.name));
                 body=React.createElement('pre',{className:'file-preview-code'},
                     lines.map(function(lineHtml,i){
-                        return React.createElement('div',{key:i,className:'file-preview-line'},
+                        return React.createElement('div',{key:i,'data-line':i+1,className:'file-preview-line'},
                             React.createElement('span',{className:'file-preview-linenum'},i+1),
                             React.createElement('span',{className:'file-preview-text',dangerouslySetInnerHTML:{__html:annotateHtmlWithSymbols(lineHtml||' ',codeViewSymbols,activeSymbol)}})
                         );
@@ -13291,7 +13489,7 @@ function App(){
                 React.createElement('div',{className:'empty-desc'},codeViewRootGateMessage(rootCount,codeViewRootGate))
             ),
             React.createElement('div',{className:'code-canvas-hud'},
-                React.createElement('div',{className:'code-canvas-hint'},codeRootGateActive?codeViewRootGateMessage(rootCount,codeViewRootGate):(codeViewFiles.length?(data.beam?(folderFilter?'Showing the filtered folder. ':'Showing the selected file’s neighbors and open cards. '):'')+'Open files from nodes or the Files tree. Open cards stay put. Wheel pans · Ctrl+wheel zooms.':'No files to open as cards.')),
+                !data.beam&&React.createElement('div',{className:'code-canvas-hint'},codeRootGateActive?codeViewRootGateMessage(rootCount,codeViewRootGate):(codeViewFiles.length?(data.beam?'':'')+'Open files from nodes or the Files tree. Open cards stay put. Wheel pans · Ctrl+wheel zooms.':'No files to open as cards.')),
                 codeViewSymbols.length>0&&React.createElement('div',{className:'code-sym-list'},
                     codeViewSymbols.map(function(sym){
                         return React.createElement('button',{key:sym.name,className:'code-sym-chip '+sym.kind+(activeSymbol===sym.name?' active':''),title:sym.name,onClick:function(){setActiveSymbol(function(prev){return prev===sym.name?null:sym.name;});}},sym.name);
@@ -13665,6 +13863,7 @@ function App(){
                         onWheel:function(e){e.preventDefault();e.stopPropagation();}
                     },React.createElement('canvas',{ref:minimapCanvasRef})),
                     graphConfig.vizType!=='architecture'&&React.createElement('div',{className:'canvas-info'},
+                        data.beam&&folderFilter&&React.createElement('button',{className:'info-chip',onClick:function(){setFolderFilter(folderFilter.indexOf('/')<0?null:folderFilter.slice(0,folderFilter.lastIndexOf('/')));}},'← '+folderFilter),
                         React.createElement('div',{className:'info-chip'},React.createElement('strong',null,folderFilter?data.files.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}).length:data.files.length),data.beam?' project files':' files'),
                         React.createElement('div',{className:'info-chip'},React.createElement('strong',null,data.connections.length),data.beam?' project links':' links'),
                         data.excludePatterns&&data.excludePatterns.length>0&&React.createElement('div',{className:'info-chip'},
@@ -13717,14 +13916,18 @@ function App(){
                 }}),
                 data?React.createElement(React.Fragment,null,
                     React.createElement('div',{className:'panel-tabs'},
-                        React.createElement('button',{className:'panel-tab'+(rightTab==='details'?' active':''),onClick:function(){setRightTab('details');setDrillDown(null);}},selected?iconLabel('file','FILE'):(graphConfig.vizType==='architecture'?iconLabel('layers','ARCH'):iconLabel('search',data.beam?'EVIDENCE':'ISSUES'))),
+                        React.createElement('button',{className:'panel-tab'+(rightTab==='details'?' active':''),onClick:function(){setRightTab('details');setDrillDown(null);}},selected?iconLabel('file','FILE'):(graphConfig.vizType==='architecture'?iconLabel('layers','ARCH'):iconLabel('search',data.beam?'PROJECT':'ISSUES'))),
+                        data.beam&&React.createElement('button',{className:'panel-tab'+(rightTab==='findings'?' active':''),onClick:function(){setRightTab('findings');}},'FINDINGS'),
+                        data.beam&&React.createElement('button',{className:'panel-tab'+(rightTab==='runtime'?' active':''),onClick:function(){setRightTab('runtime');}},'RUNTIME'),
                         !data.beam&&React.createElement('button',{className:'panel-tab'+(rightTab==='patterns'?' active':''),onClick:function(){setRightTab('patterns');setDrillDown(null);}},iconLabel('puzzle','PATTERNS'),React.createElement('span',{className:'panel-tab-pill'},data.patterns.length)),
                         !data.beam&&React.createElement('button',{className:'panel-tab'+(rightTab==='security'?' active':''),onClick:function(){setRightTab('security');setDrillDown(null);}},iconLabel('security','SECURITY'),data.stats.security>0&&React.createElement('span',{className:'panel-tab-pill alert'},data.stats.security)),
                         !data.beam&&React.createElement('button',{className:'panel-tab'+(rightTab==='suggestions'?' active':''),onClick:function(){setRightTab('suggestions');setDrillDown(null);}},iconLabel('action','ACTIONS'),data.suggestions&&data.suggestions.length>0&&React.createElement('span',{className:'panel-tab-pill alert'},data.suggestions.length))
                     ),
                     React.createElement('div',{className:'panel-content'},
+                        data.beam&&rightTab==='findings'&&renderBeamFindings(),
+                        data.beam&&rightTab==='runtime'&&renderBeamRuntime(),
                         rightTab==='details'&&(selected?React.createElement(React.Fragment,null,
-                            React.createElement('button',{className:'top-btn',style:{width:'100%',marginBottom:12},onClick:function(){setSelected(null);setBlastRadius(null);selectedPathRef.current=null;if(nodesRef.current){nodesRef.current.selectAll('.nc,.nb').transition().duration(200).attr('opacity',1).attr('fill',function(n){return d3.select(this).classed('nb')?graphColorBlockFill(getNodeColor(n)):getNodeColor(n);});}if(vizUsesForceLinkParticles(graphConfig.vizType))applyForceLinkVisuals();else if(linksRef.current)linksRef.current.transition().duration(200).attr('stroke-opacity',0.4).attr('stroke',theme==='light'?'#ccc':'#333');}},data.beam?'← Back to Evidence':'← Back to Issues'),
+                            React.createElement('button',{className:'top-btn',style:{width:'100%',marginBottom:12},onClick:function(){setSelected(null);setBlastRadius(null);selectedPathRef.current=null;if(nodesRef.current){nodesRef.current.selectAll('.nc,.nb').transition().duration(200).attr('opacity',1).attr('fill',function(n){return d3.select(this).classed('nb')?graphColorBlockFill(getNodeColor(n)):getNodeColor(n);});}if(vizUsesForceLinkParticles(graphConfig.vizType))applyForceLinkVisuals();else if(linksRef.current)linksRef.current.transition().duration(200).attr('stroke-opacity',0.4).attr('stroke',theme==='light'?'#ccc':'#333');}},data.beam?'← Back to Project':'← Back to Issues'),
                             React.createElement('div',{className:'panel-header',style:{margin:'0 -12px 12px',padding:12}},
                                 React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}},
                                     React.createElement('div',null,
@@ -13734,6 +13937,7 @@ function App(){
                                     React.createElement('button',{className:'view-file-btn',onClick:function(){openFilePreview(selected.path);}},iconLabel('eye','View Source'))
                                 )
                             ),
+                            data.beam&&renderBeamNavigation(),
                             blastRadius&&React.createElement('div',{className:'card',style:{marginBottom:12}},
                                 React.createElement('div',{className:'card-header',onClick:function(){toggleCard('blast');}},React.createElement('div',{className:'card-title'},React.createElement('span',{className:'card-toggle'+(expandedCards.has('blast')?' open':'')},'▶'),React.createElement(Icon,{name:'impact',size:'s'}),data.beam?' Dependency Reach':' Impact Analysis'),!data.beam&&React.createElement('span',{className:'badge badge-'+(blastRadius.level==='low'?'success':blastRadius.level==='medium'?'warning':'danger')},blastRadius.level.toUpperCase())),
                                 expandedCards.has('blast')&&React.createElement('div',{className:'card-body'},

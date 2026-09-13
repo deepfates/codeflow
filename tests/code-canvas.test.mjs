@@ -1860,7 +1860,7 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /githubSourceKeyForLoadedAnalysis/);
   assert.match(htmlSource, /folderFilterAfterCodeNav/);
   assert.match(htmlSource, /setFolderFilter\(nextFilter\)/);
-  assert.match(htmlSource, /allowReplace=!!\(replace\|\|reveal\)/);
+  assert.match(htmlSource, /allowReplace=data&&data\.beam\?!!replace:!!\(replace\|\|reveal\)/);
   assert.match(htmlSource, /filterAnalyzableLocalFiles\(/);
   assert.match(htmlSource, /asCodeLines\(highlightSyntax/);
   assert.match(htmlSource, /codeCardDiffRows\(file,cliLiveByPath/);

@@ -61,9 +61,10 @@ test('compiler edges use native provider-to-consumer direction for impact and Co
 test('compiler scope retains source and isolated files without inventing symbol or quality evidence', () => {
   const input = analyzedFiles();
   const data = context.buildBeamAnalysisData({ analyzed: input, snapshot, excludePatterns: [] });
-  assert.equal(data.files.length, 6);
+  assert.equal(data.files.length, 7);
   assert.ok(data.files.some(file => file.path === 'lib/isolated.ex'));
-  assert.ok(data.files.every(file => file.path !== 'test/caller_test.exs' && file.path !== 'lib/deleted.ex'));
+  assert.ok(data.files.some(file => file.path === 'test/caller_test.exs'));
+  assert.ok(data.files.every(file => file.path !== 'lib/deleted.ex'));
   assert.ok(data.files.every(file => file.content === input.find(source => source.path === file.path).content));
   assert.ok(data.files.every(file => file.functions.length === 0));
   for (const name of ['functions', 'deadFunctions', 'issues', 'securityIssues']) assert.deepEqual(plain(data[name]), []);
@@ -83,10 +84,13 @@ test('excluded or unread sources cannot leave dangling compiler connections', ()
   assert.deepEqual(plain(context.getConnectedFilePaths('lib/second.ex', data.connections)), []);
 });
 
-test('unavailable compiler evidence fails explicitly instead of falling back to guessed edges', () => {
-  assert.throws(() => context.buildBeamAnalysisData({ analyzed: analyzedFiles(), snapshot: {
+test('unavailable compiler evidence retains sources without guessed edges or grades', () => {
+  const data = context.buildBeamAnalysisData({ analyzed: analyzedFiles(), snapshot: {
     status: 'unavailable', nodes: [], edges: [], warnings: ['No compiler artifacts'],
-  }, excludePatterns: [] }), /compiler|unavailable|artifacts/i);
+  }, excludePatterns: [] });
+  assert.equal(data.files.length, 7);
+  assert.deepEqual(plain(data.connections), []);
+  assert.equal(context.calcHealth(data).score, null);
 });
 
 const canvasFixture = () => context.buildBeamAnalysisData({ analyzed: analyzedFiles(), snapshot });
@@ -98,7 +102,7 @@ function assertFocusedCanvas(helper) {
     ['lib/caller.ex', 'lib/data.ex', 'lib/macro.ex', 'lib/service.ex']);
   assert.deepEqual(paths(helper(data, null, 'lib/isolated.ex', ['lib/caller.ex', 'lib/isolated.ex'])),
     ['lib/caller.ex', 'lib/isolated.ex'], 'changing selection retains open cards without their former neighbors');
-  assert.equal(data.files.length, 6, 'view filtering must preserve the full analysis for Graph');
+  assert.equal(data.files.length, 7, 'view filtering must preserve the full analysis for Graph');
 }
 
 test('Code canvas shows the selected neighborhood and retains open cards when selection changes', () => {
@@ -115,9 +119,9 @@ test('Code canvas starts empty without selection and preserves ordinary folder s
   assert.equal(context.beamCodeCanvasFiles(data, 'lib', null, []).length, 7);
 });
 
-test('BEAM root gate counts the whole compiled scope even with few top-level files', () => {
+test('BEAM exploration is never blocked by a file-count gate', () => {
   const data = { beam: {}, files: Array.from({ length: 50 }, (_, i) => ({ path: `lib/nested/f${i}.ex`, folder: 'lib/nested' })) };
-  assert.equal(context.codeViewRootGateActive(data, null, null, [], 50), true);
+  assert.equal(context.codeViewRootGateActive(data, null, null, [], 50), false);
   assert.equal(context.codeViewRootGateActive(data, null, null, [], 75), false);
   assert.equal(context.codeViewRootGateActive(data, 'lib', null, [], 50), false);
   assert.equal(context.codeViewRootGateActive(data, null, 'lib/nested/f0.ex', [], 50), false);
@@ -135,4 +139,36 @@ test('focused-canvas assertion rejects a temporary regression to rendering every
   assert.notEqual(broken, source);
   vm.runInContext(broken, mutant);
   assert.throws(() => assertFocusedCanvas(mutant.beamCodeCanvasFiles), { name: 'AssertionError' });
+});
+
+function assertProjectScope(projectScope) {
+  const data = canvasFixture();
+  data.files.push({path:'README.md',folder:'',lines:3,functions:[]});
+  const root = projectScope(data, null);
+  assert.deepEqual(paths(root.files), ['README.md','folder:lib','folder:test']);
+  assert.equal(root.files.find(f => f.groupPath === 'lib').members.length, 6);
+  const lib = projectScope(data, 'lib');
+  assert.equal(lib.files.length, 6);
+  assert.equal(lib.connections.length, 4);
+  assert.deepEqual(plain(lib.connections.map(e => e.kind)).sort(), ['compile','export','runtime','runtime']);
+  assert.equal(projectScope(data,'test').files[0].path, 'test/caller_test.exs');
+}
+test('folder overview expands to retained source and typed relationships', () => {
+  assertProjectScope(context.projectGraphScope);
+});
+test('folder overview regression rejects an ungrouped whole-project canvas', () => {
+  assert.throws(() => assertProjectScope(data => data), {name:'AssertionError'});
+});
+
+test('workspace restoration retains navigation and placement while pruning removed files', () => {
+  const restored = context.restoreBeamWorkspace({version:1,scope:'lib',selected:'lib/caller.ex',view:'code',
+    opened:['lib/caller.ex','deleted.ex'],placements:{'lib/caller.ex':{x:120,y:180,left:0,top:0},'deleted.ex':{x:1,y:1}},
+    sizes:{},pinned:['lib/caller.ex','deleted.ex'],camera:{k:0.8,x:-10,y:30}},canvasFixture());
+  assert.deepEqual(plain(restored.opened),['lib/caller.ex']);
+  assert.deepEqual(plain(restored.pinned),['lib/caller.ex']);
+  assert.equal(restored.scope,'lib');assert.equal(restored.selected,'lib/caller.ex');
+  assert.equal(restored.placements['lib/caller.ex'].x,120);
+  assert.equal(restored.placements['deleted.ex'],undefined);
+  assert.deepEqual(plain(restored.camera),{k:0.8,x:-10,y:30});
+  assert.equal(context.restoreBeamWorkspace({version:2},canvasFixture()),null);
 });

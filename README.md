@@ -19,54 +19,63 @@
 
 ## Explore an Elixir project
 
-This fork can use the Elixir compiler's saved file relationships in Codeflow's
-existing Graph and Code views. The file tree, source cards, selection, and layouts
-remain the same interface used for other projects.
+This fork integrates Elixir project exploration into Codeflow's existing Graph,
+Code, file tree and source cards.
 
 ```sh
 git clone https://github.com/deepfates/codeflow.git
 cd codeflow
-node cli/codeflow.mjs /absolute/path/to/your/project --beam
+npm ci
+node cli/codeflow.mjs /absolute/path/to/your/project
 ```
 
-Use Node.js 18+ and Elixir 1.19+ with `mix` on your PATH. The project needs existing
-compiler artifacts for the selected `MIX_ENV` (normally `dev`). Prepare the project
-using its own documented dependency and compilation commands before launching.
-Pass `--no-open` to print the URL without opening your default browser.
-No npm installation or frontend build is needed; browser dependencies are included
-locally with their versions, hashes, and licenses in `vendor/`.
+Use Node.js 18+ and Elixir 1.19+ with `mix` on your PATH. Prepare the project's
+dependencies using its own documented setup. Codeflow recognizes `mix.exs` and
+starts ElixirLS, which compiles and indexes the project. Only open trusted projects:
+Mix and the language server evaluate project configuration and macros.
 
-The `--beam` option runs Mix in the selected project to read its saved compiler
-graph. **Mix evaluates the project's configuration**, so use a checkout you trust.
-Codeflow does not fetch dependencies, compile the project, or start its application.
-It skips dependency lock checks when reading the saved graph. An unavailable graph
-is reported as unavailable, rather than replaced with guessed compiler evidence.
+On first use, Codeflow downloads the official ElixirLS 0.31.1 release, verifies its
+published SHA-256 digest and caches it under `~/.cache/codeflow`. Its launcher may
+install additional dependencies. Set `CODEFLOW_ELIXIR_LS` to use an existing launcher.
+`--source-only` disables language-server startup and Credo collection; the saved
+compiler graph is still read. `--no-open` prints the URL without opening a browser.
+Browser libraries are included under `vendor/`; no frontend build is needed.
 
-The compiler mode opens in Code view with the Files tree. Expand a folder using
-its triangle, then select a file to read it alongside its direct neighbors. Open
-source cards stay on the canvas as you navigate. Clicking a folder name filters
-the canvas to that folder; clear the filter to return to the selected neighborhood.
-Switch to Graph for the whole compiler snapshot. The compiler supplies file
-dependencies; Codeflow supplies the existing navigation and graphical workspace.
+Graph opens at the project root, grouping files by folder. Click a folder to
+expand it and use the breadcrumb to go back. Tests, documentation and configuration
+remain available in the graph and file tree. Code view opens source cards; the
+File panel contains the ElixirLS outline and reference navigation. Command-click
+(or Ctrl-click) source text to go to a definition; add Shift to find references.
+Findings from compiler diagnostics and the project's `mix credo --format json`
+command open the corresponding source location. A missing or failed analysis tool
+is reported as unavailable, not as a clean assessment.
 
-The compiler distinguishes compile, export, and runtime dependencies as described
-by [`mix xref`](https://mix.hexdocs.pm/Mix.Tasks.Xref.html). Here **runtime means a
-reference inside function code**, not an observed message or running process.
-Xref reports the strongest dependency kind for each file pair, not a complete
-function call trace. The graph is a collected compiler snapshot while displayed
-source comes from current files. Recompile using your project's normal workflow
-and restart Codeflow to collect a new graph. Snapshot freshness is unverified:
-file timestamps cannot prove that all compiler inputs and dependencies match.
+Workspace scope, selection, open cards, card placement, sizes and camera are saved
+in this browser for each project. Source contents are loaded from the local server.
 
-Only compiled source files present in the checkout and allowed by your excludes
-are included. Uncompiled tests, documentation, and external dependencies are outside
-this graph. The Evidence panel records this scope and the snapshot’s limitations.
+To inspect a running local BEAM node:
 
-This integration does not yet show live processes, messages, test coverage, or
-semantic subsystem boundaries. Compiler file dependencies do not establish which
-Elixir functions are unused or justify a BEAM health grade. Upstream's heuristic
-assessments should not be treated as compiler-backed BEAM assessments. The hosted
-upstream demo does not include this fork's integration.
+```sh
+node cli/codeflow.mjs /absolute/path/to/project --node app@hostname
+```
+
+You can also enter the node name in Runtime and connect there. The inspector uses
+the normal Erlang cookie, or `CODEFLOW_BEAM_COOKIE` from the CLI environment. The
+node must already be running locally with matching distribution naming and cookie.
+Refresh collects applications, supervision trees, process metrics and source links.
+It does not start the application, inspect process state or record messages.
+
+Graph relationships come from a snapshot of existing Mix compiler manifests.
+[`mix xref`](https://mix.hexdocs.pm/Mix.Tasks.Xref.html) distinguishes compile,
+export and runtime dependencies; a runtime edge means a reference inside function
+code, not an observed execution. Arrows point from dependency to consumer. Recompile
+and restart Codeflow to refresh this snapshot. Source and language-server results
+may be newer than it. Missing artifacts leave source exploration available without
+guessed dependency edges. Elixir function usage and health grades are not inferred
+from missing cross-file calls.
+
+Live message tracing, execution replay and agent-history integration are outside
+this version. The hosted upstream demo does not include this fork's integration.
 
 ---
 

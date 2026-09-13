@@ -413,3 +413,29 @@ test('Node 18 fallback re-watches a directory that is deleted and recreated', as
   watcher.close();
   await rm(root, { recursive: true, force: true });
 });
+
+test('Elixir HTTP navigation preserves source coordinates and excludes server logs', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'codeflow-language-'));
+  await writeFile(join(root, 'sample.ex'), 'defmodule Sample do\nend\n');
+  let disposed = false;
+  const calls = [];
+  const analysis = {assessment:{status:'ready',findings:[]},session:{
+    status:()=>({state:'ready',log:'private server log'}),
+    definition:async (file,position)=>{calls.push({file,position});return [{path:file,range:{start:position,end:position}}];},
+    dispose:()=>{disposed=true;}
+  }};
+  const app = createCodeflowServer({uiRoot:repoRoot,watchRoot:root,analysis});
+  try {
+    await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+    const base='http://127.0.0.1:'+app.server.address().port;
+    const status=await (await fetch(base+'/__codeflow/analysis')).json();
+    assert.deepEqual(status.language,{state:'ready'});
+    const response=await fetch(base+'/__codeflow/language?method=definition&path=sample.ex&line=3&character=7');
+    assert.equal(response.status,200);
+    assert.equal((await response.json())[0].range.start.character,7);
+    assert.deepEqual(calls,[{file:'sample.ex',position:{line:3,character:7}}]);
+    assert.equal((await fetch(base+'/__codeflow/language?method=definition&path=sample.ex')).status,400);
+    assert.equal((await fetch(base+'/__codeflow/language?method=definition&path=../secret&line=0&character=0')).status,404);
+  } finally {await app.close();await rm(root,{recursive:true,force:true});}
+  assert.equal(disposed,true);assert.equal(analysis.closed,true);
+});
