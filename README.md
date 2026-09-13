@@ -400,7 +400,9 @@ We love contributions! Here's how:
 3. Test locally (just open in browser)
 4. Submit a PR
 
-Node.js unit tests live under `tests/` and run with no dependencies:
+Node.js unit tests live under `tests/` and run with no dependencies. Test files
+run sequentially so other workers do not compete with the existing two-second
+large-repository benchmark (parallel CI execution exceeded that limit):
 
 ```bash
 npm test

@@ -20,7 +20,7 @@
   },
   "scripts": {
     "start": "node cli/codeflow.mjs .",
-    "test": "node --test tests/*.test.mjs tests/*.smoke.js",
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs tests/*.smoke.js",
     "test:beam": "CODEFLOW_TEST_MIX=1 node --test tests/beam-compiler.test.mjs tests/beam-native.test.mjs"
   }
 }
