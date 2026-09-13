@@ -67,6 +67,9 @@ export async function createElixirSession(projectRoot, options = {}) {
   connection.onNotification('textDocument/publishDiagnostics', event => {
     const location = projectLocation(root, { uri: event.uri });
     diagnostics.set(event.uri, event.diagnostics.map(item => ({ ...item, path: location.path, uri: event.uri, source: item.source || 'ElixirLS' })));
+    // A failed build can exit before ElixirLS emits its build telemetry.
+    // Published compiler errors must not leave the session indefinitely pending.
+    if (event.diagnostics.some(item => item.severity === 1)) build = { state: 'error', result: 'compiler_diagnostics', completedAt: new Date().toISOString() };
     update();
   });
   connection.onNotification('telemetry/event', event => {
@@ -156,7 +159,9 @@ export async function collectCredo(root, options = {}) {
       if (error.killed || error.signal || !Number.isInteger(error.code) || error.code < 1 || error.code > 31) throw error;
       output = error;
     }
-    const report = parseCredoOutput(output.stdout);
+    let report;
+    try { report = parseCredoOutput(output.stdout); }
+    catch (error) { throw Object.assign(error, { stderr: output.stderr || output.stdout }); }
     const findings = [];
     for (const issue of report.issues) {
       if (typeof issue.filename !== 'string' || typeof issue.message !== 'string') throw new Error('Credo returned an invalid issue');

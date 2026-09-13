@@ -67,3 +67,18 @@ test('actual ElixirLS resolves a real project source definition', { skip: !proce
   assert.equal(definitions[0].path, 'lib/grue/exec.ex');
   assert.equal(definitions[0].range.start.line, 39);
 });
+
+test('compiler diagnostics end pending build state when build telemetry is absent', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'codeflow-build-error-'));
+  t.after(() => fs.rm(root, {recursive:true,force:true}));
+  await fs.writeFile(path.join(root,'fixture.ex'),'broken');
+  const session = await createElixirSession(root,{command:process.execPath,args:[fixture],env:{CODEFLOW_LSP_TEST_ERROR:'1'}});
+  t.after(()=>session.dispose());
+  await session.symbols('fixture.ex');
+  assert.equal(session.status().build.state,'error');
+});
+test('Credo unavailable details retain the real Mix dependency failure', async () => {
+  const result = await collectCredo(os.tmpdir(),{execute:async()=>{throw {code:1,stdout:'',stderr:'** (Mix) Cannot continue: dependency lock mismatch'};}});
+  assert.equal(result.status,'unavailable');
+  assert.match(result.reason,/dependency lock mismatch/);
+});

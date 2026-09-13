@@ -13150,7 +13150,7 @@ function App(){
             React.createElement('div',{className:'card-header'},'Elixir project'),
             React.createElement('div',{className:'card-body'},
                 React.createElement('div',null,data.beam.coverage.included+' compiled files · '+(data.beam.project&&data.beam.project.environment||'dev')),
-                React.createElement('div',{style:{color:'var(--t3)',marginTop:8}},beamAnalysis&&beamAnalysis.language.state==='ready'?'ElixirLS connected':beamAnalysis&&beamAnalysis.language.state==='starting'?'Starting ElixirLS…':'Source exploration'),
+                React.createElement('div',{style:{color:'var(--t3)',marginTop:8}},beamAnalysis&&beamAnalysis.language.build&&beamAnalysis.language.build.state==='error'?'Compilation failed':beamAnalysis&&beamAnalysis.language.state==='ready'&&beamAnalysis.language.build.state==='pending'?'Indexing Elixir…':beamAnalysis&&beamAnalysis.language.state==='ready'?'ElixirLS connected':beamAnalysis&&beamAnalysis.language.state==='starting'?'Starting ElixirLS…':'Source exploration'),
                 React.createElement('button',{className:'top-btn',style:{marginTop:12},onClick:function(){setRightTab('findings');}},'Findings')));
     }
     function renderBeamSymbols(items){

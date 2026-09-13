@@ -5,7 +5,7 @@ connection.onRequest('initialize', () => ({ capabilities: {} }));
 connection.onNotification('workspace/didChangeConfiguration', () => connection.sendNotification('telemetry/event', { name: 'build', properties: { 'elixir_ls.build_result': 'mix_compile_ok' } }));
 connection.onNotification('textDocument/didOpen', ({ textDocument }) => {
   opened.set(textDocument.uri, textDocument);
-  connection.sendNotification('textDocument/publishDiagnostics', { uri: textDocument.uri, diagnostics: [{ message: 'unused variable x', severity: 2, range: { start: { line: 1, character: 2 }, end: { line: 1, character: 3 } } }] });
+  connection.sendNotification('textDocument/publishDiagnostics', { uri: textDocument.uri, diagnostics: [{ message: 'unused variable x', severity: process.env.CODEFLOW_LSP_TEST_ERROR ? 1 : 2, range: { start: { line: 1, character: 2 }, end: { line: 1, character: 3 } } }] });
 });
 connection.onNotification('textDocument/didChange', ({ textDocument, contentChanges }) => opened.set(textDocument.uri, { ...textDocument, text: contentChanges[0].text }));
 connection.onRequest('textDocument/documentSymbol', ({ textDocument }) => {
