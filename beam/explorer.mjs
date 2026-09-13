@@ -81,7 +81,7 @@ async function selectFile(id) {
     for(const edge of edges) detail.append(button(`${edge[field]} · ${edge.kind}`,()=>openFile(edge[field])));
     pane.append(detail);
   }
-  pane.append(el('h3','Current source on disk'),el('p','Compiler evidence reflects the last successful compilation. Refresh after recompiling to update relationships.','muted small'));
+  pane.append(el('h3','Current source on disk'),el('p','Compiler evidence reflects the last successful compilation. Restart Codeflow after recompiling to collect new relationships.','muted small'));
   const pre=el('pre','Loading source…');pane.append(pre);
   try { const response=await fetch(`/__codeflow/file?path=${encodeURIComponent(node.path)}`);if(!response.ok)throw new Error(`Source unavailable (${response.status})`);const source=await response.text();if(request===sourceRequest)pre.textContent=source; }
   catch(error){if(request===sourceRequest)pre.textContent=error.message;}
@@ -103,7 +103,7 @@ async function load() {
     const sameProject=graph?.project?.root===data.project.root;graph=data;
     if(!sameProject){expanded=initialExpanded(graph.nodes);try{const saved=JSON.parse(sessionStorage.getItem(`beam:${graph.project.root}`));if(Array.isArray(saved))expanded=new Set(saved.filter(p=>typeof p==='string'));}catch{}}
     $('totals').textContent=`${graph.nodes.length} source files · ${graph.edges.length} relationships`;
-    $('producer').textContent=`Producer: ${graph.producer?.name||'Mix xref'}. ${graph.producer?.version||''}`;
+    $('producer').textContent=`Producer: ${graph.producer?.name||'Mix xref'}. ${graph.producer?.version||''} Collected: ${graph.producer?.collectedAt||'not reported'}. Snapshot freshness is unverified; restart Codeflow after recompiling to collect new relationships.`;
     if(!window.cytoscape)throw new Error('The bundled graph library could not load. Check that vendor assets are installed.');
     if(!cy) {
       cy=window.cytoscape({container:$('graph'),elements:[],minZoom:0.12,maxZoom:3,wheelSensitivity:0.25,style:[
