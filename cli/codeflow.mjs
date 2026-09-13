@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 
 const IGNORE = new Set([
-  'node_modules', '.git', 'vendor', 'dist', 'build', 'out', 'coverage',
+  'node_modules', '_build', 'deps', '.elixir_ls', '.git', 'vendor', 'dist', 'build', 'out', 'coverage',
   '.next', '.nuxt', '.cache', '.parcel-cache', '.turbo', '.vercel', '.local',
   '.artifacts', '.playwright-cli', 'playwright-report', 'test-results',
   '.claude', '.codex', '.idea', '.vscode', '.pnpm-store', '.yarn', 'tmp',
