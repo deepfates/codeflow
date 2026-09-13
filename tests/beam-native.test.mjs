@@ -88,3 +88,48 @@ test('unavailable compiler evidence fails explicitly instead of falling back to 
     status: 'unavailable', nodes: [], edges: [], warnings: ['No compiler artifacts'],
   }, excludePatterns: [] }), /compiler|unavailable|artifacts/i);
 });
+
+const canvasFixture = () => context.buildBeamAnalysisData({ analyzed: analyzedFiles(), snapshot });
+const paths = files => plain(files.map(file => file.path)).sort();
+
+function assertFocusedCanvas(helper) {
+  const data = canvasFixture();
+  assert.deepEqual(paths(helper(data, null, 'lib/caller.ex', ['lib/caller.ex'])),
+    ['lib/caller.ex', 'lib/data.ex', 'lib/macro.ex', 'lib/service.ex']);
+  assert.deepEqual(paths(helper(data, null, 'lib/isolated.ex', ['lib/caller.ex', 'lib/isolated.ex'])),
+    ['lib/caller.ex', 'lib/isolated.ex'], 'changing selection retains open cards without their former neighbors');
+  assert.equal(data.files.length, 6, 'view filtering must preserve the full analysis for Graph');
+}
+
+test('Code canvas shows the selected neighborhood and retains open cards when selection changes', () => {
+  assertFocusedCanvas(context.beamCodeCanvasFiles);
+});
+
+test('Code canvas starts empty without selection and preserves ordinary folder scope', () => {
+  const data = canvasFixture();
+  assert.deepEqual(paths(context.beamCodeCanvasFiles(data, null, null, [])), []);
+  assert.deepEqual(paths(context.beamCodeCanvasFiles(data, null, null, ['lib/isolated.ex'])), ['lib/isolated.ex']);
+  data.files.push({ path: 'bench/helper.ex', folder: 'bench' }, { path: 'lib/nested/helper.ex', folder: 'lib/nested' });
+  assert.deepEqual(paths(context.beamCodeCanvasFiles(data, 'bench', 'lib/caller.ex', ['lib/caller.ex'])), ['bench/helper.ex']);
+  assert.deepEqual(paths(context.beamCodeCanvasFiles(data, 'lib/nested', null, [])), ['lib/nested/helper.ex']);
+  assert.equal(context.beamCodeCanvasFiles(data, 'lib', null, []).length, 7);
+});
+
+test('BEAM root gate counts the whole compiled scope even with few top-level files', () => {
+  const data = { beam: {}, files: Array.from({ length: 50 }, (_, i) => ({ path: `lib/nested/f${i}.ex`, folder: 'lib/nested' })) };
+  assert.equal(context.codeViewRootGateActive(data, null, null, [], 50), true);
+  assert.equal(context.codeViewRootGateActive(data, null, null, [], 75), false);
+  assert.equal(context.codeViewRootGateActive(data, 'lib', null, [], 50), false);
+  assert.equal(context.codeViewRootGateActive(data, null, 'lib/nested/f0.ex', [], 50), false);
+  assert.equal(context.codeViewRootGateActive(data, null, null, ['lib/nested/f0.ex'], 50), false);
+});
+
+test('focused-canvas assertion rejects a temporary regression to rendering every file', () => {
+  const mutant = {};
+  vm.createContext(mutant);
+  const source = context.beamCodeCanvasFiles.toString();
+  const broken = source.replace(/\{/, '{ return data.files;');
+  assert.notEqual(broken, source);
+  vm.runInContext(broken, mutant);
+  assert.throws(() => assertFocusedCanvas(mutant.beamCodeCanvasFiles), { name: 'AssertionError' });
+});
