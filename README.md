@@ -9,11 +9,57 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
-[**Try it Now**](https://codeflow-five.vercel.app/) · [Report Bug](https://github.com/braedonsaunders/codeflow/issues) · [Request Feature](https://github.com/braedonsaunders/codeflow/issues)
+[**Upstream demo**](https://codeflow-five.vercel.app/) · [Report Bug](https://github.com/braedonsaunders/codeflow/issues) · [Request Feature](https://github.com/braedonsaunders/codeflow/issues)
 
 <img src="./screenshot.png" alt="CodeFlow Screenshot" width="100%"/>
 
 </div>
+
+---
+
+## Explore an Elixir project
+
+This fork can use the Elixir compiler's saved file relationships in Codeflow's
+existing Graph and Code views. The file tree, source cards, selection, and layouts
+remain the same interface used for other projects.
+
+```sh
+git clone https://github.com/deepfates/codeflow.git
+cd codeflow
+node cli/codeflow.mjs /absolute/path/to/your/project --beam
+```
+
+Use Node.js 18+ and Elixir 1.19+ with `mix` on your PATH. The project needs existing
+compiler artifacts for the selected `MIX_ENV` (normally `dev`). Prepare the project
+using its own documented dependency and compilation commands before launching.
+Pass `--no-open` to print the URL without opening your default browser.
+No npm installation or frontend build is needed; browser dependencies are included
+locally with their versions, hashes, and licenses in `vendor/`.
+
+The `--beam` option runs Mix in the selected project to read its saved compiler
+graph. **Mix evaluates the project's configuration**, so use a checkout you trust.
+Codeflow does not fetch dependencies, compile the project, or start its application.
+It skips dependency lock checks when reading the saved graph. An unavailable graph
+is reported as unavailable, rather than replaced with guessed compiler evidence.
+
+Select a file in the graph or file tree to explore its connections. Switch to
+Code view to read connected source files on the canvas. The compiler supplies file
+dependencies; Codeflow supplies the existing navigation and graphical workspace.
+
+The compiler distinguishes compile, export, and runtime dependencies as described
+by [`mix xref`](https://mix.hexdocs.pm/Mix.Tasks.Xref.html). Here **runtime means a
+reference inside function code**, not an observed message or running process.
+Xref reports the strongest dependency kind for each file pair, not a complete
+function call trace. The graph is a collected compiler snapshot while displayed
+source comes from current files. Recompile using your project's normal workflow
+and restart Codeflow to collect a new graph. Snapshot freshness is unverified:
+file timestamps cannot prove that all compiler inputs and dependencies match.
+
+This integration does not yet show live processes, messages, test coverage, or
+semantic subsystem boundaries. Compiler file dependencies do not establish which
+Elixir functions are unused or justify a BEAM health grade. Upstream's heuristic
+assessments should not be treated as compiler-backed BEAM assessments. The hosted
+upstream demo does not include this fork's integration.
 
 ---
 
@@ -350,7 +396,9 @@ We love contributions! Here's how:
 Node.js unit tests live under `tests/` and run with no dependencies:
 
 ```bash
-node --test tests/*.test.mjs tests/*.smoke.js
+npm test
+# Also exercise a real disposable Mix project (requires Elixir 1.19+)
+npm run test:beam
 ```
 
 `tests/verify-brain-vault.mjs` is an optional end-to-end script that always verifies the bundled fixtures and will also scan a real local vault when you explicitly set `BRAIN_VAULT=/path/to/vault`.

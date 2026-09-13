@@ -16,10 +16,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/braedonsaunders/codeflow.git"
+    "url": "git+https://github.com/deepfates/codeflow.git"
   },
   "scripts": {
     "start": "node cli/codeflow.mjs .",
-    "test": "node --test tests/*.test.mjs tests/*.smoke.js"
+    "test": "node --test tests/*.test.mjs tests/*.smoke.js",
+    "test:beam": "CODEFLOW_TEST_MIX=1 node --test tests/beam-compiler.test.mjs"
   }
 }
