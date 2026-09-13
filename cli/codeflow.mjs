@@ -7,6 +7,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
+import { collectBeamGraph, unavailableBeam } from './beam.mjs';
 
 const IGNORE = new Set([
   'node_modules', '_build', 'deps', '.elixir_ls', '.git', 'vendor', 'dist', 'build', 'out', 'coverage',
@@ -105,8 +106,11 @@ export function parseCliArgs(argv) {
   const args = argv.slice(2);
   let port = 4173;
   let target = '.';
+  let beam = false;
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--port' && args[i + 1]) {
+    if (args[i] === '--beam') {
+      beam = true;
+    } else if (args[i] === '--port' && args[i + 1]) {
       port = Number(args[++i]);
     } else if (args[i] === '--help' || args[i] === '-h') {
       return { help: true };
@@ -114,7 +118,7 @@ export function parseCliArgs(argv) {
       target = args[i];
     }
   }
-  return { port, target };
+  return { port, target, ...(beam ? { beam: true } : {}) };
 }
 
 export async function listWatchFiles(root) {
@@ -416,8 +420,12 @@ export function createCodeflowServer(options) {
         return;
       }
       const url = parsed.url;
+      if (url.pathname === '/__codeflow/beam') {
+        sendJson(res, 200, options.beamGraph || unavailableBeam(watchRoot, 'Restart the local CLI with --beam to explicitly collect compiler evidence.'));
+        return;
+      }
       if (url.pathname === '/__codeflow/status') {
-        sendJson(res, 200, { ok: true, root: watchRoot, name, watch: !!watchSession.watching });
+        sendJson(res, 200, { ok: true, root: watchRoot, name, beam: !!options.beamGraph, watch: !!watchSession.watching });
         return;
       }
       if (url.pathname === '/__codeflow/files') {
@@ -483,7 +491,7 @@ export function createCodeflowServer(options) {
 async function main() {
   const parsed = parseCliArgs(process.argv);
   if (parsed.help) {
-    console.log('Usage: npx codeflow [folder] [--port 4173]\nOpens the same Codeflow UI and watches that folder.');
+    console.log('Usage: npx codeflow [folder] [--port 4173] [--beam]\n--beam evaluates a trusted local Mix project to read existing compiler manifests (Elixir 1.19+), without compiling.\nOpens the same Codeflow UI and watches that folder.');
     process.exit(0);
   }
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -499,12 +507,13 @@ async function main() {
     process.exit(1);
   }
 
-  const { server } = createCodeflowServer({ uiRoot, watchRoot });
+  const beamGraph = parsed.beam ? await collectBeamGraph(watchRoot) : undefined;
+  const { server } = createCodeflowServer({ uiRoot, watchRoot, beamGraph });
   await new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(parsed.port, '127.0.0.1', resolve);
   });
-  const url = 'http://127.0.0.1:' + parsed.port + '/?cli=1';
+  const url = 'http://127.0.0.1:' + server.address().port + (parsed.beam ? '/beam.html' : '/?cli=1');
   console.log('Codeflow UI: ' + url);
   console.log('Watching: ' + watchRoot);
   openBrowser(url);
