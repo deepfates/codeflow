@@ -118,7 +118,12 @@ async function load() {
       cy.on('tap','node',event=>selectNode(event.target.data()));cy.on('tap','edge',event=>selectEdge(event.target.data()));
     }
     message(graph.nodes.length?'':'No compiled source files were reported. Check the Mix environment and compile the project.');render(true);search();
-  } catch(error) { message(error.message); if(cy)cy.elements().remove();$('view-count').textContent='Evidence unavailable'; }
+  } catch(error) {
+    graph=null; projection=null; selected=null; sourceRequest++;
+    message(error.message); if(cy)cy.elements().remove();
+    for(const id of ['search-results','visible-items','expanded','selection'])$(id).replaceChildren();
+    $('totals').textContent=''; $('view-count').textContent='Evidence unavailable';
+  }
   finally{$('refresh').disabled=false;}
 }
 $('fit').onclick=()=>cy?.fit(undefined,45);
