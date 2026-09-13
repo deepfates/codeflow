@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BEAM Explorer · Codeflow</title><link rel="stylesheet" href="/beam/explorer.css"></head>
+<body>
+<header><a class="brand" href="/?cli=1">ϟ CODEFLOW</a><span class="divider"></span><strong>BEAM Explorer</strong><span class="tag">COMPILER EVIDENCE</span><a class="back" href="/?cli=1">Back to Codeflow ↗</a></header>
+<main>
+<aside class="navigation"><p class="eyebrow">PROJECT LANDSCAPE</p><h1 id="project-name">Loading project…</h1><p id="project-context" class="muted"></p><p id="totals"></p>
+<label for="search">Find a file</label><input id="search" type="search" placeholder="Name or path…" autocomplete="off"><div id="search-results"></div>
+<fieldset><legend>Relationships</legend><label><input type="checkbox" name="kind" value="compile" checked><i class="dot compile"></i> Compile</label><label><input type="checkbox" name="kind" value="export" checked><i class="dot export"></i> Export</label><label><input type="checkbox" name="kind" value="runtime" checked><i class="dot runtime"></i> Runtime reference</label></fieldset>
+<p class="muted small">Arrows point from a file to its dependency. “Runtime” is a compiler classification, not an observed message or execution.</p>
+<h2>Open directories</h2><div id="expanded"></div>
+<details id="evidence"><summary>Scope & evidence</summary><p>Directories group files by their existing paths. They are not inferred architectural boundaries. Only dependencies reported by Mix xref appear here.</p><p id="producer"></p><p>Tests, external dependencies and dynamic calls may not be represented. Source shown is the current file on disk.</p></details>
+</aside>
+<section class="workspace" aria-label="Dependency landscape"><div class="toolbar"><span id="view-count" role="status">Preparing graph</span><button id="fit">Fit</button><button id="reset">Overview</button><button id="refresh">Refresh evidence</button></div><div id="graph" role="img" aria-label="Interactive dependency graph; use the visible items list below for keyboard navigation"></div><div id="empty" role="status" hidden></div><div class="graph-hint">Select a directory to explore it · Select a connection to inspect its evidence</div><details class="accessible-nodes"><summary>Visible items (keyboard navigation)</summary><div id="visible-items"></div></details></section>
+<aside class="inspector"><p class="eyebrow">INSPECT</p><div id="selection"><h2>A place to get your bearings</h2><p>Start with a directory. Open it to see the smaller pieces, then follow a connection to the code behind it.</p><p class="muted">The map begins folded so that a large project stays approachable.</p></div></aside>
+</main><div id="warnings" role="status"></div>
+<script src="/vendor/cytoscape/cytoscape.min.js"></script><script src="/vendor/elk/elk.bundled.js"></script><script src="/vendor/cytoscape-elk/cytoscape-elk.js"></script><script type="module" src="/beam/explorer.mjs"></script>
+</body></html>
