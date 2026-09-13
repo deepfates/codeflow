@@ -42,8 +42,11 @@ Codeflow does not fetch dependencies, compile the project, or start its applicat
 It skips dependency lock checks when reading the saved graph. An unavailable graph
 is reported as unavailable, rather than replaced with guessed compiler evidence.
 
-Select a file in the graph or file tree to explore its connections. Switch to
-Code view to read connected source files on the canvas. The compiler supplies file
+The compiler mode opens in Code view with the Files tree. Expand a folder using
+its triangle, then select a file to read it alongside its direct neighbors. Open
+source cards stay on the canvas as you navigate. Clicking a folder name filters
+the canvas to that folder; clear the filter to return to the selected neighborhood.
+Switch to Graph for the whole compiler snapshot. The compiler supplies file
 dependencies; Codeflow supplies the existing navigation and graphical workspace.
 
 The compiler distinguishes compile, export, and runtime dependencies as described
@@ -54,6 +57,10 @@ function call trace. The graph is a collected compiler snapshot while displayed
 source comes from current files. Recompile using your project's normal workflow
 and restart Codeflow to collect a new graph. Snapshot freshness is unverified:
 file timestamps cannot prove that all compiler inputs and dependencies match.
+
+Only compiled source files present in the checkout and allowed by your excludes
+are included. Uncompiled tests, documentation, and external dependencies are outside
+this graph. The Evidence panel records this scope and the snapshot’s limitations.
 
 This integration does not yet show live processes, messages, test coverage, or
 semantic subsystem boundaries. Compiler file dependencies do not establish which

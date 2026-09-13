@@ -107,8 +107,11 @@ export function parseCliArgs(argv) {
   let port = 4173;
   let target = '.';
   let beam = false;
+  let noOpen = false;
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--beam') {
+    if (args[i] === '--no-open') {
+      noOpen = true;
+    } else if (args[i] === '--beam') {
       beam = true;
     } else if (args[i] === '--port' && args[i + 1]) {
       port = Number(args[++i]);
@@ -118,7 +121,7 @@ export function parseCliArgs(argv) {
       target = args[i];
     }
   }
-  return { port, target, ...(beam ? { beam: true } : {}) };
+  return { port, target, ...(beam ? { beam: true } : {}), ...(noOpen ? { noOpen: true } : {}) };
 }
 
 export async function listWatchFiles(root) {
@@ -491,7 +494,7 @@ export function createCodeflowServer(options) {
 async function main() {
   const parsed = parseCliArgs(process.argv);
   if (parsed.help) {
-    console.log('Usage: npx codeflow [folder] [--port 4173] [--beam]\n--beam evaluates a trusted local Mix project to read existing compiler manifests (Elixir 1.19+), without compiling.\nOpens the same Codeflow UI and watches that folder.');
+    console.log('Usage: npx codeflow [folder] [--port 4173] [--beam] [--no-open]\n--beam evaluates a trusted local Mix project to read existing compiler manifests (Elixir 1.19+), without compiling.\nOpens the same Codeflow UI and watches that folder.');
     process.exit(0);
   }
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -513,10 +516,10 @@ async function main() {
     server.once('error', reject);
     server.listen(parsed.port, '127.0.0.1', resolve);
   });
-  const url = 'http://127.0.0.1:' + server.address().port + (parsed.beam ? '/beam.html' : '/?cli=1');
+  const url = 'http://127.0.0.1:' + server.address().port + '/?cli=1';
   console.log('Codeflow UI: ' + url);
   console.log('Watching: ' + watchRoot);
-  openBrowser(url);
+  if (!parsed.noOpen) openBrowser(url);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

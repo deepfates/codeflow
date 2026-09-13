@@ -5457,6 +5457,31 @@ async function buildAnalysisData(options){
     return dataObj;
 }
 
+// Mix supplies file relationships; reuse the native analysis model and every
+// existing canvas/navigation consumer. No function-use or quality inference is
+// possible from this evidence, so those assessments stay explicitly absent.
+function buildBeamAnalysisData(options){
+    var snapshot=options.snapshot;
+    if(!snapshot||snapshot.schemaVersion!==1||snapshot.status!=='ready')throw new Error((snapshot&&snapshot.warnings||['Compiler evidence unavailable']).join(' '));
+    var compiled=new Set(snapshot.nodes.map(function(n){return n.path;}));
+    var files=options.analyzed.filter(function(f){return compiled.has(f.path);}).map(function(f){
+        return Object.assign({},f,{functions:[],dependencies:[],layer:'source',parserProvenance:'mix xref',complexity:null});
+    });
+    var included=new Set(files.map(function(f){return f.path;}));
+    var connections=snapshot.edges.filter(function(e){return included.has(e.source)&&included.has(e.target);}).map(function(e){
+        // Native Codeflow arrows run from provider to consumer (calcBlast).
+        // Mix arrows run from consumer to dependency: reverse at this boundary.
+        return {source:e.target,target:e.source,kind:e.kind,evidence:'mix xref',fn:null,count:1};
+    });
+    var loc=files.reduce(function(n,f){return n+f.lines;},0);
+    var langs={};files.forEach(function(f){var ext=f.name.split('.').pop();langs[ext]=(langs[ext]||0)+f.lines;});
+    return {files:files,functions:[],connections:connections,fnStats:{},folders:[...new Set(files.map(function(f){return f.folder;}))].sort(),tree:buildTree(files),
+        issues:[],patterns:[],securityIssues:[],duplicates:[],layerViolations:[],deadFunctions:[],suggestions:[],excludePatterns:options.excludePatterns||[],
+        beam:Object.assign({},snapshot,{coverage:{compiled:snapshot.nodes.length,included:files.length}}),
+        stats:{files:files.length,functions:null,connections:connections.length,dead:null,patterns:null,security:null,duplicates:null,violations:null,skipped:files.filter(function(f){return f.analysisSkipped;}).length,loc:loc,
+            languages:Object.keys(langs).map(function(ext){return {ext:ext,lines:langs[ext],pct:loc?Math.round(langs[ext]/loc*100):0};}),parserModes:[{mode:'mix xref',files:files.length}]}}
+}
+
 // ---------------------------------------------------------------------------
 // Inline Worker Runtime
 // ---------------------------------------------------------------------------
@@ -5571,6 +5596,7 @@ function calcBlast(fileId,conns,files){
         exportedTo[src].add(tgt);
         if(!importedFrom[tgt])importedFrom[tgt]=new Set();
         importedFrom[tgt].add(src);
+        if(c.evidence==='mix xref')return; // File references are not function calls.
         if(!exportedFns[src])exportedFns[src]=new Map();
         var fnMap=exportedFns[src];
         fnMap.set(c.fn,(fnMap.get(c.fn)||0)+(c.count||1));
@@ -5642,6 +5668,7 @@ function calcBlast(fileId,conns,files){
 
 function calcHealth(data){
     if(!data)return{score:0,grade:'F'};
+    if(data.beam)return{score:null,grade:'—'};
     var score=100;
     var deadPct=data.stats.functions>0?(data.stats.dead/data.stats.functions*100):0;
     score-=Math.min(20,deadPct);
@@ -6505,6 +6532,15 @@ function getConnectedFilePaths(path,connections){
     return Array.from(linked);
 }
 
+// Reuse the Code canvas, preserving open cards while revealing the selected
+// file's immediate neighborhood. Graph view still shows the complete snapshot.
+function beamCodeCanvasFiles(data,folderFilter,selectedPath,openedPaths){
+    if(folderFilter)return data.files.filter(function(f){return fileMatchesFolderFilter(f,folderFilter);});
+    var visible=new Set(openedPaths||[]);
+    if(selectedPath){visible.add(selectedPath);getConnectedFilePaths(selectedPath,data.connections).forEach(function(p){visible.add(p);});}
+    return data.files.filter(function(f){return visible.has(f.path);});
+}
+
 var CODE_CARD_MAX=12;
 
 function defaultCodeViewSeed(data,folderFilter){
@@ -6597,11 +6633,11 @@ function codeViewRootGateActive(data,folderFilter,selectedPath,openedPaths,thres
     if(folderFilter)return false;
     if(selectedPath)return false;
     if(openedPaths&&openedPaths.length)return false;
-    return countCodeViewRootFiles(data)>=clampCodeViewRootGate(threshold);
+    return (data.beam?data.files.length:countCodeViewRootFiles(data))>=clampCodeViewRootGate(threshold);
 }
 
 function codeViewRootGateMessage(count,threshold){
-    return'This project root has '+count+' files (gate is '+clampCodeViewRootGate(threshold)+'). Pick a folder or file in the Files tree before opening Code cards.';
+    return'This view has '+count+' files (gate is '+clampCodeViewRootGate(threshold)+'). Pick a folder or file in the Files tree before opening Code cards.';
 }
 
 function codeFileNavOpensCard(vizType){
@@ -9596,11 +9632,17 @@ function App(){
                 }
                 var layer=Parser.detectLayer(f.path);
                 var actualIsCode=isCodeFile&&(!Parser.isScriptContainer(f.path)||Parser.hasEmbeddedCode(content,f.path));
-                var fns=actualIsCode?Parser.extract(content,f.path):[];
+                var fns=actualIsCode&&!status.beam?Parser.extract(content,f.path):[];
                 analyzed.push({path:f.path,name:f.name,folder:f.folder||'root',content:content||'',functions:fns,lines:(content||'').split('\n').length,layer:layer,churn:0,isCode:actualIsCode});
                 if(actualIsCode)fns.forEach(function(fn){allFns.push(Object.assign({},fn,{folder:f.folder||'root',layer:layer}));});
             }
-            var dataObj=await runAnalysisData({
+            var snapshot=null;
+            if(status.beam){
+                var beamRes=await fetch('/__codeflow/beam');
+                if(!beamRes.ok)throw new Error('Compiler snapshot request failed');
+                snapshot=await beamRes.json();
+            }
+            var dataObj=status.beam?buildBeamAnalysisData({analyzed:analyzed,snapshot:snapshot,excludePatterns:activeExcludePatterns.map(function(x){return x.raw;})}):await runAnalysisData({
                 analyzed:analyzed,
                 allFns:allFns,
                 excludePatterns:activeExcludePatterns.map(function(x){return x.raw;}),
@@ -9614,6 +9656,7 @@ function App(){
             cliWatchReadRef.current=Object.create(null);
             cliWatchSnapRevRef.current=Object.create(null);
             setData(dataObj);
+            if(dataObj.beam){setGraphConfig(function(prev){return Object.assign({},prev,{vizType:'code'});});setLeftTab('files');setRightTab('details');}
             setExpandedPaths(new Set(['']));
             setRepoInfo(cliInfo);
             setCachedFromId(null);
@@ -10664,9 +10707,10 @@ function App(){
             graphConfig.spacing,
             graphConfig.linkDist,
             graphConfig.showLabels,
-            graphConfig.curvedLinks
+            graphConfig.curvedLinks,
+            data&&data.beam&&graphConfig.vizType==='code'?[selected&&selected.path,openedCodePaths.join('|')].join(':'):''
         ].join('\0');
-    },[currentHydrationId,data,folderFilter,colorMode,theme,graphConfig]);
+    },[currentHydrationId,data,folderFilter,colorMode,theme,graphConfig,selected&&selected.path,openedCodePaths]);
     var codeRootGateActive=useMemo(function(){
         return graphConfig.vizType==='code'&&codeViewRootGateActive(data,folderFilter,selected&&selected.path,openedCodePaths,codeViewRootGate);
     },[data,folderFilter,openedCodePaths,selected&&selected.path,codeViewRootGate,graphConfig.vizType]);
@@ -10734,7 +10778,7 @@ function App(){
     },[graphConfig.vizType,selected&&selected.path]);
     var hadAnalysisRef=useRef(false);
     useEffect(function(){
-        if(data&&!hadAnalysisRef.current)setLeftTab('overview');
+        if(data&&!hadAnalysisRef.current)setLeftTab(data.beam?'files':'overview');
         hadAnalysisRef.current=!!data;
     },[data]);
     selectedPathRef.current=selected&&selected.path;
@@ -11066,6 +11110,7 @@ function App(){
         var w=svgRef.current.clientWidth;
         var h=svgRef.current.clientHeight;
         var filteredFiles=folderFilter?data.files.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}):data.files;
+        if(data.beam&&graphConfig.vizType==='code')filteredFiles=beamCodeCanvasFiles(data,folderFilter,selected&&selected.path,openedCodePaths);
         var fileIds=new Set(filteredFiles.map(function(f){return f.path;}));
         var nodes=filteredFiles.map(function(f){return{id:f.path,name:f.name,folder:f.folder,fnCount:f.functions.length,layer:f.layer,churn:f.churn||0};});
         var linkMap=new Map();
@@ -11290,7 +11335,7 @@ function App(){
         });
         node.classed('has-code-card',function(d){return keepReadable&&nodeReplacedByCard(d.id,codeCardPathsRef.current);});
         node.attr('display',function(d){return keepReadable&&nodeReplacedByCard(d.id,codeCardPathsRef.current)?'none':null;});
-        node.on('mouseenter',function(e,d){if(keepReadable&&codeCardPathsRef.current.has(d.id))return;var r=svgRef.current.getBoundingClientRect();setTooltip({x:e.clientX-r.left+10,y:e.clientY-r.top,title:d.name,content:d.fnCount+' functions\n'+d.layer+' layer\n'+d.churn+' recent commits'});}).on('mouseleave',function(){setTooltip(null);});
+        node.on('mouseenter',function(e,d){if(keepReadable&&codeCardPathsRef.current.has(d.id))return;var r=svgRef.current.getBoundingClientRect();setTooltip({x:e.clientX-r.left+10,y:e.clientY-r.top,title:d.name,content:data.beam?'Compiled source file · relationships from Mix xref':d.fnCount+' functions\n'+d.layer+' layer\n'+d.churn+' recent commits'});}).on('mouseleave',function(){setTooltip(null);});
         svg.on('click',function(e){
             if(!isCodeCanvasDeselectTarget(e.target,svgRef.current))return;
             setSelected(null);
@@ -11561,7 +11606,7 @@ function App(){
                 return '<div style="font-family:JetBrains Mono,monospace;font-size:10px;padding:6px;background:rgba(15,15,18,0.95);border:1px solid var(--border);border-radius:6px;color:#fff;">'+
                     '<strong style="color:var(--acc);">'+node.name+'</strong><br/>'+
                     node.folder+'<br/>'+
-                    node.fnCount+' functions • '+node.layer+' layer • '+node.churn+' commits'+
+                    (data.beam?'Compiled source file':node.fnCount+' functions • '+node.layer+' layer • '+node.churn+' commits')+
                     '</div>';
             })
             .linkColor(function(link){
@@ -11833,7 +11878,7 @@ function App(){
         cells.on('mouseenter',function(e,d){
             tooltip.html(renderTooltipHtml(d.data.name,[
                 {label:'Lines',value:d.data.value},
-                {label:'Functions',value:d.data.fns||0},
+                {label:'Functions',value:data.beam?'not assessed':d.data.fns||0},
                 {label:'Layer',value:d.data.layer||'—'},
                 {label:'Folder',value:d.data.folder||'root'}
             ]))
@@ -11965,7 +12010,7 @@ function App(){
             if(!d.data.path)return;
             tooltip.html(renderTooltipHtml(d.data.name,[
                 {label:'Lines',value:d.data.lines||0},
-                {label:'Functions',value:d.data.fns||0},
+                {label:'Functions',value:data.beam?'not assessed':d.data.fns||0},
                 {label:'Layer',value:d.data.layer||'—'}
             ]))
                 .style('display','block').style('left',(e.offsetX+15)+'px').style('top',(e.offsetY+15)+'px');
@@ -12117,7 +12162,7 @@ function App(){
         node.on('mouseenter',function(e,d){
             tooltip.html(renderTooltipHtml(d.name,[
                 {label:'Lines',value:d.lines||0},
-                {label:'Functions',value:d.fns||0},
+                {label:'Functions',value:data.beam?'not assessed':d.fns||0},
                 {label:'Folder',value:d.folder}
             ]))
                 .style('display','block').style('left',(e.offsetX+15)+'px').style('top',(e.offsetY+15)+'px');
@@ -12246,7 +12291,7 @@ function App(){
             var rect=bundleRef.current.getBoundingClientRect();
             tooltip.html(renderTooltipHtml(d.name,[
                 {label:'Lines',value:d.lines||0},
-                {label:'Functions',value:d.fns||0},
+                {label:'Functions',value:data.beam?'not assessed':d.fns||0},
                 {label:'Folder',value:d.folder||'root'}
             ]))
                 .style('display','block').style('left',(e.clientX-rect.left+15)+'px').style('top',(e.clientY-rect.top+15)+'px');
@@ -12624,7 +12669,7 @@ function App(){
             });
         });
     }
-    function exportJSON(){if(!data)return;var blob=new Blob([JSON.stringify({stats:data.stats,files:data.files.map(function(f){return{path:f.path,fns:f.functions.length,layer:f.layer,lines:f.lines,dependencies:f.dependencies||[]};}),connections:data.connections,issues:data.issues,patterns:data.patterns,security:data.securityIssues,architectureDiagram:data.architectureDiagram},null,2)],{type:'application/json'});var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download='codeflow-analysis.json';a.click();URL.revokeObjectURL(url);}
+    function exportJSON(){if(!data)return;var blob=new Blob([JSON.stringify({beam:data.beam,stats:data.stats,files:data.files.map(function(f){return{path:f.path,fns:data.beam?null:f.functions.length,layer:f.layer,lines:f.lines,dependencies:f.dependencies||[]};}),connections:data.connections,issues:data.issues,patterns:data.patterns,security:data.securityIssues,architectureDiagram:data.architectureDiagram},null,2)],{type:'application/json'});var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download='codeflow-analysis.json';a.click();URL.revokeObjectURL(url);}
     function getAnalysisSourceLabel(){
         if(localSourceKind==='folder')return(repoInfo&&repoInfo.name)||'Local Folder';
         if(localSourceKind==='zip')return repoInfo&&repoInfo.name?repoInfo.name:'ZIP Archive';
@@ -12632,6 +12677,7 @@ function App(){
     }
     function generateReport(format){
         if(!data)return;
+        if(data.beam)return; // Quality reports require function-level assessments.
         var repo=getAnalysisSourceLabel();
         var h=calcHealth(data);
         var report={
@@ -12906,9 +12952,9 @@ function App(){
                 React.createElement('button',{type:'button',className:'color-by-btn'+(codeViewWrap?' active':''),'aria-pressed':codeViewWrap?'true':'false',onClick:function(){setCodeViewWrap(!codeViewWrap);}},'Wrap Text')
             ),
             React.createElement('div',{className:'code-view-prefs-row',role:'group','aria-label':'Load Files'},
-                React.createElement('span',{className:'color-by-label',title:'Skip Code cards when this many files sit at the project root'},'Load Files'),
+                React.createElement('span',{className:'color-by-label',title:data&&data.beam?'Pick a file before loading a compiler graph this large':'Skip Code cards when this many files sit at the project root'},'Load Files'),
                 CODE_VIEW_ROOT_GATE_STEPS.map(function(n){
-                    return React.createElement('button',{key:n,type:'button',className:'color-by-btn'+(codeViewRootGate===n?' active':''),'aria-pressed':codeViewRootGate===n?'true':'false',title:'Skip Code cards when this many files sit at the project root',onClick:function(){persistCodeViewRootGate(n);}},String(n));
+                    return React.createElement('button',{key:n,type:'button',className:'color-by-btn'+(codeViewRootGate===n?' active':''),'aria-pressed':codeViewRootGate===n?'true':'false',title:data&&data.beam?'Pick a file before loading a compiler graph this large':'Skip Code cards when this many files sit at the project root',onClick:function(){persistCodeViewRootGate(n);}},String(n));
                 })
             )
         );
@@ -12920,10 +12966,20 @@ function App(){
             React.createElement('div',{className:'empty-desc'},desc)
         );
     }
+    function renderBeamEvidence(){
+        return React.createElement('div',{className:'card'},
+            React.createElement('div',{className:'card-header'},'Mix compiler evidence'),
+            React.createElement('div',{className:'card-body'},
+                React.createElement('p',null,data.beam.coverage.included+' of '+data.beam.coverage.compiled+' compiled source files · '+data.beam.project.environment),
+                React.createElement('p',null,'Arrows run from dependency to consumer. Compile: needed during compilation. Export: depends on the exported interface. Runtime: a compiler reference, not an observed execution.'),
+                React.createElement('p',null,'Collected '+(data.beam.producer.collectedAt||'at an unknown time')+'. Snapshot freshness is unverified. Source cards show current files.'),
+                React.createElement('p',null,'Function usage, dead code, security, and health are not assessed in this mode. Uncompiled tests and documentation are outside this graph.'),
+                data.beam.warnings.map(function(w,i){return React.createElement('p',{key:i,style:{color:'var(--t3)'}},w);})));
+    }
     function renderOverviewPane(){
         if(!data)return renderSidebarEmpty('No Repository','Enter a GitHub URL, open a folder, or load a ZIP archive');
         return React.createElement('div',{className:'sidebar-scroll'},
-            React.createElement('div',{className:'health-score',style:{marginBottom:10}},
+            data.beam?renderBeamEvidence():React.createElement('div',{className:'health-score',style:{marginBottom:10}},
                 React.createElement(HealthRing,{score:health.score,grade:health.grade}),
                 React.createElement('div',{className:'health-info'},
                     React.createElement('div',{className:'health-grade',style:{color:health.score>=80?'var(--green)':health.score>=60?'var(--orange)':'var(--red)'}},health.score,'/100'),
@@ -12931,14 +12987,14 @@ function App(){
                 )
             ),
             (cachedFromId||cliDirty.length>0)&&React.createElement('div',{className:'stale-banner'},
-                React.createElement('span',null,cliDirty.length?'Watched files changed. Re-analyze to refresh.':'Cached analysis. Re-analyze to refresh.'),
+                React.createElement('span',null,cliDirty.length?(data.beam?'Sources changed; compiler snapshot remains unchanged. Recompile and restart Codeflow to refresh relationships.':'Watched files changed. Re-analyze to refresh.'):'Cached analysis. Re-analyze to refresh.'),
                 React.createElement('button',{className:'top-btn primary',onClick:refreshAnalysis,disabled:loading},'Re-analyze')
             ),
             React.createElement('div',{className:'stats-grid'},
                 React.createElement('div',{className:'stat-card'},React.createElement('div',{className:'stat-value'},data.stats.files),React.createElement('div',{className:'stat-label'},'Files')),
-                React.createElement('div',{className:'stat-card'},React.createElement('div',{className:'stat-value'},data.stats.functions),React.createElement('div',{className:'stat-label'},'Functions')),
+                React.createElement('div',{className:'stat-card'},React.createElement('div',{className:'stat-value'},data.beam?'—':data.stats.functions),React.createElement('div',{className:'stat-label'},'Functions')),
                 React.createElement('div',{className:'stat-card'},React.createElement('div',{className:'stat-value'},data.stats.connections),React.createElement('div',{className:'stat-label'},'Links')),
-                React.createElement('div',{className:'stat-card'+(data.stats.dead>10?' warn':''),style:{cursor:data.stats.dead>0?'pointer':'default'},onClick:function(){if(data.stats.dead>0)setShowUnused(true);}},React.createElement('div',{className:'stat-value'},data.stats.dead),React.createElement('div',{className:'stat-label'},'Unused'))
+                React.createElement('div',{className:'stat-card'+(data.stats.dead>10?' warn':''),style:{cursor:data.stats.dead>0?'pointer':'default'},onClick:function(){if(data.stats.dead>0)setShowUnused(true);}},React.createElement('div',{className:'stat-value'},data.beam?'—':data.stats.dead),React.createElement('div',{className:'stat-label'},'Unused'))
             ),
             React.createElement('div',{className:'loc-stat'},
                 React.createElement('div',{className:'loc-value'},data.stats.loc?data.stats.loc.toLocaleString():'0'),
@@ -13224,7 +13280,7 @@ function App(){
     }
     function renderCodeView(){
         var primaryPath=selected&&selected.path;
-        var rootCount=countCodeViewRootFiles(data);
+        var rootCount=data&&data.beam?data.files.length:countCodeViewRootFiles(data);
         return React.createElement('div',{className:'code-canvas',ref:codeCanvasRef},
             React.createElement('svg',{ref:svgRef}),
             React.createElement('div',{className:'code-canvas-cards',ref:codeCardsLayerRef},
@@ -13235,7 +13291,7 @@ function App(){
                 React.createElement('div',{className:'empty-desc'},codeViewRootGateMessage(rootCount,codeViewRootGate))
             ),
             React.createElement('div',{className:'code-canvas-hud'},
-                React.createElement('div',{className:'code-canvas-hint'},codeRootGateActive?codeViewRootGateMessage(rootCount,codeViewRootGate):(codeViewFiles.length?'Open files from leftover nodes or the Files tree. Open cards stay put. Wheel pans · Ctrl+wheel zooms.':'No files to open as cards.')),
+                React.createElement('div',{className:'code-canvas-hint'},codeRootGateActive?codeViewRootGateMessage(rootCount,codeViewRootGate):(codeViewFiles.length?(data.beam?(folderFilter?'Showing the filtered folder. ':'Showing the selected file’s neighbors and open cards. '):'')+'Open files from nodes or the Files tree. Open cards stay put. Wheel pans · Ctrl+wheel zooms.':'No files to open as cards.')),
                 codeViewSymbols.length>0&&React.createElement('div',{className:'code-sym-list'},
                     codeViewSymbols.map(function(sym){
                         return React.createElement('button',{key:sym.name,className:'code-sym-chip '+sym.kind+(activeSymbol===sym.name?' active':''),title:sym.name,onClick:function(){setActiveSymbol(function(prev){return prev===sym.name?null:sym.name;});}},sym.name);
@@ -13533,7 +13589,7 @@ function App(){
                             React.createElement('option',{value:'sankey'},'Flow'),
                             React.createElement('option',{value:'disjoint'},'Cluster'),
                             React.createElement('option',{value:'bundle'},'Bundle'),
-                            React.createElement('option',{value:'architecture'},'Block Diagram')
+                            !data.beam&&React.createElement('option',{value:'architecture'},'Block Diagram')
                         )
                     ),
                     graphConfig.vizType==='graph'&&React.createElement('svg',{ref:svgRef}),
@@ -13609,8 +13665,8 @@ function App(){
                         onWheel:function(e){e.preventDefault();e.stopPropagation();}
                     },React.createElement('canvas',{ref:minimapCanvasRef})),
                     graphConfig.vizType!=='architecture'&&React.createElement('div',{className:'canvas-info'},
-                        React.createElement('div',{className:'info-chip'},React.createElement('strong',null,folderFilter?data.files.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}).length:data.files.length),' files'),
-                        React.createElement('div',{className:'info-chip'},React.createElement('strong',null,data.connections.length),' links'),
+                        React.createElement('div',{className:'info-chip'},React.createElement('strong',null,folderFilter?data.files.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}).length:data.files.length),data.beam?' project files':' files'),
+                        React.createElement('div',{className:'info-chip'},React.createElement('strong',null,data.connections.length),data.beam?' project links':' links'),
                         data.excludePatterns&&data.excludePatterns.length>0&&React.createElement('div',{className:'info-chip'},
                             React.createElement(Icon,{name:'ban',size:'s'}),
                             ' ',
@@ -13661,14 +13717,14 @@ function App(){
                 }}),
                 data?React.createElement(React.Fragment,null,
                     React.createElement('div',{className:'panel-tabs'},
-                        React.createElement('button',{className:'panel-tab'+(rightTab==='details'?' active':''),onClick:function(){setRightTab('details');setDrillDown(null);}},selected?iconLabel('file','FILE'):(graphConfig.vizType==='architecture'?iconLabel('layers','ARCH'):iconLabel('search','ISSUES'))),
-                        React.createElement('button',{className:'panel-tab'+(rightTab==='patterns'?' active':''),onClick:function(){setRightTab('patterns');setDrillDown(null);}},iconLabel('puzzle','PATTERNS'),React.createElement('span',{className:'panel-tab-pill'},data.patterns.length)),
-                        React.createElement('button',{className:'panel-tab'+(rightTab==='security'?' active':''),onClick:function(){setRightTab('security');setDrillDown(null);}},iconLabel('security','SECURITY'),data.stats.security>0&&React.createElement('span',{className:'panel-tab-pill alert'},data.stats.security)),
-                        React.createElement('button',{className:'panel-tab'+(rightTab==='suggestions'?' active':''),onClick:function(){setRightTab('suggestions');setDrillDown(null);}},iconLabel('action','ACTIONS'),data.suggestions&&data.suggestions.length>0&&React.createElement('span',{className:'panel-tab-pill alert'},data.suggestions.length))
+                        React.createElement('button',{className:'panel-tab'+(rightTab==='details'?' active':''),onClick:function(){setRightTab('details');setDrillDown(null);}},selected?iconLabel('file','FILE'):(graphConfig.vizType==='architecture'?iconLabel('layers','ARCH'):iconLabel('search',data.beam?'EVIDENCE':'ISSUES'))),
+                        !data.beam&&React.createElement('button',{className:'panel-tab'+(rightTab==='patterns'?' active':''),onClick:function(){setRightTab('patterns');setDrillDown(null);}},iconLabel('puzzle','PATTERNS'),React.createElement('span',{className:'panel-tab-pill'},data.patterns.length)),
+                        !data.beam&&React.createElement('button',{className:'panel-tab'+(rightTab==='security'?' active':''),onClick:function(){setRightTab('security');setDrillDown(null);}},iconLabel('security','SECURITY'),data.stats.security>0&&React.createElement('span',{className:'panel-tab-pill alert'},data.stats.security)),
+                        !data.beam&&React.createElement('button',{className:'panel-tab'+(rightTab==='suggestions'?' active':''),onClick:function(){setRightTab('suggestions');setDrillDown(null);}},iconLabel('action','ACTIONS'),data.suggestions&&data.suggestions.length>0&&React.createElement('span',{className:'panel-tab-pill alert'},data.suggestions.length))
                     ),
                     React.createElement('div',{className:'panel-content'},
                         rightTab==='details'&&(selected?React.createElement(React.Fragment,null,
-                            React.createElement('button',{className:'top-btn',style:{width:'100%',marginBottom:12},onClick:function(){setSelected(null);setBlastRadius(null);selectedPathRef.current=null;if(nodesRef.current){nodesRef.current.selectAll('.nc,.nb').transition().duration(200).attr('opacity',1).attr('fill',function(n){return d3.select(this).classed('nb')?graphColorBlockFill(getNodeColor(n)):getNodeColor(n);});}if(vizUsesForceLinkParticles(graphConfig.vizType))applyForceLinkVisuals();else if(linksRef.current)linksRef.current.transition().duration(200).attr('stroke-opacity',0.4).attr('stroke',theme==='light'?'#ccc':'#333');}},'← Back to Issues'),
+                            React.createElement('button',{className:'top-btn',style:{width:'100%',marginBottom:12},onClick:function(){setSelected(null);setBlastRadius(null);selectedPathRef.current=null;if(nodesRef.current){nodesRef.current.selectAll('.nc,.nb').transition().duration(200).attr('opacity',1).attr('fill',function(n){return d3.select(this).classed('nb')?graphColorBlockFill(getNodeColor(n)):getNodeColor(n);});}if(vizUsesForceLinkParticles(graphConfig.vizType))applyForceLinkVisuals();else if(linksRef.current)linksRef.current.transition().duration(200).attr('stroke-opacity',0.4).attr('stroke',theme==='light'?'#ccc':'#333');}},data.beam?'← Back to Evidence':'← Back to Issues'),
                             React.createElement('div',{className:'panel-header',style:{margin:'0 -12px 12px',padding:12}},
                                 React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}},
                                     React.createElement('div',null,
@@ -13679,7 +13735,7 @@ function App(){
                                 )
                             ),
                             blastRadius&&React.createElement('div',{className:'card',style:{marginBottom:12}},
-                                React.createElement('div',{className:'card-header',onClick:function(){toggleCard('blast');}},React.createElement('div',{className:'card-title'},React.createElement('span',{className:'card-toggle'+(expandedCards.has('blast')?' open':'')},'▶'),React.createElement(Icon,{name:'impact',size:'s'}),' Impact Analysis'),React.createElement('span',{className:'badge badge-'+(blastRadius.level==='low'?'success':blastRadius.level==='medium'?'warning':'danger')},blastRadius.level.toUpperCase())),
+                                React.createElement('div',{className:'card-header',onClick:function(){toggleCard('blast');}},React.createElement('div',{className:'card-title'},React.createElement('span',{className:'card-toggle'+(expandedCards.has('blast')?' open':'')},'▶'),React.createElement(Icon,{name:'impact',size:'s'}),data.beam?' Dependency Reach':' Impact Analysis'),!data.beam&&React.createElement('span',{className:'badge badge-'+(blastRadius.level==='low'?'success':blastRadius.level==='medium'?'warning':'danger')},blastRadius.level.toUpperCase())),
                                 expandedCards.has('blast')&&React.createElement('div',{className:'card-body'},
                                     React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:10}},
                                         React.createElement('div',{style:{background:'var(--bg0)',padding:8,borderRadius:6,textAlign:'center'}},
@@ -13688,10 +13744,10 @@ function App(){
                                         ),
                                         React.createElement('div',{style:{background:'var(--bg0)',padding:8,borderRadius:6,textAlign:'center'}},
                                             React.createElement('div',{style:{fontSize:16,fontWeight:600,color:'var(--purple)'}},blastRadius.transitiveCount||0),
-                                            React.createElement('div',{style:{fontSize:9,color:'var(--t3)'}},'Transitive')
+                                            React.createElement('div',{style:{fontSize:9,color:'var(--t3)'}},data.beam?'Reach (up to 3 hops)':'Transitive')
                                         ),
                                         React.createElement('div',{style:{background:'var(--bg0)',padding:8,borderRadius:6,textAlign:'center'}},
-                                            React.createElement('div',{style:{fontSize:16,fontWeight:600,color:'var(--green)'}},blastRadius.fnsUsed||0),
+                                            React.createElement('div',{style:{fontSize:16,fontWeight:600,color:'var(--green)'}},data.beam?'—':blastRadius.fnsUsed||0),
                                             React.createElement('div',{style:{fontSize:9,color:'var(--t3)'}},'Fns Exported')
                                         ),
                                         React.createElement('div',{style:{background:'var(--bg0)',padding:8,borderRadius:6,textAlign:'center'}},
@@ -13724,11 +13780,11 @@ function App(){
                                     var tgt=typeof c.target==='object'?c.target.id:c.target;
                                     if(src===selected.path){
                                         if(!connByFile.out[tgt])connByFile.out[tgt]={file:tgt,fns:[]};
-                                        connByFile.out[tgt].fns.push({name:c.fn,count:c.count});
+                                        connByFile.out[tgt].fns.push({name:c.evidence==='mix xref'?c.kind:c.fn,count:c.count});
                                     }
                                     if(tgt===selected.path){
                                         if(!connByFile.in[src])connByFile.in[src]={file:src,fns:[]};
-                                        connByFile.in[src].fns.push({name:c.fn,count:c.count});
+                                        connByFile.in[src].fns.push({name:c.evidence==='mix xref'?c.kind:c.fn,count:c.count});
                                     }
                                 });
                                 outgoing=Object.values(connByFile.out).sort(function(a,b){return b.fns.length-a.fns.length;});
@@ -13738,48 +13794,48 @@ function App(){
                                     React.createElement('div',{className:'card-header',onClick:function(){toggleCard('conns');}},React.createElement('div',{className:'card-title'},React.createElement('span',{className:'card-toggle'+(expandedCards.has('conns')?' open':'')},'▶'),React.createElement(Icon,{name:'link',size:'s'}),' Connections'),React.createElement('span',{className:'badge badge-default'},totalConns)),
                                     expandedCards.has('conns')&&React.createElement('div',{className:'card-body',style:{padding:0}},
                                         outgoing.length>0&&React.createElement(React.Fragment,null,
-                                            React.createElement('div',{style:{fontSize:9,fontWeight:600,color:'var(--t3)',padding:'8px 12px',background:'var(--bg2)',borderBottom:'1px solid var(--border)'}},'Uses (',outgoing.length,' files)'),
-                                            outgoing.slice(0,15).map(function(conn){
+                                            React.createElement('div',{style:{fontSize:9,fontWeight:600,color:'var(--t3)',padding:'8px 12px',background:'var(--bg2)',borderBottom:'1px solid var(--border)'}},data.beam?'Used by (':'Uses (',outgoing.length,' files)'),
+                                            (data.beam?outgoing:outgoing.slice(0,15)).map(function(conn){
                                                 var isOpen=expandedCards.has('conn-out-'+conn.file);
                                                 return React.createElement('div',{key:conn.file,className:'conn-item'},
                                                     React.createElement('div',{className:'conn-header',onClick:function(e){e.stopPropagation();toggleCard('conn-out-'+conn.file);}},
                                                         React.createElement('span',{className:'card-toggle'+(isOpen?' open':''),style:{fontSize:8,marginRight:6}},'▶'),
                                                         React.createElement('span',{className:'conn-file-icon'},React.createElement(Icon,{name:'file',size:'s'})),
                                                         React.createElement('span',{className:'conn-file-name'},conn.file.split('/').pop()),
-                                                        React.createElement('span',{className:'badge badge-default',style:{marginLeft:'auto'}},conn.fns.length,' fn',conn.fns.length!==1?'s':'')
+                                                        React.createElement('span',{className:'badge badge-default',style:{marginLeft:'auto'}},conn.fns.length,data.beam?' relationship':' fn',conn.fns.length!==1?'s':'')
                                                     ),
                                                     isOpen&&React.createElement('div',{className:'conn-fns'},
                                                         conn.fns.map(function(fn,i){return React.createElement('div',{key:i,className:'conn-fn'},
-                                                            React.createElement('span',{className:'conn-fn-name'},fn.name,'()'),
-                                                            React.createElement('span',{className:'conn-fn-count'},fn.count,'×')
+                                                            React.createElement('span',{className:'conn-fn-name'},fn.name,data.beam?'':'()'),
+                                                            React.createElement('span',{className:'conn-fn-count'},data.beam?'compiler reference':fn.count+'×')
                                                         );}),
                                                         React.createElement('div',{className:'conn-goto',onClick:function(){goToFile(conn.file);}},'→ View ',conn.file.split('/').pop())
                                                     )
                                                 );
                                             }),
-                                            outgoing.length>15&&React.createElement('div',{style:{fontSize:9,color:'var(--t3)',padding:8,textAlign:'center'}},'+',outgoing.length-15,' more files')
+                                            !data.beam&&outgoing.length>15&&React.createElement('div',{style:{fontSize:9,color:'var(--t3)',padding:8,textAlign:'center'}},'+',outgoing.length-15,' more files')
                                         ),
                                         incoming.length>0&&React.createElement(React.Fragment,null,
-                                            React.createElement('div',{style:{fontSize:9,fontWeight:600,color:'var(--t3)',padding:'8px 12px',background:'var(--bg2)',borderBottom:'1px solid var(--border)',borderTop:outgoing.length>0?'1px solid var(--border)':'none'}},'Used by (',incoming.length,' files)'),
-                                            incoming.slice(0,15).map(function(conn){
+                                            React.createElement('div',{style:{fontSize:9,fontWeight:600,color:'var(--t3)',padding:'8px 12px',background:'var(--bg2)',borderBottom:'1px solid var(--border)',borderTop:outgoing.length>0?'1px solid var(--border)':'none'}},data.beam?'Depends on (':'Used by (',incoming.length,' files)'),
+                                            (data.beam?incoming:incoming.slice(0,15)).map(function(conn){
                                                 var isOpen=expandedCards.has('conn-in-'+conn.file);
                                                 return React.createElement('div',{key:conn.file,className:'conn-item'},
                                                     React.createElement('div',{className:'conn-header',onClick:function(e){e.stopPropagation();toggleCard('conn-in-'+conn.file);}},
                                                         React.createElement('span',{className:'card-toggle'+(isOpen?' open':''),style:{fontSize:8,marginRight:6}},'▶'),
                                                         React.createElement('span',{className:'conn-file-icon'},React.createElement(Icon,{name:'file',size:'s'})),
                                                         React.createElement('span',{className:'conn-file-name'},conn.file.split('/').pop()),
-                                                        React.createElement('span',{className:'badge badge-default',style:{marginLeft:'auto'}},conn.fns.length,' fn',conn.fns.length!==1?'s':'')
+                                                        React.createElement('span',{className:'badge badge-default',style:{marginLeft:'auto'}},conn.fns.length,data.beam?' relationship':' fn',conn.fns.length!==1?'s':'')
                                                     ),
                                                     isOpen&&React.createElement('div',{className:'conn-fns'},
                                                         conn.fns.map(function(fn,i){return React.createElement('div',{key:i,className:'conn-fn'},
-                                                            React.createElement('span',{className:'conn-fn-name'},fn.name,'()'),
-                                                            React.createElement('span',{className:'conn-fn-count'},fn.count,'×')
+                                                            React.createElement('span',{className:'conn-fn-name'},fn.name,data.beam?'':'()'),
+                                                            React.createElement('span',{className:'conn-fn-count'},data.beam?'compiler reference':fn.count+'×')
                                                         );}),
                                                         React.createElement('div',{className:'conn-goto',onClick:function(){goToFile(conn.file);}},'→ View ',conn.file.split('/').pop())
                                                     )
                                                 );
                                             }),
-                                            incoming.length>15&&React.createElement('div',{style:{fontSize:9,color:'var(--t3)',padding:8,textAlign:'center'}},'+',incoming.length-15,' more files')
+                                            !data.beam&&incoming.length>15&&React.createElement('div',{style:{fontSize:9,color:'var(--t3)',padding:8,textAlign:'center'}},'+',incoming.length-15,' more files')
                                         )
                                     )
                                 );
@@ -13795,9 +13851,9 @@ function App(){
                                 )
                             ),
                             React.createElement('div',{className:'card'},
-                                React.createElement('div',{className:'card-header',onClick:function(){toggleCard('fns');}},React.createElement('div',{className:'card-title'},React.createElement('span',{className:'card-toggle'+(expandedCards.has('fns')?' open':'')},'▶'),React.createElement(Icon,{name:'bolt',size:'s'}),' Functions (',selected.functions.length,')')),
+                                React.createElement('div',{className:'card-header',onClick:function(){toggleCard('fns');}},React.createElement('div',{className:'card-title'},React.createElement('span',{className:'card-toggle'+(expandedCards.has('fns')?' open':'')},'▶'),React.createElement(Icon,{name:'bolt',size:'s'}),' Functions (',data.beam?'not assessed':selected.functions.length,')')),
                                 expandedCards.has('fns')&&React.createElement('div',{className:'card-body',style:{padding:8}},
-                                    selected.functions.length===0?React.createElement('div',{style:{fontSize:10,color:'var(--t3)',padding:8,textAlign:'center'}},'No functions detected'):
+                                    selected.functions.length===0?React.createElement('div',{style:{fontSize:10,color:'var(--t3)',padding:8,textAlign:'center'}},data.beam?'Function analysis is unavailable in compiler file graphs. Open the source to inspect definitions.':'No functions detected'):
                                     selected.functions.map(function(fn){
                                         var statKey=fn.key||Parser.functionKey(fn);
                                         var st=data.fnStats[statKey]||data.fnStats[fn.name];
@@ -13806,7 +13862,7 @@ function App(){
                                         var intCalls=st?st.internal:0,extCalls=st?st.external:0;
                                         return React.createElement('div',{key:expandKey,className:'fn-item'},
                                             React.createElement('div',{className:'fn-header',onClick:function(){toggleFn(expandKey);}},
-                                                React.createElement('span',{className:'fn-name'},fn.name,'()'),
+                                                React.createElement('span',{className:'fn-name'},fn.name,data.beam?'':'()'),
                                                 React.createElement('span',{style:{display:'flex',alignItems:'center',gap:4}},
                                                     React.createElement('button',{className:'view-file-btn',onClick:function(e){e.stopPropagation();openFilePreview(selected.path,fn.line);},title:'View source'},React.createElement(Icon,{name:'eye',size:'s'})),
                                                     React.createElement('span',{className:'fn-line'},'L',fn.line),
@@ -13834,7 +13890,7 @@ function App(){
                                     })
                                 )
                             )
-                        ):graphConfig.vizType==='architecture'?renderArchitectureSummary():React.createElement(React.Fragment,null,
+                        ):data.beam?renderBeamEvidence():graphConfig.vizType==='architecture'?renderArchitectureSummary():React.createElement(React.Fragment,null,
                             React.createElement('div',{style:{fontSize:12,fontWeight:600,marginBottom:12}},React.createElement(Icon,{name:'search',size:'m'}),' Architecture Issues (',data.issues.length,')'),
                             data.issues.length===0?React.createElement('div',{style:{textAlign:'center',padding:20}},React.createElement(Icon,{name:'spark',size:'xxl',className:'empty-icon'}),React.createElement('div',{style:{color:'var(--green)'}},'No issues detected!')):
                             data.issues.map(function(issue,i){return React.createElement('div',{key:i,className:'security-item '+(issue.type==='critical'?'high':'medium'),style:{cursor:'pointer'},onClick:function(){setDrillDown({type:'issue',data:issue});}},
@@ -13942,12 +13998,14 @@ function App(){
                             React.createElement('div',{className:'export-option',onClick:function(){copyLink();setShowExport(false);}},React.createElement('div',{className:'export-option-icon'},React.createElement(Icon,{name:'link',size:'xl'})),React.createElement('div',{className:'export-option-label'},'Share Link'))
                         )
                     ),
+                    !data.beam&&React.createElement(React.Fragment,null,
                     React.createElement('div',{style:{fontSize:10,fontWeight:600,color:'var(--t3)',textTransform:'uppercase',marginBottom:8,marginTop:16}},'Analysis Report'),
                     React.createElement('div',{style:{fontSize:9,color:'var(--t2)',marginBottom:10}},'Complete analysis with files, functions, patterns, security issues, and dependencies'),
                     React.createElement('div',{className:'export-options'},
                         React.createElement('div',{className:'export-option',onClick:function(){generateReport('json');setShowExport(false);}},React.createElement('div',{className:'export-option-icon'},React.createElement(Icon,{name:'code',size:'xl'})),React.createElement('div',{className:'export-option-label'},'JSON Report')),
                         React.createElement('div',{className:'export-option',onClick:function(){generateReport('md');setShowExport(false);}},React.createElement('div',{className:'export-option-icon'},React.createElement(Icon,{name:'note',size:'xl'})),React.createElement('div',{className:'export-option-label'},'Markdown')),
                         React.createElement('div',{className:'export-option',onClick:function(){generateReport('txt');setShowExport(false);}},React.createElement('div',{className:'export-option-icon'},React.createElement(Icon,{name:'file',size:'xl'})),React.createElement('div',{className:'export-option-label'},'Plain Text'))
+                    )
                     ),
                     React.createElement('div',{style:{fontSize:10,fontWeight:600,color:'var(--t3)',textTransform:'uppercase',marginBottom:8,marginTop:16}},'Raw Data'),
                     React.createElement('div',{className:'export-options'},
@@ -14332,7 +14390,7 @@ function App(){
                         return React.createElement('div',{key:i,className:'unused-fn'},
                             React.createElement('div',{className:'unused-fn-header',onClick:function(){toggleFn('dead-'+fn.name);}},
                                 React.createElement('div',null,
-                                    React.createElement('span',{className:'unused-fn-name'},fn.name,'()'),
+                                    React.createElement('span',{className:'unused-fn-name'},fn.name,data.beam?'':'()'),
                                     React.createElement('div',{className:'unused-fn-path'},
                                         React.createElement('span',null,React.createElement(Icon,{name:'folder',size:'s'}),' ',fn.folder||'root'),
                                         React.createElement('span',null,'→'),

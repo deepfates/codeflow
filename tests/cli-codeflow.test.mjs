@@ -252,6 +252,13 @@ test('CLI watch events tell the UI which file changed', async (t) => {
   });
   const { port } = server.address();
   const events = await new Promise((resolve, reject) => {
+    let writeTimer, deadline;
+    const finish = (error, value) => {
+      clearTimeout(writeTimer);
+      clearTimeout(deadline);
+      req.destroy();
+      if (error) reject(error); else resolve(value);
+    };
     const req = http.request({
       hostname: '127.0.0.1',
       port,
@@ -262,19 +269,21 @@ test('CLI watch events tell the UI which file changed', async (t) => {
       res.setEncoding('utf8');
       res.on('data', (chunk) => {
         buf += chunk;
-        if (buf.includes('data: ')) {
+        // macOS may deliver an earlier directory event for fixture setup.
+        // Wait for the actual edited file, not simply the first event.
+        if (buf.includes('"path":"src/app.js"')) {
           res.destroy();
-          resolve(buf);
+          finish(null, buf);
         }
       });
-      res.on('error', reject);
+      res.on('error', (error) => finish(error));
     });
-    req.on('error', reject);
+    req.on('error', (error) => finish(error));
     req.end();
-    setTimeout(async () => {
-      await writeFile(join(root, 'src', 'app.js'), 'export const ok = 2;\n');
+    writeTimer = setTimeout(() => {
+      writeFile(join(root, 'src', 'app.js'), 'export const ok = 2;\n').catch((error) => finish(error));
     }, 40);
-    setTimeout(() => reject(new Error('watch event timed out')), 3000);
+    deadline = setTimeout(() => finish(new Error('watch event timed out')), 3000);
   });
   assert.match(events, /"type":"change"/);
   assert.match(events, /"path":"src\/app.js"/);
