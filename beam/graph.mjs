@@ -46,3 +46,12 @@ export function neighbors(graph, id, kinds = new Set(['compile', 'export', 'runt
   return { incoming: graph.edges.filter(e => kinds.has(e.kind) && e.target === id),
     outgoing: graph.edges.filter(e => kinds.has(e.kind) && e.source === id) };
 }
+// A focused view includes only relationships touching the chosen file. Connections
+// among its neighbors belong to the whole-project view, not this explanation.
+export function focusGraph(graph, id, kinds = new Set(['compile', 'export', 'runtime'])) {
+  const focal = graph.nodes.find(node => node.id === id);
+  if (!focal) return { ...graph, nodes: [], edges: [] };
+  const edges = graph.edges.filter(edge => kinds.has(edge.kind) && (edge.source === id || edge.target === id));
+  const ids = new Set([id, ...edges.flatMap(edge => [edge.source, edge.target])]);
+  return { ...graph, nodes: graph.nodes.filter(node => ids.has(node.id)), edges };
+}

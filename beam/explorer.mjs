@@ -1,6 +1,6 @@
-import { projectGraph, initialExpanded, ancestors, neighbors, fileId } from './graph.mjs';
+import { projectGraph, initialExpanded, ancestors, neighbors, fileId, focusGraph } from './graph.mjs';
 const $ = id => document.getElementById(id);
-let graph, expanded = new Set(), cy, projection, selected = null, sourceRequest = 0, layoutRun = 0;
+let graph, expanded = new Set(), cy, projection, selected = null, sourceRequest = 0, layoutRun = 0, focusedId = null;
 const kinds = () => new Set([...document.querySelectorAll('[name=kind]:checked')].map(n => n.value));
 const description = {
   compile: 'The caller has a compile-time dependency on the target. Changes to the dependency can require recompiling the caller.',
@@ -13,7 +13,8 @@ function message(text) { $('empty').hidden = !text; $('empty').textContent = tex
 function save() { try { sessionStorage.setItem(`beam:${graph.project.root}`, JSON.stringify([...expanded])); } catch {} }
 function openFile(id) {
   const node = graph.nodes.find(n=>n.id===id); if(!node) return;
-  for(const path of ancestors(node.path)) expanded.add(path);
+  if(focusedId) focusedId=id;
+  else for(const path of ancestors(node.path)) expanded.add(path);
   render(false); selectFile(id);
   // ELK is async: reveal the node after its layout settles.
   const run = layoutRun;
@@ -21,7 +22,10 @@ function openFile(id) {
 }
 function render(fit=false) {
   if(!graph || !cy) return;
-  projection=projectGraph(graph,expanded,kinds()); save();
+  const viewGraph=focusedId ? focusGraph(graph,focusedId,kinds()) : graph;
+  const viewExpanded=focusedId ? new Set(viewGraph.nodes.flatMap(n=>ancestors(n.path))) : expanded;
+  projection=projectGraph(viewGraph,viewExpanded,kinds()); save();
+  $('unfocus').hidden=!focusedId;
   const positions = new Map(cy.nodes().map(n=>[n.id(),n.position()]));
   cy.elements().remove();
   cy.add([
@@ -31,12 +35,13 @@ function render(fit=false) {
   const currentRun=++layoutRun;
   const layout=cy.layout({name:'elk',fit:false,animate:false,nodeDimensionsIncludeLabels:true,elk:{algorithm:'layered','elk.direction':'RIGHT','elk.spacing.nodeNode':35,'elk.layered.spacing.nodeNodeBetweenLayers':65,'elk.layered.crossingMinimization.semiInteractive':true}});
   layout.one('layoutstop',()=>{if(currentRun===layoutRun && fit) cy.fit(undefined,45);}); layout.run();
-  $('view-count').textContent=`${projection.nodes.length} places · ${projection.edges.length} connections`;
+  $('view-count').textContent=focusedId ? `Focused · ${projection.nodes.length} files · ${projection.edges.length} connections` : `${projection.nodes.length} places · ${projection.edges.length} connections`;
   $('expanded').replaceChildren(...[...expanded].sort().map(path=>button(`− ${path}`,()=>{
     for(const p of [...expanded]) if(p===path || p.startsWith(path+'/')) expanded.delete(p);
     render(true); $('selection').replaceChildren(el('h2','Directory folded'),el('p',path,'path'));
   })));
-  if(!expanded.size) $('expanded').append(el('p','All directories are folded.','muted small'));
+  if(focusedId) $('expanded').replaceChildren(el('p','Directory expansion is saved. Show the whole project to return to it.','muted small'));
+  else if(!expanded.size) $('expanded').append(el('p','All directories are folded.','muted small'));
   $('visible-items').replaceChildren(...projection.nodes.map(n=>button(`${n.path}${n.type==='group'?` (${n.members.length} files)`:''}`,()=>selectNode(n))));
   if(selected) cy.getElementById(selected).select();
 }
@@ -73,11 +78,14 @@ function selectEdge(edge) {
 }
 async function selectFile(id) {
   const node=graph.nodes.find(n=>n.id===id); if(!node)return;
+  if(focusedId && focusedId!==id){focusedId=id;render(true);}
   const request=++sourceRequest;selected=fileId(id);cy.elements().unselect();cy.getElementById(selected).select();
   const pane=$('selection');pane.replaceChildren(el('h2',node.label),el('p',node.path,'path'));
+  pane.append(button('Focus connections',()=>{focusedId=id;render(true);selectFile(id);},'primary'));
+  if(focusedId) pane.append(el('p','Focused view: only this file and its direct dependencies and users. Connections among neighbors are omitted.','muted small'));
   const related=neighbors(graph,id,kinds());
   for(const [title,edges,field] of [['Depends on',related.outgoing,'target'],['Used by',related.incoming,'source']]) {
-    const detail=el('details');detail.open=true;detail.append(el('summary',`${title} · ${edges.length}`));
+    const detail=el('details');detail.open=edges.length<=8;detail.append(el('summary',`${title} · ${edges.length}`));
     for(const edge of edges) detail.append(button(`${edge[field]} · ${edge.kind}`,()=>openFile(edge[field])));
     pane.append(detail);
   }
@@ -101,7 +109,7 @@ async function load() {
     if(data.status!=='ready')throw new Error(data.message || data.error?.message || 'Compiler evidence is unavailable. See the warnings for the required setup.');
     if(data.schemaVersion!==1 || !Array.isArray(data.nodes)||!Array.isArray(data.edges))throw new Error('Unsupported compiler graph response.');
     const sameProject=graph?.project?.root===data.project.root;graph=data;
-    if(!sameProject){expanded=initialExpanded(graph.nodes);try{const saved=JSON.parse(sessionStorage.getItem(`beam:${graph.project.root}`));if(Array.isArray(saved))expanded=new Set(saved.filter(p=>typeof p==='string'));}catch{}}
+    if(!sameProject){focusedId=null;expanded=initialExpanded(graph.nodes);try{const saved=JSON.parse(sessionStorage.getItem(`beam:${graph.project.root}`));if(Array.isArray(saved))expanded=new Set(saved.filter(p=>typeof p==='string'));}catch{}}
     $('totals').textContent=`${graph.nodes.length} source files · ${graph.edges.length} relationships`;
     $('producer').textContent=`Producer: ${graph.producer?.name||'Mix xref'}. ${graph.producer?.version||''} Collected: ${graph.producer?.collectedAt||'not reported'}. Snapshot freshness is unverified; restart Codeflow after recompiling to collect new relationships.`;
     if(!window.cytoscape)throw new Error('The bundled graph library could not load. Check that vendor assets are installed.');
@@ -119,15 +127,16 @@ async function load() {
     }
     message(graph.nodes.length?'':'No compiled source files were reported. Check the Mix environment and compile the project.');render(true);search();
   } catch(error) {
-    graph=null; projection=null; selected=null; sourceRequest++;
+    graph=null; projection=null; selected=null; focusedId=null; $('unfocus').hidden=true; sourceRequest++;
     message(error.message); if(cy)cy.elements().remove();
     for(const id of ['search-results','visible-items','expanded','selection'])$(id).replaceChildren();
     $('totals').textContent=''; $('view-count').textContent='Evidence unavailable';
   }
   finally{$('refresh').disabled=false;}
 }
+$('unfocus').onclick=()=>{focusedId=null;render(true);$('selection').replaceChildren(el('h2','Whole project'),el('p','Your directory expansion is restored.'));};
 $('fit').onclick=()=>cy?.fit(undefined,45);
-$('reset').onclick=()=>{if(!graph)return;expanded=initialExpanded(graph.nodes);selected=null;render(true);};
+$('reset').onclick=()=>{if(!graph)return;expanded=initialExpanded(graph.nodes);selected=null;focusedId=null;render(true);};
 $('refresh').onclick=load;$('search').addEventListener('input',search);
 for(const input of document.querySelectorAll('[name=kind]'))input.addEventListener('change',()=>{render(true);$('selection').replaceChildren(el('h2','Relationship filters updated'),el('p','Select a place or connection to inspect the filtered evidence.'));});
 load();

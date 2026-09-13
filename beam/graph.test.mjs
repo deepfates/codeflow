@@ -37,3 +37,19 @@ test('root files and orphan edges do not become fake groups', () => {
   const result = projectGraph({nodes:[{id:'mix.exs',path:'mix.exs',label:'mix.exs'}],edges:[{source:'absent',target:'mix.exs',kind:'compile'}]});
   assert.equal(result.nodes[0].type,'file'); assert.equal(result.edges.length,0);
 });
+test('focus includes only incident matching edges, not connections among neighbors', async () => {
+  const {focusGraph}=await import('./graph.mjs');
+  const focused=focusGraph(graph,paths[0]);
+  assert.deepEqual(focused.edges.map(e=>e.id),['1','3','4']);
+  assert.equal(focused.nodes.length,3);
+  const filtered=focusGraph(graph,paths[0],new Set(['runtime']));
+  assert.deepEqual(filtered.edges.map(e=>e.id),['3']);
+  assert.deepEqual(filtered.nodes.map(n=>n.id),[paths[0],paths[2]]);
+});
+test('focus keeps isolated focal files and handles an absent file', async () => {
+  const {focusGraph}=await import('./graph.mjs');
+  const isolated=focusGraph(graph,paths[1],new Set());
+  assert.deepEqual(isolated.nodes.map(n=>n.id),[paths[1]]);
+  assert.deepEqual(isolated.edges,[]);
+  assert.deepEqual(focusGraph(graph,'absent').nodes,[]);
+});
