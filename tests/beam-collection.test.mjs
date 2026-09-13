@@ -8,14 +8,14 @@ import { buildAnalyzed } from '../card/lib/collect.js';
 import { loadAnalyzer } from '../card/lib/analyzer.js';
 
 const { Parser } = loadAnalyzer(new URL('../index.html', import.meta.url).pathname);
-test('local and headless acquisition keep project code and prune nested Mix artifacts', async t => {
+test('local and headless acquisition retain source in Mix dependencies and generated directories', async t => {
   const root = await mkdtemp(join(tmpdir(), 'codeflow-mix-collection-'));
   t.after(() => rm(root, {recursive:true,force:true}));
   for (const directory of ['lib', 'apps/web/lib', 'deps/pkg/lib', '_build/dev/lib', 'apps/web/deps/pkg', '.elixir_ls']) {
     await mkdir(join(root,directory), {recursive:true});
     await writeFile(join(root,directory,'sample.ex'), 'defmodule Sample do\nend');
   }
-  const expected=['apps/web/lib/sample.ex','lib/sample.ex'];
+  const expected=['lib', 'apps/web/lib', 'deps/pkg/lib', '_build/dev/lib', 'apps/web/deps/pkg', '.elixir_ls'].map(directory => directory+'/sample.ex').sort();
   assert.deepEqual((await listWatchFiles(root)).map(f=>f.path).sort(),expected);
   assert.deepEqual((await buildAnalyzed(root,Parser,[])).analyzed.map(f=>f.path).sort(),expected);
 });

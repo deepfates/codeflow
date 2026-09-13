@@ -18,6 +18,29 @@ vm.createContext(context);
 vm.runInContext(htmlSource.slice(start, end + endMarker.length), context);
 const J = (v) => JSON.parse(JSON.stringify(v));
 
+test('syntax highlighting preserves source text across markup and keyword passes', () => {
+  const start = htmlSource.indexOf('    function highlightSyntax(');
+  const end = htmlSource.indexOf('\n    function folderSourceIsLive', start);
+  const highlight = vm.runInNewContext('(' + htmlSource.slice(start, end).trim() + ')');
+  const sources = [
+    ['target.js', 'export function target() { return 42; }\nconst answer:Widget = target   ();'],
+    ['sample.py', 'class Example:\n    def answer(self):\n        return 42 # class answer'],
+    ['Sample.java', 'class Sample { int answer() { return 42; } }'],
+    ['sample.rb', 'class Sample\n  def answer\n    42\n  end\nend'],
+    ['sample.php', '<?php class Sample { function answer() { return 42; } }'],
+    ['sample.html', '<main class="example" data-count="42">& source</main>'],
+    ['sample.js', "// class return 42\nconst text = 'class return 42';\nif (a < 42 && b > 0) target  ();"],
+  ];
+  for (const [filename, source] of sources) {
+    const rendered = highlight(source, filename).join('\n');
+    const text = rendered.replace(/<\/?span\b[^>]*>/g, '')
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+    assert.equal(text, source, filename + ' must retain every source character');
+  }
+  assert.match(highlight('return 42;', 'sample.js')[0], /<span class="syn-num">42<\/span>/);
+  assert.match(highlight('return 42;', 'sample.js')[0], /<span class="syn-kw">return<\/span>/);
+});
+
 test('readable labels grow only when zoomed out', () => {
   assert.equal(context.readableLabelScale(1), 1);
   assert.equal(context.readableLabelScale(2), 1);
@@ -1789,7 +1812,6 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /codeSourceInFlightRef/);
   assert.match(htmlSource, /analysisHydrationId/);
   assert.match(htmlSource, /currentHydrationId/);
-  assert.match(htmlSource, /openedSceneRef\.current=sceneIdentity/);
   assert.match(htmlSource, /hydratedSourceIsCurrent/);
   assert.match(htmlSource, /codeCardDragDelta/);
   assert.match(htmlSource, /openCodeFileRef\.current\(seed,true\)/);
@@ -1860,7 +1882,6 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /githubSourceKeyForLoadedAnalysis/);
   assert.match(htmlSource, /folderFilterAfterCodeNav/);
   assert.match(htmlSource, /setFolderFilter\(nextFilter\)/);
-  assert.match(htmlSource, /allowReplace=data&&data\.beam\?!!replace:!!\(replace\|\|reveal\)/);
   assert.match(htmlSource, /filterAnalyzableLocalFiles\(/);
   assert.match(htmlSource, /asCodeLines\(highlightSyntax/);
   assert.match(htmlSource, /codeCardDiffRows\(file,cliLiveByPath/);

@@ -41,17 +41,23 @@ install additional dependencies. Set `CODEFLOW_ELIXIR_LS` to use an existing lau
 compiler graph is still read. `--no-open` prints the URL without opening a browser.
 Browser libraries are included under `vendor/`; no frontend build is needed.
 
-Graph opens at the project root, grouping files by folder. Click a folder to
-expand it and use the breadcrumb to go back. Tests, documentation and configuration
-remain available in the graph and file tree. Code view opens source cards; the
-File panel contains the ElixirLS outline and reference navigation. Command-click
-(or Ctrl-click) source text to go to a definition; add Shift to find references.
-Findings from compiler diagnostics and the project's `mix credo --format json`
-command open the corresponding source location. A missing or failed analysis tool
-is reported as unavailable, not as a clean assessment.
+Graph keeps Codeflow's file nodes, connections, layouts and folder filtering.
+Compiler references enrich the same graph alongside source-analysis relationships,
+including links from tests, documentation and other languages. Dependencies and
+generated source remain available
+under the normal collection rules; use the existing exclusions control to choose
+what belongs in your view.
 
-Workspace scope, selection, open cards, card placement, sizes and camera are saved
-in this browser for each project. Source contents are loaded from the local server.
+Code view uses the existing source cards. The File panel adds an ElixirLS outline;
+Command-click (or Ctrl-click) source text to go to a definition, and add Shift to
+find references. Compiler diagnostics and Credo findings appear in Issues with
+source locations and provider attribution, and are included in analysis exports.
+Patterns, Security, Actions, Block Diagram and reports remain available. Tool
+failure is reported as unavailable, not as a clean assessment.
+
+Workspace scope, selection, open cards, placement, sizes and camera are saved in
+this browser for each project, including projects without Elixir. Source contents
+are loaded from the local server.
 
 To inspect a running local BEAM node:
 
@@ -65,16 +71,21 @@ node must already be running locally with matching distribution naming and cooki
 Refresh collects applications, supervision trees, process metrics and source links.
 It does not start the application, inspect process state or record messages.
 
-Graph relationships come from Mix compiler manifests. After each successful
-ElixirLS build, Codeflow collects its updated graph and refreshes the current view
-without clearing open cards. With `--source-only`, the graph is the initial snapshot
-of ordinary build artifacts; recompile and restart to update it.
+Compiler relationships come from Mix manifests; source-analysis relationships
+retain their own provenance. After each successful ElixirLS build, Codeflow collects its updated graph and refreshes the current view
+without clearing open cards. With `--source-only`, compiler evidence is the initial
+snapshot of ordinary build artifacts; recompile and restart to update it.
 [`mix xref`](https://mix.hexdocs.pm/Mix.Tasks.Xref.html) distinguishes compile,
 export and runtime dependencies; a runtime edge means a reference inside function
-code, not an observed execution. Arrows point from dependency to consumer. Source and language-server results may be newer than the latest successful
-compiler snapshot. Missing artifacts leave source exploration available without
-guessed dependency edges. Elixir function usage and health grades are not inferred
-from missing cross-file calls.
+code, not an observed execution. Arrows point from dependency to consumer. Source
+and language-server results may be newer than the latest successful compiler
+snapshot. Missing compiler artifacts leave the existing source analysis available.
+The health score remains Codeflow's heuristic summary. Functions without observed
+callers stay available for investigation; Elixir callbacks and dynamic invocation
+make their usage uncertain, so those candidates do not count as proven dead code
+in the score. Source-based patterns and security checks remain heuristic findings,
+not compiler guarantees. Block Diagram retains its existing grouping, which can
+be coarse for Elixir projects, and adds compiler links between those blocks.
 
 Live message tracing, execution replay and agent-history integration are outside
 this version. The hosted upstream demo does not include this fork's integration.

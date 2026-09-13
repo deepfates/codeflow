@@ -767,7 +767,7 @@ body{height:100dvh;min-height:100dvh}
 const{useState,useEffect,useLayoutEffect,useRef,useMemo,useCallback}=React;
 const COLORS=['#4d9fff','#a78bfa','#22d3ee','#00ff9d','#ff9f43','#ec4899','#ff5f5f','#84cc16'];
 const LAYER_COLORS={ui:'#4d9fff',components:'#22d3ee',services:'#a78bfa',utils:'#00ff9d',data:'#ff9f43',config:'#ec4899',test:'#f59e0b',modules:'#a78bfa',forms:'#22d3ee',classes:'#ff9f43',note:'#c084fc'};
-const IGNORE=new Set(['node_modules','.git','_build','deps','.elixir_ls','vendor','dist','build','out','coverage','.next','.nuxt','.cache','.parcel-cache','.turbo','.vercel','.local','.artifacts','.playwright-cli','playwright-report','test-results','.claude','.codex','.idea','.vscode','.pnpm-store','.yarn','tmp','temp','target','bin','obj','__pycache__','.venv','venv','env','.env','.tox','.mypy_cache','.pytest_cache','.ruff_cache','__pypackages__','.eggs','__macosx']);
+const IGNORE=new Set(['node_modules','.git','vendor','dist','build','out','coverage','.next','.nuxt','.cache','.parcel-cache','.turbo','.vercel','.local','.artifacts','.playwright-cli','playwright-report','test-results','.claude','.codex','.idea','.vscode','.pnpm-store','.yarn','tmp','temp','target','bin','obj','__pycache__','.venv','venv','env','.env','.tox','.mypy_cache','.pytest_cache','.ruff_cache','__pypackages__','.eggs','__macosx']);
 const DEFAULT_EXCLUDE_CHIPS=['.git','node_modules','dist','build','coverage','.next','.turbo','.local','.venv','venv','.tox'];
 const ANALYSIS_LIMITS={repoSoft:300,repoMax:750,localSoft:500};
 
@@ -5457,31 +5457,87 @@ async function buildAnalysisData(options){
     return dataObj;
 }
 
-// Mix supplies file relationships; reuse the native analysis model and every
-// existing canvas/navigation consumer. No function-use or quality inference is
-// possible from this evidence, so those assessments stay explicitly absent.
+// Enrich the shared source analysis with compiler evidence. A compiler snapshot
+// describes file references, not function liveness, and never replaces source
+// analysis or evidence from another provider.
 function buildBeamAnalysisData(options){
-    var snapshot=options.snapshot;
-    snapshot=snapshot||{schemaVersion:1,status:'unavailable',nodes:[],edges:[],warnings:['Compiler evidence unavailable']};
+    var data=options.data;
+    var snapshot=options.snapshot||{schemaVersion:1,status:'unavailable',nodes:[],edges:[],warnings:['Compiler evidence unavailable']};
     var compiled=new Set((snapshot.nodes||[]).map(function(n){return n.path;}));
-    var files=options.analyzed.map(function(f){
-        return Object.assign({},f,{functions:[],dependencies:[],layer:f.path.startsWith('test/')?'test':f.isCode?'source':'note',compiled:compiled.has(f.path),parserProvenance:compiled.has(f.path)?'mix xref':'source',complexity:null});
-    });
+    var files=data.files.map(function(f){return Object.assign({},f,{compiled:compiled.has(f.path)});});
     var included=new Set(files.map(function(f){return f.path;}));
-    var connections=(snapshot.status==='ready'?snapshot.edges||[]:[]).filter(function(e){return included.has(e.source)&&included.has(e.target);}).map(function(e){
-        // Native Codeflow arrows run from provider to consumer (calcBlast).
-        // Mix arrows run from consumer to dependency: reverse at this boundary.
-        return {source:e.target,target:e.source,kind:e.kind,evidence:'mix xref',fn:null,count:1};
+    var connections=data.connections.filter(function(c){return c.evidence!=='mix xref';}).map(function(c){return Object.assign({},c,{evidence:c.evidence||'source analysis'});});
+    var seen=new Set();
+    (snapshot.status==='ready'?snapshot.edges||[]:[]).forEach(function(e){
+        if(!included.has(e.source)||!included.has(e.target))return;
+        var key=JSON.stringify([e.source,e.target,e.kind]);
+        if(seen.has(key))return;
+        seen.add(key);
+        // Native arrows run from provider to consumer; Mix uses the reverse.
+        connections.push({source:e.target,target:e.source,kind:e.kind,evidence:'mix xref',fn:null,count:1});
     });
-    var byPath=new Map(files.map(function(f){return[f.path,f];}));
-    connections.forEach(function(c){byPath.get(c.target).dependencies.push(c.source);});
-    var loc=files.reduce(function(n,f){return n+f.lines;},0);
-    var langs={};files.forEach(function(f){var ext=f.name.split('.').pop();langs[ext]=(langs[ext]||0)+f.lines;});
-    return {files:files,functions:[],connections:connections,fnStats:{},folders:[...new Set(files.map(function(f){return f.folder;}))].sort(),tree:buildTree(files),
-        issues:[],patterns:[],securityIssues:[],duplicates:[],layerViolations:[],deadFunctions:[],suggestions:[],excludePatterns:options.excludePatterns||[],
+    var isElixir=function(f){return /\.exs?$/.test(f.file||f.path||'');};
+    var deadFunctions=data.deadFunctions.map(function(f){return isElixir(f)?Object.assign({},f,{certainty:'unverified',evidence:'source analysis'}):f;});
+    var fnStats=Object.assign({},data.fnStats);
+    Object.keys(fnStats).forEach(function(key){
+        var stat=fnStats[key];
+        if(isElixir(stat)&&stat.internal===0&&stat.external===0)fnStats[key]=Object.assign({},stat,{usageCertainty:'unverified'});
+    });
+    var issues=data.issues.map(function(issue){
+        if(!/ Unused Functions$/.test(issue.title)&&issue.evidence!=='elixir-callers')return issue;
+        if(!issue.items.some(isElixir))return issue;
+        return Object.assign({},issue,{title:issue.items.length+' Functions Without Observed Callers',
+            desc:'Source analysis found no callers. Elixir callbacks, macros and dynamic dispatch may invoke these functions; this is not evidence that they are unused.',
+            evidence:'elixir-callers',certainty:'unverified',items:issue.items.map(function(f){return isElixir(f)?Object.assign({},f,{certainty:'unverified',evidence:'source analysis'}):f;})});
+    });
+    var architectureDiagram=data.architectureDiagram;
+    if(architectureDiagram){
+        var dependencies=architectureDiagram.dependencies.filter(function(dep){return dep.evidence!=='mix xref';});
+        connections.filter(function(c){return c.evidence==='mix xref';}).forEach(function(c){
+            // Architecture arrows describe the consumer depending on a provider.
+            var from=findBlockByFile(architectureDiagram.blocks,c.target);
+            var to=findBlockByFile(architectureDiagram.blocks,c.source);
+            if(from&&to&&from.id!==to.id)dependencies.push({from:from.id,to:to.id,kind:c.kind,label:c.kind+' reference',confidence:'high',evidence:'mix xref'});
+        });
+        var dependencyKeys=new Set();
+        dependencies=dependencies.filter(function(dep){var key=JSON.stringify([dep.from,dep.to,dep.kind,dep.label,dep.evidence||'source analysis']);if(dependencyKeys.has(key))return false;dependencyKeys.add(key);return true;});
+        architectureDiagram=Object.assign({},architectureDiagram,{dependencies:dependencies});
+        var visibleBlocks=getVisibleArchitectureBlocks(architectureDiagram.blocks,false,false);
+        var visibleIds=new Set(visibleBlocks.map(function(block){return block.id;}));
+        architectureDiagram.stats=Object.assign({},architectureDiagram.stats,computeArchitectureStats(visibleBlocks,dependencies.filter(function(dep){return visibleIds.has(dep.from)&&visibleIds.has(dep.to);})));
+        architectureDiagram.mermaid=generateMermaidBlockDiagram(architectureDiagram,false,false);
+    }
+    var suggestions=data.suggestions.map(function(suggestion){
+        if(suggestion.title!=='Remove Dead Code'||!deadFunctions.some(function(f){return f.certainty==='unverified';}))return suggestion;
+        return Object.assign({},suggestion,{title:'Review Functions Without Observed Callers',
+            desc:'Source analysis did not find callers for these functions. Check callbacks and dynamic invocation before deciding whether any can be removed.',
+            action:'Review caller evidence in the Issues panel',impact:'Identify candidates for further investigation',certainty:'unverified'});
+    });
+    return Object.assign({},data,{files:files,connections:connections,fnStats:fnStats,issues:issues,suggestions:suggestions,deadFunctions:deadFunctions,architectureDiagram:architectureDiagram,
         beam:Object.assign({},snapshot,{coverage:{compiled:(snapshot.nodes||[]).length,included:files.filter(function(f){return f.compiled;}).length}}),
-        stats:{files:files.length,functions:null,connections:connections.length,dead:null,patterns:null,security:null,duplicates:null,violations:null,skipped:files.filter(function(f){return f.analysisSkipped;}).length,loc:loc,
-            languages:Object.keys(langs).map(function(ext){return {ext:ext,lines:langs[ext],pct:loc?Math.round(langs[ext]/loc*100):0};}),parserModes:[{mode:'mix xref',files:files.length}]}}
+        stats:Object.assign({},data.stats,{connections:connections.length,dead:deadFunctions.length})});
+}
+
+// Provider findings use the existing issue model, so navigation and exports
+// consume the same evidence. A refresh replaces only that provider's findings.
+function enrichAnalysisFindings(data,providers){
+    var ids=new Set(providers.map(function(p){return p.id;}));
+    var issues=data.issues.filter(function(issue){return !ids.has(issue.provider);});
+    var assessments=Object.assign({},data.assessments);
+    providers.forEach(function(provider){
+        assessments[provider.id]={name:provider.name,status:provider.status,reason:provider.reason||null};
+        var seen=new Set();
+        (provider.findings||[]).forEach(function(finding){
+            var location={path:finding.path||null,range:finding.range||null};
+            var key=JSON.stringify([location,finding.message,finding.check||finding.code]);
+            if(seen.has(key))return;seen.add(key);
+            issues.push({provider:provider.id,evidence:provider.name,type:finding.severity===1?'critical':'warning',
+                title:finding.message,desc:provider.name+(finding.check?' · '+finding.check:''),
+                sourceLocation:location,finding:finding,
+                items:[{name:finding.message,file:location.path,line:location.range?location.range.start.line+1:null}]});
+        });
+    });
+    return Object.assign({},data,{issues:issues,assessments:assessments});
 }
 
 // ---------------------------------------------------------------------------
@@ -5670,9 +5726,9 @@ function calcBlast(fileId,conns,files){
 
 function calcHealth(data){
     if(!data)return{score:0,grade:'F'};
-    if(data.beam)return{score:null,grade:'—'};
     var score=100;
-    var deadPct=data.stats.functions>0?(data.stats.dead/data.stats.functions*100):0;
+    var assessedDead=data.deadFunctions?data.deadFunctions.filter(function(f){return f.certainty!=='unverified';}).length:data.stats.dead;
+    var deadPct=data.stats.functions>0?(assessedDead/data.stats.functions*100):0;
     score-=Math.min(20,deadPct);
     var circular=data.issues.filter(function(i){return i.title.includes('Circular');}).length;
     score-=Math.min(20,circular*5);
@@ -6534,15 +6590,6 @@ function getConnectedFilePaths(path,connections){
     return Array.from(linked);
 }
 
-// Reuse the Code canvas, preserving open cards while revealing the selected
-// file's immediate neighborhood. Graph view still shows the complete snapshot.
-function beamCodeCanvasFiles(data,folderFilter,selectedPath,openedPaths){
-    if(folderFilter)return data.files.filter(function(f){return fileMatchesFolderFilter(f,folderFilter);});
-    var visible=new Set(openedPaths||[]);
-    if(selectedPath){visible.add(selectedPath);getConnectedFilePaths(selectedPath,data.connections).forEach(function(p){visible.add(p);});}
-    return data.files.filter(function(f){return visible.has(f.path);});
-}
-
 var CODE_CARD_MAX=12;
 
 function defaultCodeViewSeed(data,folderFilter){
@@ -6630,9 +6677,8 @@ function countCodeViewRootFiles(data){
     return n;
 }
 
-// A scope is a real directory. Aggregate relations at that boundary rather than
-// truncating files or asking the user to choose a render limit.
-function restoreBeamWorkspace(saved,data){
+// Restore only files and placements that still exist in this project.
+function restoreWorkspace(saved,data){
     if(!saved||saved.version!==1)return null;
     var paths=new Set(data.files.map(function(f){return f.path;}));
     var result={version:1,scope:typeof saved.scope==='string'&&data.files.some(function(f){return f.path.startsWith(saved.scope+'/');})?saved.scope:null,
@@ -6644,35 +6690,12 @@ function restoreBeamWorkspace(saved,data){
     return result;
 }
 
-function projectGraphScope(data,scope){
-    var prefix=scope?scope+'/':'';
-    var groups=new Map(),owners=new Map(),visible=[];
-    (data.files||[]).forEach(function(file){
-        if(prefix&&!file.path.startsWith(prefix))return;
-        var rest=file.path.slice(prefix.length),slash=rest.indexOf('/');
-        if(slash<0){visible.push(file);owners.set(file.path,file.path);return;}
-        var folder=prefix+rest.slice(0,slash),id='folder:'+folder;
-        if(!groups.has(id))groups.set(id,{path:id,name:rest.slice(0,slash),folder:folder,groupPath:folder,members:[],functions:[],lines:0,layer:'source',churn:0});
-        var group=groups.get(id);group.members.push(file.path);group.lines+=file.lines||0;group.churn+=file.churn||0;
-        owners.set(file.path,id);
-    });
-    var edges=new Map();
-    (data.connections||[]).forEach(function(edge){
-        var source=owners.get(edge.source),target=owners.get(edge.target);
-        if(!source||!target||source===target)return;
-        var key=JSON.stringify([source,target,edge.kind||'',edge.evidence||'']);
-        if(!edges.has(key))edges.set(key,Object.assign({},edge,{source:source,target:target,count:0}));
-        edges.get(key).count+=edge.count||1;
-    });
-    return {files:visible.concat(Array.from(groups.values())),connections:Array.from(edges.values())};
-}
-
 function codeViewRootGateActive(data,folderFilter,selectedPath,openedPaths,threshold){
-    if(!data||!data.files||!data.files.length||data.beam)return false;
+    if(!data||!data.files||!data.files.length)return false;
     if(folderFilter)return false;
     if(selectedPath)return false;
     if(openedPaths&&openedPaths.length)return false;
-    return (data.beam?data.files.length:countCodeViewRootFiles(data))>=clampCodeViewRootGate(threshold);
+    return countCodeViewRootFiles(data)>=clampCodeViewRootGate(threshold);
 }
 
 function codeViewRootGateMessage(count,threshold){
@@ -9090,19 +9113,23 @@ function App(){
     var _pendingDel=useState(null),pendingRecentDelete=_pendingDel[0],setPendingRecentDelete=_pendingDel[1];
     var _cli=useState(null),cliStatus=_cli[0],setCliStatus=_cli[1];
     var [beamAnalysis,setBeamAnalysis]=useState(null);
-    var beamGraphRevisionRef=useRef(null);
+    var beamGraphRevisionRef=useRef(null),providerRevisionRef=useRef(null);
     var [beamSymbols,setBeamSymbols]=useState([]),[beamLocations,setBeamLocations]=useState(null);
     var [beamNavigationError,setBeamNavigationError]=useState(null);
     var [runtimeNode,setRuntimeNode]=useState(''),[runtimeSnapshot,setRuntimeSnapshot]=useState(null),[runtimeBusy,setRuntimeBusy]=useState(false);
     useEffect(function(){
         if(!data||!data.beam||!cliStatus||!cliStatus.ok)return;
-        var cancelled=false,timer;
+        var cancelled=false,timer;providerRevisionRef.current=null;beamGraphRevisionRef.current=null;
         async function poll(){
             try{var response=await fetch('/__codeflow/analysis');if(response.ok){var result=await response.json();if(!cancelled){
                     setBeamAnalysis(result);
+                    var providers=[{id:'elixir-ls',name:'ElixirLS',status:result.language.state,reason:result.language.reason,findings:result.language.diagnostics},
+                        {id:'credo',name:'Credo',status:result.assessment.status,reason:result.assessment.reason,findings:result.assessment.findings}];
+                    var revision=JSON.stringify(providers);
+                    if(providerRevisionRef.current!==revision){providerRevisionRef.current=revision;setData(function(prev){return prev?enrichAnalysisFindings(prev,providers):prev;});}
                     if(result.graphRevision&&beamGraphRevisionRef.current!==result.graphRevision){
                         var graphResponse=await fetch('/__codeflow/beam');
-                        if(graphResponse.ok){var graph=await graphResponse.json();if(!cancelled){beamGraphRevisionRef.current=result.graphRevision;setData(function(prev){return prev&&prev.beam?buildBeamAnalysisData({analyzed:prev.files,snapshot:graph,excludePatterns:prev.excludePatterns}):prev;});}}
+                        if(graphResponse.ok){var graph=await graphResponse.json();if(!cancelled){beamGraphRevisionRef.current=result.graphRevision;setData(function(prev){return prev&&prev.beam?buildBeamAnalysisData({data:prev,snapshot:graph}):prev;});}}
                     }
                 }}}catch(e){}
             if(!cancelled)timer=setTimeout(poll,2500);
@@ -9123,7 +9150,7 @@ function App(){
         var response=await fetch('/__codeflow/language?'+query);var result=await response.json();
         if(!response.ok)throw new Error(result.error||'Navigation unavailable');return result;
     }
-    function openBeamLocation(location){
+    function openSourceLocation(location){
         if(!location.path){setBeamNavigationError('Source is outside this project.');return;}
         if(!data.files.some(function(file){return file.path===location.path;})){setBeamNavigationError('Source is excluded or unavailable in this project.');return;}
         setGraphConfig(function(prev){return Object.assign({},prev,{vizType:'code'});});
@@ -9140,7 +9167,7 @@ function App(){
     }
     async function navigateBeamSymbol(method,path,position){
         setBeamNavigationError(null);
-        try{var locations=await beamLanguage(method,path,position);if(method==='definition'&&locations.length===1)openBeamLocation(locations[0]);else setBeamLocations({title:method==='references'?'References':'Definitions',items:locations});}
+        try{var locations=await beamLanguage(method,path,position);if(method==='definition'&&locations.length===1)openSourceLocation(locations[0]);else setBeamLocations({title:method==='references'?'References':'Definitions',items:locations});}
         catch(error){setBeamNavigationError(error.message);}
     }
     function beamSourceClick(event,path,line){
@@ -9196,7 +9223,7 @@ function App(){
     var codeCardIgnoreClickRef=useRef(false);
     var codeCardPlacementRef=useRef(Object.create(null));
     var openedSceneRef=useRef('');
-    var beamWorkspaceKeyRef=useRef(null),beamWorkspaceRestoreRef=useRef(null);
+    var workspaceKeyRef=useRef(null),workspaceRestoreRef=useRef(null);
     var codeViewSessionRef=useRef(false);
     var pendingFlyToRef=useRef(null);
     var openCodeFileRef=useRef(null);
@@ -9743,7 +9770,7 @@ function App(){
                 }
                 var layer=Parser.detectLayer(f.path);
                 var actualIsCode=isCodeFile&&(!Parser.isScriptContainer(f.path)||Parser.hasEmbeddedCode(content,f.path));
-                var fns=actualIsCode&&!status.beam?Parser.extract(content,f.path):[];
+                var fns=actualIsCode?Parser.extract(content,f.path):[];
                 analyzed.push({path:f.path,name:f.name,folder:f.folder||'root',content:content||'',functions:fns,lines:(content||'').split('\n').length,layer:layer,churn:0,isCode:actualIsCode});
                 if(actualIsCode)fns.forEach(function(fn){allFns.push(Object.assign({},fn,{folder:f.folder||'root',layer:layer}));});
             }
@@ -9753,13 +9780,14 @@ function App(){
                 if(!beamRes.ok)throw new Error('Compiler snapshot request failed');
                 snapshot=await beamRes.json();
             }
-            var dataObj=status.beam?buildBeamAnalysisData({analyzed:analyzed,snapshot:snapshot,excludePatterns:activeExcludePatterns.map(function(x){return x.raw;})}):await runAnalysisData({
+            var dataObj=await runAnalysisData({
                 analyzed:analyzed,
                 allFns:allFns,
                 excludePatterns:activeExcludePatterns.map(function(x){return x.raw;}),
                 progress:setProgress,
                 yieldFn:yieldToBrowser
             });
+            if(status.beam)dataObj=buildBeamAnalysisData({data:dataObj,snapshot:snapshot});
             var cliInfo={owner:'local',repo:'cli',name:cliMeta.title,cliRoot:cliMeta.sourceKey};
             var keep=retainCliWatchPathsAfterAnalysis(cliWatchDuringRef.current,cliWatchReadRef.current,cliWatchSnapRevRef.current);
             cliAnalyzingRef.current=false;
@@ -9767,7 +9795,6 @@ function App(){
             cliWatchReadRef.current=Object.create(null);
             cliWatchSnapRevRef.current=Object.create(null);
             setData(dataObj);
-            if(dataObj.beam){setGraphConfig(function(prev){return Object.assign({},prev,{vizType:'graph'});});setLeftTab('files');setRightTab('details');}
             setExpandedPaths(new Set(['']));
             setRepoInfo(cliInfo);
             setCachedFromId(null);
@@ -10595,14 +10622,14 @@ function App(){
         var reveal=nextFilter!==folderFilter;
         if(reveal)setFolderFilter(nextFilter);
         var hidden=hiddenOpenedCodePaths(openedCodePaths,data,nextFilter);
-        var allowReplace=data&&data.beam?!!replace:!!(replace||reveal);
-        var resolved=resolveOpenCodeCard(openedCodePaths,path,data&&data.beam?Infinity:null,allowReplace,hidden);
+        var allowReplace=!!replace;
+        var resolved=resolveOpenCodeCard(openedCodePaths,path,null,allowReplace,hidden);
         if(!resolved.opened)return;
-        setOpenedCodePaths(function(prev){return openCodeCardPaths(prev,path,data&&data.beam?Infinity:null,allowReplace,hiddenOpenedCodePaths(prev,data,nextFilter));});
-        if(resolved.inserted||data&&data.beam)pendingFlyToRef.current=path;
+        setOpenedCodePaths(function(prev){return openCodeCardPaths(prev,path,null,allowReplace,hiddenOpenedCodePaths(prev,data,nextFilter));});
+        pendingFlyToRef.current=path;
         selectFile(path);
     }
-    function closeBeamCard(path){
+    function closeCodeCard(path){
         var remaining=openedCodePaths.filter(function(opened){return opened!==path;});
         setOpenedCodePaths(remaining);
         delete codeCardPlacementRef.current[path];codeCardUserPinnedRef.current.delete(path);
@@ -10661,34 +10688,41 @@ function App(){
         var isPHP=ext==='php';
         var isVBA=['vba','bas','cls','xlsm','xlam','xlsb','xla','xlw'].includes(ext);
         function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+        // Later rules must only inspect source text, never the span attributes
+        // emitted by earlier rules (for example the JavaScript keyword class).
+        function highlight(text,pattern,replacement){
+            return text.split(/(<[^>]*>)/g).map(function(part,i){
+                return i%2?part:part.replace(pattern,replacement);
+            }).join('');
+        }
         // Split into tokens while preserving structure
         var result=code.split('\n').map(function(line){
             var escaped=esc(line);
             // Comments
-            if(isJS||isJava||isPHP||isCSS)escaped=escaped.replace(/(\/\/.*$)/gm,'<span class="syn-com">$1</span>');
-            if(isPy||isRuby)escaped=escaped.replace(/(#.*$)/gm,'<span class="syn-com">$1</span>');
-            if(isHTML)escaped=escaped.replace(/(&lt;!--[\s\S]*?--&gt;)/g,'<span class="syn-com">$1</span>');
+            if(isJS||isJava||isPHP||isCSS)escaped=highlight(escaped,/(\/\/.*$)/gm,'<span class="syn-com">$1</span>');
+            if(isPy||isRuby)escaped=highlight(escaped,/(#.*$)/gm,'<span class="syn-com">$1</span>');
+            if(isHTML)escaped=highlight(escaped,/(&lt;!--[\s\S]*?--&gt;)/g,'<span class="syn-com">$1</span>');
             // Strings - careful with order
-            escaped=escaped.replace(/(&quot;[^&]*&quot;|'[^']*'|`[^`]*`)/g,'<span class="syn-str">$1</span>');
+            escaped=highlight(escaped,/(&quot;[^&]*&quot;|'[^']*'|`[^`]*`)/g,'<span class="syn-str">$1</span>');
             // Numbers
-            escaped=escaped.replace(/\b(\d+\.?\d*)\b/g,'<span class="syn-num">$1</span>');
+            escaped=highlight(escaped,/\b(\d+\.?\d*)\b/g,'<span class="syn-num">$1</span>');
             // Keywords
-            if(isJS)escaped=escaped.replace(/\b(const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|try|catch|finally|throw|new|class|extends|import|export|from|default|async|await|yield|typeof|instanceof|in|of|this|super|null|undefined|true|false|void|static|get|set)\b/g,'<span class="syn-kw">$1</span>');
+            if(isJS)escaped=highlight(escaped,/\b(const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|try|catch|finally|throw|new|class|extends|import|export|from|default|async|await|yield|typeof|instanceof|in|of|this|super|null|undefined|true|false|void|static|get|set)\b/g,'<span class="syn-kw">$1</span>');
             if(isPy){
-                escaped=escaped.replace(/\b(async|await|def|class|return|if|elif|else|for|while|try|except|finally|raise|import|from|as|with|pass|break|continue|lambda|yield|global|nonlocal|assert|True|False|None|and|or|not|in|is|del|match|case|type)\b/g,'<span class="syn-kw">$1</span>');
-                escaped=escaped.replace(/(@\w+)/g,'<span class="syn-fn">$1</span>');
-                escaped=escaped.replace(/\b(self|cls)\b/g,'<span class="syn-kw" style="opacity:0.7">$1</span>');
+                escaped=highlight(escaped,/\b(async|await|def|class|return|if|elif|else|for|while|try|except|finally|raise|import|from|as|with|pass|break|continue|lambda|yield|global|nonlocal|assert|True|False|None|and|or|not|in|is|del|match|case|type)\b/g,'<span class="syn-kw">$1</span>');
+                escaped=highlight(escaped,/(@\w+)/g,'<span class="syn-fn">$1</span>');
+                escaped=highlight(escaped,/\b(self|cls)\b/g,'<span class="syn-kw" style="opacity:0.7">$1</span>');
             }
-            if(isJava)escaped=escaped.replace(/\b(public|private|protected|static|final|void|class|interface|extends|implements|return|if|else|for|while|do|switch|case|break|continue|try|catch|finally|throw|new|import|package|this|super|null|true|false)\b/g,'<span class="syn-kw">$1</span>');
-            if(isRuby)escaped=escaped.replace(/\b(def|class|module|end|return|if|elsif|else|unless|case|when|for|while|until|do|begin|rescue|ensure|raise|require|include|extend|attr_accessor|attr_reader|attr_writer|true|false|nil|self)\b/g,'<span class="syn-kw">$1</span>');
-            if(isPHP)escaped=escaped.replace(/\b(function|class|return|if|else|elseif|for|foreach|while|do|switch|case|break|continue|try|catch|finally|throw|new|public|private|protected|static|const|use|namespace|extends|implements|true|false|null)\b/g,'<span class="syn-kw">$1</span>');
-            if(isVBA)escaped=escaped.replace(/\b(Public|Private|Friend|Static|Dim|Set|Let|Get|Call|Function|Sub|End Sub|End Function|Exit Sub|Exit Function|If|Then|Else|ElseIf|End If|For|To|Step|Next|Do|Loop|While|Wend|Select|Case|End Select|With|End With|On Error|Resume|GoTo|ByVal|ByRef|Optional|ParamArray|As|Type|Enum|Const|True|False|Nothing|Empty|Null|Me|Application|ThisWorkbook|Worksheets|Cells|Range|MsgBox|InputBox|Debug\.Print)\b/gi,'<span class="syn-kw">$1</span>');
-            if(isCSS)escaped=escaped.replace(/(@media|@import|@keyframes|@font-face|!important)/g,'<span class="syn-kw">$1</span>');
-            if(isHTML){escaped=escaped.replace(/(&lt;\/?)([\w-]+)/g,'$1<span class="syn-tag">$2</span>');escaped=escaped.replace(/([\w-]+)(=)/g,'<span class="syn-attr">$1</span>$2');}
+            if(isJava)escaped=highlight(escaped,/\b(public|private|protected|static|final|void|class|interface|extends|implements|return|if|else|for|while|do|switch|case|break|continue|try|catch|finally|throw|new|import|package|this|super|null|true|false)\b/g,'<span class="syn-kw">$1</span>');
+            if(isRuby)escaped=highlight(escaped,/\b(def|class|module|end|return|if|elsif|else|unless|case|when|for|while|until|do|begin|rescue|ensure|raise|require|include|extend|attr_accessor|attr_reader|attr_writer|true|false|nil|self)\b/g,'<span class="syn-kw">$1</span>');
+            if(isPHP)escaped=highlight(escaped,/\b(function|class|return|if|else|elseif|for|foreach|while|do|switch|case|break|continue|try|catch|finally|throw|new|public|private|protected|static|const|use|namespace|extends|implements|true|false|null)\b/g,'<span class="syn-kw">$1</span>');
+            if(isVBA)escaped=highlight(escaped,/\b(Public|Private|Friend|Static|Dim|Set|Let|Get|Call|Function|Sub|End Sub|End Function|Exit Sub|Exit Function|If|Then|Else|ElseIf|End If|For|To|Step|Next|Do|Loop|While|Wend|Select|Case|End Select|With|End With|On Error|Resume|GoTo|ByVal|ByRef|Optional|ParamArray|As|Type|Enum|Const|True|False|Nothing|Empty|Null|Me|Application|ThisWorkbook|Worksheets|Cells|Range|MsgBox|InputBox|Debug\.Print)\b/gi,'<span class="syn-kw">$1</span>');
+            if(isCSS)escaped=highlight(escaped,/(@media|@import|@keyframes|@font-face|!important)/g,'<span class="syn-kw">$1</span>');
+            if(isHTML){escaped=highlight(escaped,/(&lt;\/?)([\w-]+)/g,'$1<span class="syn-tag">$2</span>');escaped=highlight(escaped,/([\w-]+)(=)/g,'<span class="syn-attr">$1</span>$2');}
             // Function calls
-            escaped=escaped.replace(/\b([a-zA-Z_]\w*)\s*\(/g,'<span class="syn-fn">$1</span>(');
+            escaped=highlight(escaped,/\b([a-zA-Z_]\w*)(\s*)\(/g,'<span class="syn-fn">$1</span>$2(');
             // Types (capitalized words in certain contexts)
-            if(isJS||isJava)escaped=escaped.replace(/:\s*([A-Z]\w*)/g,': <span class="syn-type">$1</span>');
+            if(isJS||isJava)escaped=highlight(escaped,/(:\s*)([A-Z]\w*)/g,'$1<span class="syn-type">$2</span>');
             return escaped;
         });
         return result;
@@ -10828,7 +10862,7 @@ function App(){
             graphConfig.linkDist,
             graphConfig.showLabels,
             graphConfig.curvedLinks,
-            data&&data.beam&&graphConfig.vizType==='code'?[selected&&selected.path,openedCodePaths.join('|')].join(':'):''
+            graphConfig.vizType==='code'?[selected&&selected.path,openedCodePaths.join('|')].join(':'):''
         ].join('\0');
     },[currentHydrationId,data,folderFilter,colorMode,theme,graphConfig,selected&&selected.path,openedCodePaths]);
     var codeRootGateActive=useMemo(function(){
@@ -10838,7 +10872,7 @@ function App(){
         if(!data||codeRootGateActive)return[];
         var paths=openedCodePaths;
         var files=filesForOpenedCodePaths(paths,data,folderFilter);
-        if((!files.length)&&graphConfig.vizType==='code'&&(!data.beam||selected)){
+        if((!files.length)&&graphConfig.vizType==='code'&&selected){
             var seed=codeViewSeedPath(selected&&selected.path,data,folderFilter);
             if(seed)files=filesForOpenedCodePaths([seed],data,folderFilter);
         }
@@ -10856,14 +10890,21 @@ function App(){
         pendingFlyToRef.current=null;
     },[currentHydrationId]);
     useEffect(function(){
-        if(!data||!data.beam){beamWorkspaceKeyRef.current=null;return;}
-        var source=currentAnalysisSource(),key='codeflow:beam-workspace:'+source.sourceKey;
-        if(beamWorkspaceKeyRef.current===key)return;
-        beamWorkspaceKeyRef.current=key;
+        if(!data){workspaceKeyRef.current=null;return;}
+        var source=currentAnalysisSource();if(!source)return;
+        var key='codeflow:workspace:'+source.sourceType+':'+source.sourceKey;
+        if(workspaceKeyRef.current===key)return;
+        workspaceKeyRef.current=key;
         var restored;
-        try{restored=restoreBeamWorkspace(JSON.parse(localStorage.getItem(key)),data);}catch(e){}
+        try{
+            // Migrate the earlier BEAM-only storage key once; keep the user's cards.
+            var legacy='codeflow:beam-workspace:'+source.sourceKey;
+            var saved=localStorage.getItem(key)||localStorage.getItem(legacy);
+            restored=restoreWorkspace(JSON.parse(saved),data);
+            if(restored){localStorage.setItem(key,JSON.stringify(restored));localStorage.removeItem(legacy);}
+        }catch(e){}
         if(!restored)return;
-        beamWorkspaceRestoreRef.current=restored;
+        workspaceRestoreRef.current=restored;
         codeCardPlacementRef.current=restored.placements;
         codeCardUserSizeRef.current=restored.sizes;
         codeCardUserPinnedRef.current=new Set(restored.pinned);
@@ -10872,10 +10913,10 @@ function App(){
         setGraphConfig(function(prev){return Object.assign({},prev,{vizType:restored.view});});
     },[currentHydrationId]);
     useEffect(function(){
-        if(!data||!data.beam)return;
+        if(!data)return;
         function save(){
-            if(!beamWorkspaceKeyRef.current||beamWorkspaceRestoreRef.current)return;
-            try{localStorage.setItem(beamWorkspaceKeyRef.current,JSON.stringify({version:1,scope:folderFilter,selected:selected&&selected.path,
+            if(!workspaceKeyRef.current||workspaceRestoreRef.current)return;
+            try{localStorage.setItem(workspaceKeyRef.current,JSON.stringify({version:1,scope:folderFilter,selected:selected&&selected.path,
                 opened:openedCodePaths,view:graphConfig.vizType,placements:codeCardPlacementRef.current,sizes:codeCardUserSizeRef.current,
                 pinned:Array.from(codeCardUserPinnedRef.current),camera:snapshotZoomTransform(codeZoomTransformRef.current)}));}catch(e){}
         }
@@ -10893,7 +10934,6 @@ function App(){
             return;
         }
         codeViewSessionRef.current=true;
-        if(data.beam&&!selected&&!openedCodePaths.length)return;
         var seed=codeViewSeedPath(selected&&selected.path,data,folderFilter);
         if(!seed)return;
         if(openCodeFileRef.current)openCodeFileRef.current(seed,true);
@@ -10928,7 +10968,7 @@ function App(){
     },[graphConfig.vizType,selected&&selected.path]);
     var hadAnalysisRef=useRef(false);
     useEffect(function(){
-        if(data&&!hadAnalysisRef.current)setLeftTab(data.beam?'files':'overview');
+        if(data&&!hadAnalysisRef.current)setLeftTab('overview');
         hadAnalysisRef.current=!!data;
     },[data]);
     selectedPathRef.current=selected&&selected.path;
@@ -11133,7 +11173,7 @@ function App(){
         var w=svgRef.current.clientWidth||800;
         var h=svgRef.current.clientHeight||600;
         var t=snapshotZoomTransform(codeZoomTransformRef.current);
-        if(data&&data.beam)t.k=Math.min(1,Math.max(0.8,t.k));
+        t.k=Math.min(1,Math.max(0.8,t.k));
         var next=d3.zoomIdentity.translate(w/2-place.x*t.k,h/2-place.y*t.k).scale(t.k);
         d3.select(svgRef.current).transition().duration(260).call(zoomRef.current.transform,next);
     }
@@ -11184,20 +11224,13 @@ function App(){
         });
         var flyPath=pendingFlyToRef.current;
         if(flyPath&&codeViewCameraReadyRef.current&&!opts.skipFly){
-            if(data&&data.beam){
-                // The graph effect may rebuild its zoom after this layout effect.
-                // Focus after that redraw, using the current placement and zoom.
-                requestAnimationFrame(function(){requestAnimationFrame(function(){
-                    if(pendingFlyToRef.current!==flyPath)return;
-                    var current=codeCardPlacementRef.current[flyPath];
-                    if(current)flyToOpenedCodeCard(current);
-                    pendingFlyToRef.current=null;
-                });});
-            }else{
-                var place=placements[flyPath];
-                if(place)flyToOpenedCodeCard(place);
+            // Focus after the graph effect has rebuilt its zoom behavior.
+            requestAnimationFrame(function(){requestAnimationFrame(function(){
+                if(pendingFlyToRef.current!==flyPath)return;
+                var current=codeCardPlacementRef.current[flyPath];
+                if(current)flyToOpenedCodeCard(current);
                 pendingFlyToRef.current=null;
-            }
+            });});
         }
     }
     function placeRemainingCodeNodes(){
@@ -11272,19 +11305,10 @@ function App(){
         var w=svgRef.current.clientWidth;
         var h=svgRef.current.clientHeight;
         var filteredFiles=folderFilter?data.files.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}):data.files;
-        var sceneConnections=data.connections;
-        if(data.beam){
-            if(graphConfig.vizType==='code'&&(selected||openedCodePaths.length)){
-                filteredFiles=beamCodeCanvasFiles(data,null,selected&&selected.path,openedCodePaths);
-            }else{
-                var scopeGraph=projectGraphScope(data,folderFilter);
-                filteredFiles=scopeGraph.files;sceneConnections=scopeGraph.connections;
-            }
-        }
         var fileIds=new Set(filteredFiles.map(function(f){return f.path;}));
-        var nodes=filteredFiles.map(function(f){return{id:f.path,name:f.name,folder:f.folder,groupPath:f.groupPath,members:f.members,fnCount:f.functions.length,layer:f.layer,churn:f.churn||0};});
+        var nodes=filteredFiles.map(function(f){return{id:f.path,name:f.name,folder:f.folder,fnCount:f.functions.length,layer:f.layer,churn:f.churn||0};});
         var linkMap=new Map();
-        sceneConnections.forEach(function(c){
+        data.connections.forEach(function(c){
             if(!fileIds.has(c.source)||!fileIds.has(c.target))return;
             if(c.source===c.target)return;// Skip self-links
             var k=JSON.stringify([c.source,c.target,c.kind||'']);
@@ -11293,7 +11317,7 @@ function App(){
             if(!linkMap.get(k).fn&&c.fn)linkMap.get(k).fn=c.fn;
         });
         var links=Array.from(linkMap.values());
-        function getR(d){return d.groupPath?Math.min(42,25+Math.log2(1+d.members.length)*2):Math.max(8,Math.min(24,5+d.fnCount*0.8));}
+        function getR(d){return Math.max(8,Math.min(24,5+d.fnCount*0.8));}
         function getC(d){
             if(colorMode==='folder')return colorMap[d.folder]||COLORS[0];
             if(colorMode==='layer')return LAYER_COLORS[d.layer]||LAYER_COLORS['utils'];
@@ -11315,7 +11339,7 @@ function App(){
             codeViewSceneRef.current=sceneKey;
             codeViewCameraReadyRef.current=false;
         }
-        var workspaceRestore=beamWorkspaceRestoreRef.current;
+        var workspaceRestore=workspaceRestoreRef.current;
         var restoringWorkspace=workspaceRestore&&workspaceRestore.view===graphConfig.vizType&&workspaceRestore.scope===(folderFilter||null);
         if(restoringWorkspace){codeZoomTransformRef.current=workspaceRestore.camera;codeViewCameraReadyRef.current=true;}
         var savedZoom=snapshotZoomTransform(codeZoomTransformRef.current);
@@ -11503,13 +11527,12 @@ function App(){
         }));
         node.on('click',function(e,d){
             e.stopPropagation();
-            if(d.groupPath){setFolderFilter(d.groupPath);setSelected(null);setTooltip(null);return;}
             if(keepReadable&&openCodeFileRef.current)openCodeFileRef.current(d.id);
             else if(selectFileRef.current)selectFileRef.current(d.id);
         });
         node.classed('has-code-card',function(d){return keepReadable&&nodeReplacedByCard(d.id,codeCardPathsRef.current);});
         node.attr('display',function(d){return keepReadable&&nodeReplacedByCard(d.id,codeCardPathsRef.current)?'none':null;});
-        node.on('mouseenter',function(e,d){if(keepReadable&&codeCardPathsRef.current.has(d.id))return;var r=svgRef.current.getBoundingClientRect();setTooltip({x:e.clientX-r.left+10,y:e.clientY-r.top,title:d.name,content:d.groupPath?d.members.length+' files':data.beam?'Source file':d.fnCount+' functions\n'+d.layer+' layer\n'+d.churn+' recent commits'});}).on('mouseleave',function(){setTooltip(null);});
+        node.on('mouseenter',function(e,d){if(keepReadable&&codeCardPathsRef.current.has(d.id))return;var r=svgRef.current.getBoundingClientRect();setTooltip({x:e.clientX-r.left+10,y:e.clientY-r.top,title:d.name,content:d.fnCount+' functions\n'+d.layer+' layer\n'+d.churn+' recent commits'});}).on('mouseleave',function(){setTooltip(null);});
         svg.on('click',function(e){
             if(!isCodeCanvasDeselectTarget(e.target,svgRef.current))return;
             setSelected(null);
@@ -11528,7 +11551,7 @@ function App(){
         node.append('rect').attr('class','nb').attr('x',function(d){return -graphColorBlockSize(d)/2;}).attr('y',function(d){return -graphColorBlockSize(d)/2;}).attr('width',graphColorBlockSize).attr('height',graphColorBlockSize).attr('rx',3).attr('fill',function(d){return graphColorBlockFill(getC(d));}).attr('stroke',function(d){var c=d3.color(graphColorBlockFill(getC(d)));return c?c.darker(0.35):'#000';}).attr('stroke-width',1).attr('display','none');
         // Hide labels for large graphs to reduce DOM overhead. Code view keeps titles readable.
         if(keepReadable||!isLargeGraph||graphConfig.showLabels){
-            node.append('text').attr('class','node-label').attr('text-anchor','middle').attr('dy',function(d){return data.beam&&!keepReadable&&!d.groupPath?getR(d)+12:0;}).attr('fill',theme==='light'?'#333':'#eee').attr('font-size',function(d){if(data.beam&&!keepReadable)return '11px';return (keepReadable?Math.max(9,Math.min(12,getR(d)*0.7)):Math.max(6,Math.min(10,getR(d)*0.6)))+'px';}).attr('font-family','JetBrains Mono').attr('font-weight','600').attr('pointer-events','none').text(function(d){if(d.groupPath||data.beam&&!keepReadable)return d.name;var n=d.name.replace(/\.[^.]+$/,'');if(keepReadable)return n.length>18?n.slice(0,17)+'…':n;var maxLen=Math.max(4,Math.floor(getR(d)/2));return n.length>maxLen+1?n.slice(0,maxLen)+'…':n;});
+            node.append('text').attr('class','node-label').attr('text-anchor','middle').attr('dy',0).attr('fill',theme==='light'?'#333':'#eee').attr('font-size',function(d){return (keepReadable?Math.max(9,Math.min(12,getR(d)*0.7)):Math.max(6,Math.min(10,getR(d)*0.6)))+'px';}).attr('font-family','JetBrains Mono').attr('font-weight','600').attr('pointer-events','none').text(function(d){var n=d.name.replace(/\.[^.]+$/,'');if(keepReadable)return n.length>18?n.slice(0,17)+'…':n;var maxLen=Math.max(4,Math.floor(getR(d)/2));return n.length>maxLen+1?n.slice(0,maxLen)+'…':n;});
         }
         function liveNodesByFolder(){
             var live=(simRef.current&&simRef.current.nodes())||nodes;
@@ -11608,9 +11631,8 @@ function App(){
         }
         if(restoringWorkspace){
             svg.call(zoom.transform,d3.zoomIdentity.translate(savedZoom.x,savedZoom.y).scale(savedZoom.k));
-            beamWorkspaceRestoreRef.current=null;
+            workspaceRestoreRef.current=null;
         }
-        if(data.beam&&!keepReadable&&!restoringWorkspace)sim.on('end.fit',function(){var fit=computeGraphFitTransform(160);if(fit)svg.call(zoom.transform,fit);});
         updateHullsRef.current=updateHulls;
         if(drawMinimapRef.current)drawMinimapRef.current();
         }catch(e){console.error('Force graph error:',e);svg.selectAll('*').remove();svg.append('text').attr('x',20).attr('y',30).attr('fill','var(--t3)').text('Graph rendering error: '+e.message);}
@@ -11785,7 +11807,7 @@ function App(){
                 return '<div style="font-family:JetBrains Mono,monospace;font-size:10px;padding:6px;background:rgba(15,15,18,0.95);border:1px solid var(--border);border-radius:6px;color:#fff;">'+
                     '<strong style="color:var(--acc);">'+node.name+'</strong><br/>'+
                     node.folder+'<br/>'+
-                    (data.beam?'Compiled source file':node.fnCount+' functions • '+node.layer+' layer • '+node.churn+' commits')+
+                    node.fnCount+' functions • '+node.layer+' layer • '+node.churn+' commits'+
                     '</div>';
             })
             .linkColor(function(link){
@@ -12057,7 +12079,7 @@ function App(){
         cells.on('mouseenter',function(e,d){
             tooltip.html(renderTooltipHtml(d.data.name,[
                 {label:'Lines',value:d.data.value},
-                {label:'Functions',value:data.beam?'not assessed':d.data.fns||0},
+                {label:'Functions',value:d.data.fns||0},
                 {label:'Layer',value:d.data.layer||'—'},
                 {label:'Folder',value:d.data.folder||'root'}
             ]))
@@ -12189,7 +12211,7 @@ function App(){
             if(!d.data.path)return;
             tooltip.html(renderTooltipHtml(d.data.name,[
                 {label:'Lines',value:d.data.lines||0},
-                {label:'Functions',value:data.beam?'not assessed':d.data.fns||0},
+                {label:'Functions',value:d.data.fns||0},
                 {label:'Layer',value:d.data.layer||'—'}
             ]))
                 .style('display','block').style('left',(e.offsetX+15)+'px').style('top',(e.offsetY+15)+'px');
@@ -12341,7 +12363,7 @@ function App(){
         node.on('mouseenter',function(e,d){
             tooltip.html(renderTooltipHtml(d.name,[
                 {label:'Lines',value:d.lines||0},
-                {label:'Functions',value:data.beam?'not assessed':d.fns||0},
+                {label:'Functions',value:d.fns||0},
                 {label:'Folder',value:d.folder}
             ]))
                 .style('display','block').style('left',(e.offsetX+15)+'px').style('top',(e.offsetY+15)+'px');
@@ -12470,7 +12492,7 @@ function App(){
             var rect=bundleRef.current.getBoundingClientRect();
             tooltip.html(renderTooltipHtml(d.name,[
                 {label:'Lines',value:d.lines||0},
-                {label:'Functions',value:data.beam?'not assessed':d.fns||0},
+                {label:'Functions',value:d.fns||0},
                 {label:'Folder',value:d.folder||'root'}
             ]))
                 .style('display','block').style('left',(e.clientX-rect.left+15)+'px').style('top',(e.clientY-rect.top+15)+'px');
@@ -12848,7 +12870,7 @@ function App(){
             });
         });
     }
-    function exportJSON(){if(!data)return;var blob=new Blob([JSON.stringify({beam:data.beam,stats:data.stats,files:data.files.map(function(f){return{path:f.path,fns:data.beam?null:f.functions.length,layer:f.layer,lines:f.lines,dependencies:f.dependencies||[]};}),connections:data.connections,issues:data.issues,patterns:data.patterns,security:data.securityIssues,architectureDiagram:data.architectureDiagram},null,2)],{type:'application/json'});var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download='codeflow-analysis.json';a.click();URL.revokeObjectURL(url);}
+    function exportJSON(){if(!data)return;var blob=new Blob([JSON.stringify({beam:data.beam,assessments:data.assessments,stats:data.stats,files:data.files.map(function(f){return{path:f.path,fns:f.functions.length,layer:f.layer,lines:f.lines,dependencies:f.dependencies||[]};}),connections:data.connections,issues:data.issues,patterns:data.patterns,security:data.securityIssues,architectureDiagram:data.architectureDiagram},null,2)],{type:'application/json'});var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download='codeflow-analysis.json';a.click();URL.revokeObjectURL(url);}
     function getAnalysisSourceLabel(){
         if(localSourceKind==='folder')return(repoInfo&&repoInfo.name)||'Local Folder';
         if(localSourceKind==='zip')return repoInfo&&repoInfo.name?repoInfo.name:'ZIP Archive';
@@ -12856,10 +12878,10 @@ function App(){
     }
     function generateReport(format){
         if(!data)return;
-        if(data.beam)return; // Quality reports require function-level assessments.
         var repo=getAnalysisSourceLabel();
         var h=calcHealth(data);
         var report={
+            assessments:data.assessments||{},
             repository:repo,
             analyzedAt:new Date().toISOString(),
             codeflowVersion:'1.0',
@@ -12888,7 +12910,8 @@ function App(){
                         internalCalls:st?st.internal:0,
                         externalCalls:st?st.external:0,
                         totalCalls:st?(st.internal+st.external):0,
-                        isUnused:st?(st.internal+st.external===0):true,
+                        isUnused:st&&st.usageCertainty==='unverified'?null:st?(st.internal+st.external===0):null,
+                        usageCertainty:st&&st.usageCertainty||'source analysis',
                         isExported:st?st.isExported:false,
                         isClassMethod:st?st.isClassMethod:false,
                         isTopLevel:st?st.isTopLevel:true,
@@ -12909,13 +12932,13 @@ function App(){
                     functionCount:f.functions.length
                 };
             }),
-            unusedFunctions:data.deadFunctions.map(function(fn){return{name:fn.name,file:fn.file,folder:fn.folder,line:fn.line,codeLines:fn.codeLines,code:fn.code,extension:fn.ext};}),
+            unusedFunctions:data.deadFunctions.map(function(fn){return{name:fn.name,file:fn.file,folder:fn.folder,line:fn.line,codeLines:fn.codeLines,code:fn.code,extension:fn.ext,certainty:fn.certainty,evidence:fn.evidence};}),
             dependencies:data.connections.map(function(c){
                 var src=typeof c.source==='object'?c.source.id:c.source;
                 var tgt=typeof c.target==='object'?c.target.id:c.target;
-                return{from:src,to:tgt,function:c.fn,callCount:c.count};
+                return{from:src,to:tgt,function:c.fn,callCount:c.count,kind:c.kind,evidence:c.evidence};
             }),
-            architectureIssues:data.issues.map(function(i){return{type:i.type,title:i.title,description:i.desc,affectedFiles:i.items?i.items.map(function(x){return x.file||x.name;}):[],affectedItems:i.items||[]};}),
+            architectureIssues:data.issues.map(function(i){return{type:i.type,title:i.title,description:i.desc,provider:i.provider,evidence:i.evidence,certainty:i.certainty,sourceLocation:i.sourceLocation,affectedFiles:i.items?i.items.map(function(x){return x.file||x.name;}):[],affectedItems:i.items||[]};}),
             patterns:data.patterns.map(function(p){return{name:p.name,description:p.desc,isAntiPattern:p.isAnti||false,severity:p.severity||'info',icon:p.icon||'',files:p.files.map(function(f){return f.path||f.name;}),fileDetails:p.files||[],metrics:p.metrics||{}};}),
             securityIssues:data.securityIssues.map(function(s){return{severity:s.severity,title:s.title,description:s.desc,file:s.file,path:s.path,line:s.line,code:s.code};}),
             duplicates:data.duplicates||[],
@@ -12957,7 +12980,7 @@ function App(){
             md+='| Functions | '+data.stats.functions+' |\n';
             md+='| Lines of Code | '+data.stats.loc.toLocaleString()+' |\n';
             md+='| Dependencies | '+data.stats.connections+' |\n';
-            md+='| Unused Functions | '+data.stats.dead+' |\n';
+            md+='| Functions without observed callers | '+data.stats.dead+' |\n';
             md+='| Security Issues | '+data.securityIssues.length+' |\n\n';
             if(data.securityIssues.length>0){
                 md+='## Security Issues\n\n';
@@ -12970,8 +12993,8 @@ function App(){
                 });
             }
             if(data.deadFunctions.length>0){
-                md+='## Unused Functions ('+data.deadFunctions.length+')\n\n';
-                md+='These functions have zero calls (internal or external) and may be dead code:\n\n';
+                md+='## Functions Without Observed Callers ('+data.deadFunctions.length+')\n\n';
+                md+='Source analysis found no callers; runtime usage is not established:\n\n';
                 data.deadFunctions.slice(0,50).forEach(function(fn){
                     md+='### `'+fn.name+'()`\n';
                     md+='- **File:** `'+fn.file+'`\n';
@@ -13027,7 +13050,7 @@ function App(){
             txt+='Functions: '+data.stats.functions+'\n';
             txt+='Lines of Code: '+data.stats.loc.toLocaleString()+'\n';
             txt+='Dependencies: '+data.stats.connections+'\n';
-            txt+='Unused Functions: '+data.stats.dead+'\n';
+            txt+='Functions without observed callers: '+data.stats.dead+'\n';
             txt+='Security Issues: '+data.securityIssues.length+'\n\n';
             if(data.securityIssues.length>0){
                 txt+='SECURITY ISSUES\n---------------\n';
@@ -13040,8 +13063,8 @@ function App(){
                 });
             }
             if(data.deadFunctions.length>0){
-                txt+='UNUSED FUNCTIONS ('+data.deadFunctions.length+')\n'+'-'.repeat(20)+'\n';
-                txt+='These functions are never called and may be dead code:\n\n';
+                txt+='FUNCTIONS WITHOUT OBSERVED CALLERS ('+data.deadFunctions.length+')\n'+'-'.repeat(20)+'\n';
+                txt+='Source analysis found no callers; runtime usage is not established:\n\n';
                 data.deadFunctions.forEach(function(fn,i){
                     txt+=(i+1)+'. '+fn.name+'()\n';
                     txt+='   File: '+fn.file+' (line '+fn.line+')\n';
@@ -13130,10 +13153,10 @@ function App(){
                 React.createElement('button',{type:'button',className:'color-by-btn'+(codeViewExpand?' active':''),'aria-pressed':codeViewExpand?'true':'false',onClick:function(){setCodeViewExpand(!codeViewExpand);}},'Expand All'),
                 React.createElement('button',{type:'button',className:'color-by-btn'+(codeViewWrap?' active':''),'aria-pressed':codeViewWrap?'true':'false',onClick:function(){setCodeViewWrap(!codeViewWrap);}},'Wrap Text')
             ),
-            !data.beam&&React.createElement('div',{className:'code-view-prefs-row',role:'group','aria-label':'Load Files'},
-                React.createElement('span',{className:'color-by-label',title:data&&data.beam?'Pick a file before loading a compiler graph this large':'Skip Code cards when this many files sit at the project root'},'Load Files'),
+            React.createElement('div',{className:'code-view-prefs-row',role:'group','aria-label':'Load Files'},
+                React.createElement('span',{className:'color-by-label',title:'Skip Code cards when this many files sit at the project root'},'Load Files'),
                 CODE_VIEW_ROOT_GATE_STEPS.map(function(n){
-                    return React.createElement('button',{key:n,type:'button',className:'color-by-btn'+(codeViewRootGate===n?' active':''),'aria-pressed':codeViewRootGate===n?'true':'false',title:data&&data.beam?'Pick a file before loading a compiler graph this large':'Skip Code cards when this many files sit at the project root',onClick:function(){persistCodeViewRootGate(n);}},String(n));
+                    return React.createElement('button',{key:n,type:'button',className:'color-by-btn'+(codeViewRootGate===n?' active':''),'aria-pressed':codeViewRootGate===n?'true':'false',title:'Skip Code cards when this many files sit at the project root',onClick:function(){persistCodeViewRootGate(n);}},String(n));
                 })
             )
         );
@@ -13145,18 +13168,10 @@ function App(){
             React.createElement('div',{className:'empty-desc'},desc)
         );
     }
-    function renderBeamEvidence(){
-        return React.createElement('div',{className:'card'},
-            React.createElement('div',{className:'card-header'},'Elixir project'),
-            React.createElement('div',{className:'card-body'},
-                React.createElement('div',null,data.beam.coverage.included+' compiled files · '+(data.beam.project&&data.beam.project.environment||'dev')),
-                React.createElement('div',{style:{color:'var(--t3)',marginTop:8}},beamAnalysis&&beamAnalysis.language.build&&beamAnalysis.language.build.state==='error'?'Compilation failed':beamAnalysis&&beamAnalysis.language.state==='ready'&&beamAnalysis.language.build.state==='pending'?'Indexing Elixir…':beamAnalysis&&beamAnalysis.language.state==='ready'?'ElixirLS connected':beamAnalysis&&beamAnalysis.language.state==='starting'?'Starting ElixirLS…':'Source exploration'),
-                React.createElement('button',{className:'top-btn',style:{marginTop:12},onClick:function(){setRightTab('findings');}},'Findings')));
-    }
     function renderBeamSymbols(items){
         return items.map(function(symbol,i){return React.createElement('div',{key:i,style:{paddingLeft:8}},
             React.createElement('div',{style:{display:'flex',gap:6,marginBottom:4}},
-                React.createElement('button',{className:'top-btn',style:{flex:1,textAlign:'left',overflowWrap:'anywhere'},onClick:function(){openBeamLocation({path:selected.path,range:symbol.selectionRange||symbol.range});}},symbol.name),
+                React.createElement('button',{className:'top-btn',style:{flex:1,textAlign:'left',overflowWrap:'anywhere'},onClick:function(){openSourceLocation({path:selected.path,range:symbol.selectionRange||symbol.range});}},symbol.name),
                 React.createElement('button',{className:'top-btn',title:'Find references',onClick:function(){navigateBeamSymbol('references',selected.path,(symbol.selectionRange||symbol.range).start);}},'Refs')),
             symbol.children&&renderBeamSymbols(symbol.children));});
     }
@@ -13165,22 +13180,14 @@ function App(){
             beamNavigationError&&React.createElement('p',{role:'status'},beamNavigationError),
             beamSymbols.length>0&&React.createElement('div',{className:'card'},React.createElement('div',{className:'card-header'},'Outline'),React.createElement('div',{className:'card-body'},renderBeamSymbols(beamSymbols))),
             beamLocations&&React.createElement('div',{className:'card'},React.createElement('div',{className:'card-header'},beamLocations.title),React.createElement('div',{className:'card-body'},
-                beamLocations.items.length===0?'No locations found.':beamLocations.items.map(function(location,i){return React.createElement('button',{key:i,className:'top-btn',style:{display:'block',width:'100%',textAlign:'left',marginBottom:5},onClick:function(){openBeamLocation(location);}},(location.path||location.uri)+':'+(location.range.start.line+1));}))));
+                beamLocations.items.length===0?'No locations found.':beamLocations.items.map(function(location,i){return React.createElement('button',{key:i,className:'top-btn',style:{display:'block',width:'100%',textAlign:'left',marginBottom:5},onClick:function(){openSourceLocation(location);}},(location.path||location.uri)+':'+(location.range.start.line+1));}))));
     }
-    function renderBeamFindings(){
-        var language=beamAnalysis&&beamAnalysis.language,assessment=beamAnalysis&&beamAnalysis.assessment;
-        var findings=(language&&language.diagnostics||[]).concat(assessment&&assessment.findings||[]);
-        return React.createElement(React.Fragment,null,
-            React.createElement('div',{className:'panel-title'},'Findings'),
-            (!language||language.state!=='ready')&&React.createElement('p',null,language&&language.state==='starting'?'Starting ElixirLS…':'ElixirLS unavailable'),
-            language&&language.reason&&React.createElement('details',null,React.createElement('summary',null,'Language server details'),React.createElement('pre',{style:{whiteSpace:'pre-wrap'}},language.reason)),
-            assessment&&assessment.status!=='ready'&&React.createElement('p',null,assessment.status==='pending'||assessment.status==='running'?'Running Credo…':'Credo unavailable'),
-            assessment&&assessment.reason&&React.createElement('details',null,React.createElement('summary',null,'Credo details'),React.createElement('pre',{style:{whiteSpace:'pre-wrap'}},assessment.reason)),
-            findings.length===0&&language&&language.state==='ready'&&assessment&&assessment.status==='ready'&&React.createElement('p',null,'No findings.'),
-            findings.map(function(finding,i){return React.createElement('div',{key:i,className:'card',style:{marginTop:10}},
-                React.createElement('div',{className:'card-header'},finding.source||'Compiler'),
-                React.createElement('div',{className:'card-body'},React.createElement('div',null,finding.message),
-                    finding.path&&React.createElement('button',{className:'top-btn',style:{marginTop:8,maxWidth:'100%',overflowWrap:'anywhere'},onClick:function(){openBeamLocation(finding);}},finding.path+(finding.range?':'+(finding.range.start.line+1):''))));}));
+    function renderAnalysisProviders(){
+        return Object.keys(data.assessments||{}).map(function(id){var provider=data.assessments[id];
+            return React.createElement('details',{key:id,style:{marginBottom:8}},
+                React.createElement('summary',null,provider.name+' · '+provider.status),
+                provider.reason&&React.createElement('pre',{style:{whiteSpace:'pre-wrap'}},provider.reason));
+        });
     }
     function renderBeamRuntime(){
         var snapshot=runtimeSnapshot,processes=new Map((snapshot&&snapshot.processes||[]).map(function(p){return[p.id,p];}));
@@ -13190,7 +13197,7 @@ function App(){
             return React.createElement('details',{key:id,open:process.type==='supervisor',style:{margin:'8px 0 8px 10px'}},
                 React.createElement('summary',null,process.label||process.module||process.pid),
                 React.createElement('div',{style:{color:'var(--t3)',margin:'6px 0'}},process.pid,' · ',process.metrics&&process.metrics.status,' · queue ',process.metrics&&process.metrics.messageQueueLength),
-                process.sourcePath&&data.files.some(function(f){return f.path===process.sourcePath;})&&React.createElement('button',{className:'top-btn',onClick:function(){openBeamLocation({path:process.sourcePath});}},'Source'),
+                process.sourcePath&&data.files.some(function(f){return f.path===process.sourcePath;})&&React.createElement('button',{className:'top-btn',onClick:function(){openSourceLocation({path:process.sourcePath});}},'Source'),
                 (process.children||[]).map(function(child){return processTree(child,next);}));
         }
         return React.createElement(React.Fragment,null,
@@ -13207,7 +13214,7 @@ function App(){
     function renderOverviewPane(){
         if(!data)return renderSidebarEmpty('No Repository','Enter a GitHub URL, open a folder, or load a ZIP archive');
         return React.createElement('div',{className:'sidebar-scroll'},
-            data.beam?renderBeamEvidence():React.createElement('div',{className:'health-score',style:{marginBottom:10}},
+            React.createElement('div',{className:'health-score',style:{marginBottom:10}},
                 React.createElement(HealthRing,{score:health.score,grade:health.grade}),
                 React.createElement('div',{className:'health-info'},
                     React.createElement('div',{className:'health-grade',style:{color:health.score>=80?'var(--green)':health.score>=60?'var(--orange)':'var(--red)'}},health.score,'/100'),
@@ -13220,9 +13227,9 @@ function App(){
             ),
             React.createElement('div',{className:'stats-grid'},
                 React.createElement('div',{className:'stat-card'},React.createElement('div',{className:'stat-value'},data.stats.files),React.createElement('div',{className:'stat-label'},'Files')),
-                !data.beam&&React.createElement('div',{className:'stat-card'},React.createElement('div',{className:'stat-value'},data.stats.functions),React.createElement('div',{className:'stat-label'},'Functions')),
+                React.createElement('div',{className:'stat-card'},React.createElement('div',{className:'stat-value'},data.stats.functions),React.createElement('div',{className:'stat-label'},'Functions')),
                 React.createElement('div',{className:'stat-card'},React.createElement('div',{className:'stat-value'},data.stats.connections),React.createElement('div',{className:'stat-label'},'Links')),
-                !data.beam&&React.createElement('div',{className:'stat-card'+(data.stats.dead>10?' warn':''),style:{cursor:data.stats.dead>0?'pointer':'default'},onClick:function(){if(data.stats.dead>0)setShowUnused(true);}},React.createElement('div',{className:'stat-value'},data.beam?'—':data.stats.dead),React.createElement('div',{className:'stat-label'},'Unused'))
+                React.createElement('div',{className:'stat-card'+(data.stats.dead>10?' warn':''),style:{cursor:data.stats.dead>0?'pointer':'default'},onClick:function(){if(data.stats.dead>0)setShowUnused(true);}},React.createElement('div',{className:'stat-value'},data.stats.dead),React.createElement('div',{className:'stat-label'},data.deadFunctions.some(function(f){return f.certainty==='unverified';})?'No callers found':'Unused'))
             ),
             React.createElement('div',{className:'loc-stat'},
                 React.createElement('div',{className:'loc-value'},data.stats.loc?data.stats.loc.toLocaleString():'0'),
@@ -13478,7 +13485,7 @@ function App(){
                     React.createElement('div',{className:'code-card-path'},file.path)
                 ),
                 React.createElement('span',{className:'badge badge-default'},isPrimary?'selected':'open'),
-                data.beam&&React.createElement('button',{className:'top-btn',type:'button','aria-label':'Close '+file.name,title:'Close file',onPointerDown:function(e){e.stopPropagation();},onClick:function(e){e.stopPropagation();closeBeamCard(file.path);}},React.createElement(Icon,{name:'close',size:'s'}))
+                React.createElement('button',{className:'top-btn',type:'button','aria-label':'Close '+file.name,title:'Close file',onPointerDown:function(e){e.stopPropagation();},onClick:function(e){e.stopPropagation();closeCodeCard(file.path);}},React.createElement(Icon,{name:'close',size:'s'}))
             ),
             React.createElement('div',{className:'code-card-body',onClick:function(e){
                 var mark=e.target.closest?e.target.closest('[data-sym]'):null;
@@ -13509,7 +13516,7 @@ function App(){
     }
     function renderCodeView(){
         var primaryPath=selected&&selected.path;
-        var rootCount=data&&data.beam?data.files.length:countCodeViewRootFiles(data);
+        var rootCount=countCodeViewRootFiles(data);
         return React.createElement('div',{className:'code-canvas',ref:codeCanvasRef},
             React.createElement('svg',{ref:svgRef}),
             React.createElement('div',{className:'code-canvas-cards',ref:codeCardsLayerRef},
@@ -13520,7 +13527,7 @@ function App(){
                 React.createElement('div',{className:'empty-desc'},codeViewRootGateMessage(rootCount,codeViewRootGate))
             ),
             React.createElement('div',{className:'code-canvas-hud'},
-                !data.beam&&React.createElement('div',{className:'code-canvas-hint'},codeRootGateActive?codeViewRootGateMessage(rootCount,codeViewRootGate):(codeViewFiles.length?(data.beam?'':'')+'Open files from nodes or the Files tree. Open cards stay put. Wheel pans · Ctrl+wheel zooms.':'No files to open as cards.')),
+                React.createElement('div',{className:'code-canvas-hint'},codeRootGateActive?codeViewRootGateMessage(rootCount,codeViewRootGate):(codeViewFiles.length?'Open files from nodes or the Files tree. Open cards stay put. Wheel pans · Ctrl+wheel zooms.':'No files to open as cards.')),
                 codeViewSymbols.length>0&&React.createElement('div',{className:'code-sym-list'},
                     codeViewSymbols.map(function(sym){
                         return React.createElement('button',{key:sym.name,className:'code-sym-chip '+sym.kind+(activeSymbol===sym.name?' active':''),title:sym.name,onClick:function(){setActiveSymbol(function(prev){return prev===sym.name?null:sym.name;});}},sym.name);
@@ -13818,7 +13825,7 @@ function App(){
                             React.createElement('option',{value:'sankey'},'Flow'),
                             React.createElement('option',{value:'disjoint'},'Cluster'),
                             React.createElement('option',{value:'bundle'},'Bundle'),
-                            !data.beam&&React.createElement('option',{value:'architecture'},'Block Diagram')
+                            React.createElement('option',{value:'architecture'},'Block Diagram')
                         )
                     ),
                     graphConfig.vizType==='graph'&&React.createElement('svg',{ref:svgRef}),
@@ -13894,9 +13901,8 @@ function App(){
                         onWheel:function(e){e.preventDefault();e.stopPropagation();}
                     },React.createElement('canvas',{ref:minimapCanvasRef})),
                     graphConfig.vizType!=='architecture'&&React.createElement('div',{className:'canvas-info'},
-                        data.beam&&folderFilter&&React.createElement('button',{className:'info-chip',onClick:function(){setFolderFilter(folderFilter.indexOf('/')<0?null:folderFilter.slice(0,folderFilter.lastIndexOf('/')));}},'← '+folderFilter),
-                        React.createElement('div',{className:'info-chip'},React.createElement('strong',null,folderFilter?data.files.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}).length:data.files.length),data.beam?' project files':' files'),
-                        React.createElement('div',{className:'info-chip'},React.createElement('strong',null,data.connections.length),data.beam?' project links':' links'),
+                        React.createElement('div',{className:'info-chip'},React.createElement('strong',null,folderFilter?data.files.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}).length:data.files.length),' files'),
+                        React.createElement('div',{className:'info-chip'},React.createElement('strong',null,data.connections.length),' links'),
                         data.excludePatterns&&data.excludePatterns.length>0&&React.createElement('div',{className:'info-chip'},
                             React.createElement(Icon,{name:'ban',size:'s'}),
                             ' ',
@@ -13947,18 +13953,16 @@ function App(){
                 }}),
                 data?React.createElement(React.Fragment,null,
                     React.createElement('div',{className:'panel-tabs'},
-                        React.createElement('button',{className:'panel-tab'+(rightTab==='details'?' active':''),onClick:function(){setRightTab('details');setDrillDown(null);}},selected?iconLabel('file','FILE'):(graphConfig.vizType==='architecture'?iconLabel('layers','ARCH'):iconLabel('search',data.beam?'PROJECT':'ISSUES'))),
-                        data.beam&&React.createElement('button',{className:'panel-tab'+(rightTab==='findings'?' active':''),onClick:function(){setRightTab('findings');}},'FINDINGS'),
+                        React.createElement('button',{className:'panel-tab'+(rightTab==='details'?' active':''),onClick:function(){setRightTab('details');setDrillDown(null);}},selected?iconLabel('file','FILE'):(graphConfig.vizType==='architecture'?iconLabel('layers','ARCH'):iconLabel('search','ISSUES'))),
                         data.beam&&React.createElement('button',{className:'panel-tab'+(rightTab==='runtime'?' active':''),onClick:function(){setRightTab('runtime');}},'RUNTIME'),
-                        !data.beam&&React.createElement('button',{className:'panel-tab'+(rightTab==='patterns'?' active':''),onClick:function(){setRightTab('patterns');setDrillDown(null);}},iconLabel('puzzle','PATTERNS'),React.createElement('span',{className:'panel-tab-pill'},data.patterns.length)),
-                        !data.beam&&React.createElement('button',{className:'panel-tab'+(rightTab==='security'?' active':''),onClick:function(){setRightTab('security');setDrillDown(null);}},iconLabel('security','SECURITY'),data.stats.security>0&&React.createElement('span',{className:'panel-tab-pill alert'},data.stats.security)),
-                        !data.beam&&React.createElement('button',{className:'panel-tab'+(rightTab==='suggestions'?' active':''),onClick:function(){setRightTab('suggestions');setDrillDown(null);}},iconLabel('action','ACTIONS'),data.suggestions&&data.suggestions.length>0&&React.createElement('span',{className:'panel-tab-pill alert'},data.suggestions.length))
+                        React.createElement('button',{className:'panel-tab'+(rightTab==='patterns'?' active':''),onClick:function(){setRightTab('patterns');setDrillDown(null);}},iconLabel('puzzle','PATTERNS'),React.createElement('span',{className:'panel-tab-pill'},data.patterns.length)),
+                        React.createElement('button',{className:'panel-tab'+(rightTab==='security'?' active':''),onClick:function(){setRightTab('security');setDrillDown(null);}},iconLabel('security','SECURITY'),data.stats.security>0&&React.createElement('span',{className:'panel-tab-pill alert'},data.stats.security)),
+                        React.createElement('button',{className:'panel-tab'+(rightTab==='suggestions'?' active':''),onClick:function(){setRightTab('suggestions');setDrillDown(null);}},iconLabel('action','ACTIONS'),data.suggestions&&data.suggestions.length>0&&React.createElement('span',{className:'panel-tab-pill alert'},data.suggestions.length))
                     ),
                     React.createElement('div',{className:'panel-content'},
-                        data.beam&&rightTab==='findings'&&renderBeamFindings(),
                         data.beam&&rightTab==='runtime'&&renderBeamRuntime(),
                         rightTab==='details'&&(selected?React.createElement(React.Fragment,null,
-                            React.createElement('button',{className:'top-btn',style:{width:'100%',marginBottom:12},onClick:function(){setSelected(null);setBlastRadius(null);selectedPathRef.current=null;if(nodesRef.current){nodesRef.current.selectAll('.nc,.nb').transition().duration(200).attr('opacity',1).attr('fill',function(n){return d3.select(this).classed('nb')?graphColorBlockFill(getNodeColor(n)):getNodeColor(n);});}if(vizUsesForceLinkParticles(graphConfig.vizType))applyForceLinkVisuals();else if(linksRef.current)linksRef.current.transition().duration(200).attr('stroke-opacity',0.4).attr('stroke',theme==='light'?'#ccc':'#333');}},data.beam?'← Back to Project':'← Back to Issues'),
+                            React.createElement('button',{className:'top-btn',style:{width:'100%',marginBottom:12},onClick:function(){setSelected(null);setBlastRadius(null);selectedPathRef.current=null;if(nodesRef.current){nodesRef.current.selectAll('.nc,.nb').transition().duration(200).attr('opacity',1).attr('fill',function(n){return d3.select(this).classed('nb')?graphColorBlockFill(getNodeColor(n)):getNodeColor(n);});}if(vizUsesForceLinkParticles(graphConfig.vizType))applyForceLinkVisuals();else if(linksRef.current)linksRef.current.transition().duration(200).attr('stroke-opacity',0.4).attr('stroke',theme==='light'?'#ccc':'#333');}},'← Back to Issues'),
                             React.createElement('div',{className:'panel-header',style:{margin:'0 -12px 12px',padding:12}},
                                 React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}},
                                     React.createElement('div',null,
@@ -13970,7 +13974,7 @@ function App(){
                             ),
                             data.beam&&renderBeamNavigation(),
                             blastRadius&&React.createElement('div',{className:'card',style:{marginBottom:12}},
-                                React.createElement('div',{className:'card-header',onClick:function(){toggleCard('blast');}},React.createElement('div',{className:'card-title'},React.createElement('span',{className:'card-toggle'+(expandedCards.has('blast')?' open':'')},'▶'),React.createElement(Icon,{name:'impact',size:'s'}),data.beam?' Dependency Reach':' Impact Analysis'),!data.beam&&React.createElement('span',{className:'badge badge-'+(blastRadius.level==='low'?'success':blastRadius.level==='medium'?'warning':'danger')},blastRadius.level.toUpperCase())),
+                                React.createElement('div',{className:'card-header',onClick:function(){toggleCard('blast');}},React.createElement('div',{className:'card-title'},React.createElement('span',{className:'card-toggle'+(expandedCards.has('blast')?' open':'')},'▶'),React.createElement(Icon,{name:'impact',size:'s'}),' Impact Analysis'),React.createElement('span',{className:'badge badge-'+(blastRadius.level==='low'?'success':blastRadius.level==='medium'?'warning':'danger')},blastRadius.level.toUpperCase())),
                                 expandedCards.has('blast')&&React.createElement('div',{className:'card-body'},
                                     React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:10}},
                                         React.createElement('div',{style:{background:'var(--bg0)',padding:8,borderRadius:6,textAlign:'center'}},
@@ -13979,10 +13983,10 @@ function App(){
                                         ),
                                         React.createElement('div',{style:{background:'var(--bg0)',padding:8,borderRadius:6,textAlign:'center'}},
                                             React.createElement('div',{style:{fontSize:16,fontWeight:600,color:'var(--purple)'}},blastRadius.transitiveCount||0),
-                                            React.createElement('div',{style:{fontSize:9,color:'var(--t3)'}},data.beam?'Reach (up to 3 hops)':'Transitive')
+                                            React.createElement('div',{style:{fontSize:9,color:'var(--t3)'}},'Transitive')
                                         ),
                                         React.createElement('div',{style:{background:'var(--bg0)',padding:8,borderRadius:6,textAlign:'center'}},
-                                            React.createElement('div',{style:{fontSize:16,fontWeight:600,color:'var(--green)'}},data.beam?'—':blastRadius.fnsUsed||0),
+                                            React.createElement('div',{style:{fontSize:16,fontWeight:600,color:'var(--green)'}},blastRadius.fnsUsed||0),
                                             React.createElement('div',{style:{fontSize:9,color:'var(--t3)'}},'Fns Exported')
                                         ),
                                         React.createElement('div',{style:{background:'var(--bg0)',padding:8,borderRadius:6,textAlign:'center'}},
@@ -14015,11 +14019,11 @@ function App(){
                                     var tgt=typeof c.target==='object'?c.target.id:c.target;
                                     if(src===selected.path){
                                         if(!connByFile.out[tgt])connByFile.out[tgt]={file:tgt,fns:[]};
-                                        connByFile.out[tgt].fns.push({name:c.evidence==='mix xref'?c.kind:c.fn,count:c.count});
+                                        connByFile.out[tgt].fns.push({name:c.evidence==='mix xref'?c.kind:c.fn,count:c.count,evidence:c.evidence});
                                     }
                                     if(tgt===selected.path){
                                         if(!connByFile.in[src])connByFile.in[src]={file:src,fns:[]};
-                                        connByFile.in[src].fns.push({name:c.evidence==='mix xref'?c.kind:c.fn,count:c.count});
+                                        connByFile.in[src].fns.push({name:c.evidence==='mix xref'?c.kind:c.fn,count:c.count,evidence:c.evidence});
                                     }
                                 });
                                 outgoing=Object.values(connByFile.out).sort(function(a,b){return b.fns.length-a.fns.length;});
@@ -14029,48 +14033,46 @@ function App(){
                                     React.createElement('div',{className:'card-header',onClick:function(){toggleCard('conns');}},React.createElement('div',{className:'card-title'},React.createElement('span',{className:'card-toggle'+(expandedCards.has('conns')?' open':'')},'▶'),React.createElement(Icon,{name:'link',size:'s'}),' Connections'),React.createElement('span',{className:'badge badge-default'},totalConns)),
                                     expandedCards.has('conns')&&React.createElement('div',{className:'card-body',style:{padding:0}},
                                         outgoing.length>0&&React.createElement(React.Fragment,null,
-                                            React.createElement('div',{style:{fontSize:9,fontWeight:600,color:'var(--t3)',padding:'8px 12px',background:'var(--bg2)',borderBottom:'1px solid var(--border)'}},data.beam?'Used by (':'Uses (',outgoing.length,' files)'),
-                                            (data.beam?outgoing:outgoing.slice(0,15)).map(function(conn){
+                                            React.createElement('div',{style:{fontSize:9,fontWeight:600,color:'var(--t3)',padding:'8px 12px',background:'var(--bg2)',borderBottom:'1px solid var(--border)'}},'Used by (',outgoing.length,' files)'),
+                                            outgoing.map(function(conn){
                                                 var isOpen=expandedCards.has('conn-out-'+conn.file);
                                                 return React.createElement('div',{key:conn.file,className:'conn-item'},
                                                     React.createElement('div',{className:'conn-header',onClick:function(e){e.stopPropagation();toggleCard('conn-out-'+conn.file);}},
                                                         React.createElement('span',{className:'card-toggle'+(isOpen?' open':''),style:{fontSize:8,marginRight:6}},'▶'),
                                                         React.createElement('span',{className:'conn-file-icon'},React.createElement(Icon,{name:'file',size:'s'})),
                                                         React.createElement('span',{className:'conn-file-name'},conn.file.split('/').pop()),
-                                                        React.createElement('span',{className:'badge badge-default',style:{marginLeft:'auto'}},conn.fns.length,data.beam?' relationship':' fn',conn.fns.length!==1?'s':'')
+                                                        React.createElement('span',{className:'badge badge-default',style:{marginLeft:'auto'}},conn.fns.length,' relationship',conn.fns.length!==1?'s':'')
                                                     ),
                                                     isOpen&&React.createElement('div',{className:'conn-fns'},
                                                         conn.fns.map(function(fn,i){return React.createElement('div',{key:i,className:'conn-fn'},
-                                                            React.createElement('span',{className:'conn-fn-name'},fn.name,data.beam?'':'()'),
-                                                            React.createElement('span',{className:'conn-fn-count'},data.beam?'compiler reference':fn.count+'×')
+                                                            React.createElement('span',{className:'conn-fn-name'},fn.name,fn.evidence==='mix xref'?'':'()'),
+                                                            React.createElement('span',{className:'conn-fn-count'},fn.evidence==='mix xref'?'mix xref':fn.count+'×')
                                                         );}),
                                                         React.createElement('div',{className:'conn-goto',onClick:function(){goToFile(conn.file);}},'→ View ',conn.file.split('/').pop())
                                                     )
                                                 );
                                             }),
-                                            !data.beam&&outgoing.length>15&&React.createElement('div',{style:{fontSize:9,color:'var(--t3)',padding:8,textAlign:'center'}},'+',outgoing.length-15,' more files')
                                         ),
                                         incoming.length>0&&React.createElement(React.Fragment,null,
-                                            React.createElement('div',{style:{fontSize:9,fontWeight:600,color:'var(--t3)',padding:'8px 12px',background:'var(--bg2)',borderBottom:'1px solid var(--border)',borderTop:outgoing.length>0?'1px solid var(--border)':'none'}},data.beam?'Depends on (':'Used by (',incoming.length,' files)'),
-                                            (data.beam?incoming:incoming.slice(0,15)).map(function(conn){
+                                            React.createElement('div',{style:{fontSize:9,fontWeight:600,color:'var(--t3)',padding:'8px 12px',background:'var(--bg2)',borderBottom:'1px solid var(--border)',borderTop:outgoing.length>0?'1px solid var(--border)':'none'}},'Depends on (',incoming.length,' files)'),
+                                            incoming.map(function(conn){
                                                 var isOpen=expandedCards.has('conn-in-'+conn.file);
                                                 return React.createElement('div',{key:conn.file,className:'conn-item'},
                                                     React.createElement('div',{className:'conn-header',onClick:function(e){e.stopPropagation();toggleCard('conn-in-'+conn.file);}},
                                                         React.createElement('span',{className:'card-toggle'+(isOpen?' open':''),style:{fontSize:8,marginRight:6}},'▶'),
                                                         React.createElement('span',{className:'conn-file-icon'},React.createElement(Icon,{name:'file',size:'s'})),
                                                         React.createElement('span',{className:'conn-file-name'},conn.file.split('/').pop()),
-                                                        React.createElement('span',{className:'badge badge-default',style:{marginLeft:'auto'}},conn.fns.length,data.beam?' relationship':' fn',conn.fns.length!==1?'s':'')
+                                                        React.createElement('span',{className:'badge badge-default',style:{marginLeft:'auto'}},conn.fns.length,' relationship',conn.fns.length!==1?'s':'')
                                                     ),
                                                     isOpen&&React.createElement('div',{className:'conn-fns'},
                                                         conn.fns.map(function(fn,i){return React.createElement('div',{key:i,className:'conn-fn'},
-                                                            React.createElement('span',{className:'conn-fn-name'},fn.name,data.beam?'':'()'),
-                                                            React.createElement('span',{className:'conn-fn-count'},data.beam?'compiler reference':fn.count+'×')
+                                                            React.createElement('span',{className:'conn-fn-name'},fn.name,fn.evidence==='mix xref'?'':'()'),
+                                                            React.createElement('span',{className:'conn-fn-count'},fn.evidence==='mix xref'?'mix xref':fn.count+'×')
                                                         );}),
                                                         React.createElement('div',{className:'conn-goto',onClick:function(){goToFile(conn.file);}},'→ View ',conn.file.split('/').pop())
                                                     )
                                                 );
                                             }),
-                                            !data.beam&&incoming.length>15&&React.createElement('div',{style:{fontSize:9,color:'var(--t3)',padding:8,textAlign:'center'}},'+',incoming.length-15,' more files')
                                         )
                                     )
                                 );
@@ -14085,10 +14087,10 @@ function App(){
                                     ):React.createElement('div',{style:{fontSize:10,color:'var(--t3)',padding:8}},'No ownership data available')
                                 )
                             ),
-                            !data.beam&&React.createElement('div',{className:'card'},
-                                React.createElement('div',{className:'card-header',onClick:function(){toggleCard('fns');}},React.createElement('div',{className:'card-title'},React.createElement('span',{className:'card-toggle'+(expandedCards.has('fns')?' open':'')},'▶'),React.createElement(Icon,{name:'bolt',size:'s'}),' Functions (',data.beam?'not assessed':selected.functions.length,')')),
+                            React.createElement('div',{className:'card'},
+                                React.createElement('div',{className:'card-header',onClick:function(){toggleCard('fns');}},React.createElement('div',{className:'card-title'},React.createElement('span',{className:'card-toggle'+(expandedCards.has('fns')?' open':'')},'▶'),React.createElement(Icon,{name:'bolt',size:'s'}),' Functions (',selected.functions.length,')')),
                                 expandedCards.has('fns')&&React.createElement('div',{className:'card-body',style:{padding:8}},
-                                    selected.functions.length===0?React.createElement('div',{style:{fontSize:10,color:'var(--t3)',padding:8,textAlign:'center'}},data.beam?'Function analysis is unavailable in compiler file graphs. Open the source to inspect definitions.':'No functions detected'):
+                                    selected.functions.length===0?React.createElement('div',{style:{fontSize:10,color:'var(--t3)',padding:8,textAlign:'center'}},'No functions detected'):
                                     selected.functions.map(function(fn){
                                         var statKey=fn.key||Parser.functionKey(fn);
                                         var st=data.fnStats[statKey]||data.fnStats[fn.name];
@@ -14097,7 +14099,7 @@ function App(){
                                         var intCalls=st?st.internal:0,extCalls=st?st.external:0;
                                         return React.createElement('div',{key:expandKey,className:'fn-item'},
                                             React.createElement('div',{className:'fn-header',onClick:function(){toggleFn(expandKey);}},
-                                                React.createElement('span',{className:'fn-name'},fn.name,data.beam?'':'()'),
+                                                React.createElement('span',{className:'fn-name'},fn.name,fn.evidence==='mix xref'?'':'()'),
                                                 React.createElement('span',{style:{display:'flex',alignItems:'center',gap:4}},
                                                     React.createElement('button',{className:'view-file-btn',onClick:function(e){e.stopPropagation();openFilePreview(selected.path,fn.line);},title:'View source'},React.createElement(Icon,{name:'eye',size:'s'})),
                                                     React.createElement('span',{className:'fn-line'},'L',fn.line),
@@ -14118,17 +14120,18 @@ function App(){
                                                 ),
                                                 intCalls===0&&extCalls===0&&React.createElement('div',{style:{fontSize:9,color:'var(--orange)',padding:8,textAlign:'center',background:'rgba(255,159,67,0.1)',borderRadius:4}},
                                                     React.createElement(Icon,{name:'warning',size:'s'}),
-                                                    ' This function is never called'
+                                                    st&&st.usageCertainty==='unverified'?' No callers found by source analysis; runtime use is unknown.':' No callers found by source analysis.'
                                                 )
                                             )
                                         );
                                     })
                                 )
                             )
-                        ):data.beam?renderBeamEvidence():graphConfig.vizType==='architecture'?renderArchitectureSummary():React.createElement(React.Fragment,null,
+                        ):graphConfig.vizType==='architecture'?renderArchitectureSummary():React.createElement(React.Fragment,null,
+                            renderAnalysisProviders(),
                             React.createElement('div',{style:{fontSize:12,fontWeight:600,marginBottom:12}},React.createElement(Icon,{name:'search',size:'m'}),' Architecture Issues (',data.issues.length,')'),
                             data.issues.length===0?React.createElement('div',{style:{textAlign:'center',padding:20}},React.createElement(Icon,{name:'spark',size:'xxl',className:'empty-icon'}),React.createElement('div',{style:{color:'var(--green)'}},'No issues detected!')):
-                            data.issues.map(function(issue,i){return React.createElement('div',{key:i,className:'security-item '+(issue.type==='critical'?'high':'medium'),style:{cursor:'pointer'},onClick:function(){setDrillDown({type:'issue',data:issue});}},
+                            data.issues.map(function(issue,i){return React.createElement('div',{key:i,className:'security-item '+(issue.type==='critical'?'high':'medium'),style:{cursor:'pointer'},onClick:function(){if(issue.sourceLocation&&issue.sourceLocation.path)openSourceLocation(issue.sourceLocation);else setDrillDown({type:'issue',data:issue});}},
                                 React.createElement('div',{className:'security-header'},
                                     React.createElement(StatusDot,{color:issue.type==='critical'?'var(--red)':'var(--orange)'}),
                                     React.createElement('span',{className:'security-title'},issue.title)
@@ -14233,7 +14236,7 @@ function App(){
                             React.createElement('div',{className:'export-option',onClick:function(){copyLink();setShowExport(false);}},React.createElement('div',{className:'export-option-icon'},React.createElement(Icon,{name:'link',size:'xl'})),React.createElement('div',{className:'export-option-label'},'Share Link'))
                         )
                     ),
-                    !data.beam&&React.createElement(React.Fragment,null,
+                    React.createElement(React.Fragment,null,
                     React.createElement('div',{style:{fontSize:10,fontWeight:600,color:'var(--t3)',textTransform:'uppercase',marginBottom:8,marginTop:16}},'Analysis Report'),
                     React.createElement('div',{style:{fontSize:9,color:'var(--t2)',marginBottom:10}},'Complete analysis with files, functions, patterns, security issues, and dependencies'),
                     React.createElement('div',{className:'export-options'},
@@ -14603,29 +14606,29 @@ function App(){
         ),
         showUnused&&data&&data.deadFunctions&&React.createElement('div',{className:'modal-overlay',onClick:function(){setShowUnused(false);}},
             React.createElement('div',{className:'modal',style:{maxWidth:650,maxHeight:'85vh'},onClick:function(e){e.stopPropagation();}},
-                React.createElement('div',{className:'modal-header'},React.createElement('div',{className:'modal-title'},iconLabel('warning','Unused Functions','m')),React.createElement('button',{className:'modal-close',onClick:function(){setShowUnused(false);}},'×')),
+                React.createElement('div',{className:'modal-header'},React.createElement('div',{className:'modal-title'},iconLabel('warning','Functions Without Observed Callers','m')),React.createElement('button',{className:'modal-close',onClick:function(){setShowUnused(false);}},'×')),
                 React.createElement('div',{className:'modal-body',style:{maxHeight:'70vh',overflowY:'auto'}},
                     React.createElement('div',{className:'unused-summary'},
                         React.createElement('div',{className:'unused-summary-item'},
                             React.createElement('div',{className:'unused-summary-value'},data.deadFunctions.length),
-                            React.createElement('div',{className:'unused-summary-label'},'Dead Functions')
+                            React.createElement('div',{className:'unused-summary-label'},'Candidates')
                         ),
                         React.createElement('div',{className:'unused-summary-item'},
                             React.createElement('div',{className:'unused-summary-value'},data.deadFunctions.reduce(function(s,f){return s+f.codeLines;},0)),
-                            React.createElement('div',{className:'unused-summary-label'},'Dead Lines')
+                            React.createElement('div',{className:'unused-summary-label'},'Candidate Lines')
                         ),
                         React.createElement('div',{className:'unused-summary-item'},
                             React.createElement('div',{className:'unused-summary-value'},[...new Set(data.deadFunctions.map(function(f){return f.file;}))].length),
                             React.createElement('div',{className:'unused-summary-label'},'Files Affected')
                         )
                     ),
-                    React.createElement('div',{style:Object.assign(getAccentBlockStyle('rgba(255,159,67,0.34)','rgba(255,159,67,0.08)'),{fontSize:10,color:'var(--t3)',marginBottom:12,padding:'8px 12px',borderRadius:6})},'These functions have zero calls from other files or within their own file. They are likely dead code that can be safely removed.'),
+                    React.createElement('div',{style:Object.assign(getAccentBlockStyle('rgba(255,159,67,0.34)','rgba(255,159,67,0.08)'),{fontSize:10,color:'var(--t3)',marginBottom:12,padding:'8px 12px',borderRadius:6})},'Source analysis found no callers for these functions. Callbacks, macros and dynamic invocation can remain undetected; verify usage before removing code.'),
                     data.deadFunctions.map(function(fn,i){
                         var isExpanded=expandedFns.has('dead-'+fn.name);
                         return React.createElement('div',{key:i,className:'unused-fn'},
                             React.createElement('div',{className:'unused-fn-header',onClick:function(){toggleFn('dead-'+fn.name);}},
                                 React.createElement('div',null,
-                                    React.createElement('span',{className:'unused-fn-name'},fn.name,data.beam?'':'()'),
+                                    React.createElement('span',{className:'unused-fn-name'},fn.name,fn.evidence==='mix xref'?'':'()'),
                                     React.createElement('div',{className:'unused-fn-path'},
                                         React.createElement('span',null,React.createElement(Icon,{name:'folder',size:'s'}),' ',fn.folder||'root'),
                                         React.createElement('span',null,'→'),

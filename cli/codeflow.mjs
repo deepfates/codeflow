@@ -11,7 +11,7 @@ import { collectBeamGraph, unavailableBeam } from './beam.mjs';
 import { collectRuntimeSnapshot } from './runtime.mjs';
 
 const IGNORE = new Set([
-  'node_modules', '_build', 'deps', '.elixir_ls', '.git', 'vendor', 'dist', 'build', 'out', 'coverage',
+  'node_modules', '.git', 'vendor', 'dist', 'build', 'out', 'coverage',
   '.next', '.nuxt', '.cache', '.parcel-cache', '.turbo', '.vercel', '.local',
   '.artifacts', '.playwright-cli', 'playwright-report', 'test-results',
   '.claude', '.codex', '.idea', '.vscode', '.pnpm-store', '.yarn', 'tmp',
