@@ -22,5 +22,8 @@
     "start": "node cli/codeflow.mjs .",
     "test": "node --test --test-concurrency=1 tests/*.test.mjs tests/*.smoke.js",
     "test:beam": "CODEFLOW_TEST_MIX=1 node --test tests/beam-compiler.test.mjs tests/beam-native.test.mjs"
+  },
+  "dependencies": {
+    "vscode-jsonrpc": "9.0.2"
   }
 }
