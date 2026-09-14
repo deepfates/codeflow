@@ -325,6 +325,632 @@
     };
   }
 
+  // src/investigation/preferences.mjs
+  var UI_PREFS_STORAGE_KEY = "codeflow-ui-prefs";
+  var LINE_THICKNESS_MIN = 1;
+  var LINE_THICKNESS_MAX = 6;
+  var LINE_THICKNESS_DEFAULT = 1;
+  function clampLineThickness(value) {
+    var n = Number(value);
+    if (!isFinite(n)) return LINE_THICKNESS_DEFAULT;
+    n = Math.round(n);
+    if (n < LINE_THICKNESS_MIN) return LINE_THICKNESS_MIN;
+    if (n > LINE_THICKNESS_MAX) return LINE_THICKNESS_MAX;
+    return n;
+  }
+  function defaultUiPrefs() {
+    return { lineThickness: LINE_THICKNESS_DEFAULT };
+  }
+  function normalizeUiPrefs(prefs) {
+    prefs = prefs && typeof prefs === "object" ? prefs : {};
+    var next = defaultUiPrefs();
+    if (prefs.lineThickness != null) next.lineThickness = clampLineThickness(prefs.lineThickness);
+    return next;
+  }
+  function resolveUiPrefsStorage(storage) {
+    try {
+      if (storage === void 0) {
+        if (typeof window === "undefined") return null;
+        storage = window.localStorage;
+      }
+      if (!storage || typeof storage.getItem !== "function") return null;
+      return storage;
+    } catch (e) {
+      return null;
+    }
+  }
+  function readUiPrefs(storage) {
+    try {
+      var store = resolveUiPrefsStorage(storage);
+      if (!store) return defaultUiPrefs();
+      var raw = store.getItem(UI_PREFS_STORAGE_KEY);
+      if (!raw) return defaultUiPrefs();
+      return normalizeUiPrefs(JSON.parse(raw));
+    } catch (e) {
+      return defaultUiPrefs();
+    }
+  }
+  function writeUiPrefs(storage, prefs) {
+    var next = normalizeUiPrefs(Object.assign({}, readUiPrefs(storage), prefs || {}));
+    try {
+      var store = resolveUiPrefsStorage(storage);
+      if (store) store.setItem(UI_PREFS_STORAGE_KEY, JSON.stringify(next));
+    } catch (e) {
+    }
+    return next;
+  }
+  function persistUiPrefs(prefs) {
+    return writeUiPrefs(void 0, prefs);
+  }
+
+  // src/views/capabilities.mjs
+  function codeFileNavOpensCard(vizType) {
+    return vizType === "code";
+  }
+  function graphSvgExportEnabled(vizType) {
+    return vizType !== "code";
+  }
+  function vizUsesLineThickness(vizType) {
+    return vizType === "graph" || vizType === "code" || vizType === "graph3d" || vizType === "dendro" || vizType === "sankey" || vizType === "disjoint" || vizType === "bundle";
+  }
+  function vizHasGraphToolbar(vizType) {
+    return vizType === "graph" || vizType === "code" || vizType === "graph3d";
+  }
+  function vizHasCanvasMinimap(vizType) {
+    return vizType === "graph" || vizType === "code";
+  }
+  function vizUsesForceLinkParticles(vizType) {
+    return vizType === "code";
+  }
+
+  // src/views/graph-style.mjs
+  function graphLinkBaseWidth(count) {
+    return Math.max(1, Math.min(2, Math.sqrt(count || 1) * 0.3));
+  }
+  function graphLinkStrokeWidth(count, thickness) {
+    return graphLinkBaseWidth(count) * clampLineThickness(thickness);
+  }
+  function scaleStrokeWidth(base, thickness) {
+    var n = Number(base);
+    if (!isFinite(n) || n <= 0) n = 1;
+    return Math.max(0.4, n * clampLineThickness(thickness));
+  }
+  function graph3dLinkWidth(link, selectedPath, thickness) {
+    link = link || {};
+    var baseWidth = Math.max(0.8, Math.min(3, Math.sqrt(link.count || 1) * 0.4));
+    if (selectedPath) {
+      var s = link.source && (link.source.id || link.source);
+      var t = link.target && (link.target.id || link.target);
+      if (s === selectedPath || t === selectedPath) return scaleStrokeWidth(baseWidth * 2, thickness);
+      return scaleStrokeWidth(baseWidth * 0.3, thickness);
+    }
+    return scaleStrokeWidth(baseWidth, thickness);
+  }
+  function forceLinkEndId(end) {
+    if (end == null) return "";
+    if (typeof end === "object") return String(end.id || "");
+    return String(end);
+  }
+  function forceLinkRole(link, selectedPath) {
+    if (!link || !selectedPath) return "";
+    if (forceLinkEndId(link.source) === selectedPath) return "out";
+    if (forceLinkEndId(link.target) === selectedPath) return "in";
+    return "";
+  }
+  function prefersReducedMotion(query) {
+    try {
+      if (query && typeof query.matches === "boolean") return !!query.matches;
+      var matchMedia = typeof query === "function" ? query : typeof window !== "undefined" ? window.matchMedia : null;
+      if (typeof matchMedia !== "function") return false;
+      var owner = typeof window !== "undefined" ? window : null;
+      var res = matchMedia.call(owner, "(prefers-reduced-motion: reduce)");
+      return !!(res && res.matches);
+    } catch (e) {
+      return false;
+    }
+  }
+  function subscribePrefersReducedMotion(onChange, matchMediaFn) {
+    if (typeof onChange !== "function") return function() {
+    };
+    try {
+      var matchMedia = typeof matchMediaFn === "function" ? matchMediaFn : typeof window !== "undefined" ? window.matchMedia : null;
+      if (typeof matchMedia !== "function") return function() {
+      };
+      var owner = typeof window !== "undefined" ? window : null;
+      var mq = matchMedia.call(owner, "(prefers-reduced-motion: reduce)");
+      if (!mq) return function() {
+      };
+      var handler = function() {
+        onChange(!!mq.matches);
+      };
+      if (typeof mq.addEventListener === "function") {
+        mq.addEventListener("change", handler);
+        return function() {
+          mq.removeEventListener("change", handler);
+        };
+      }
+      if (typeof mq.addListener === "function") {
+        mq.addListener(handler);
+        return function() {
+          mq.removeListener(handler);
+        };
+      }
+    } catch (e) {
+    }
+    return function() {
+    };
+  }
+  function forceLinkIdleStroke(theme) {
+    return theme === "light" ? "#ccc" : "#333";
+  }
+  function forceLinkVisual(link, selectedPath, options) {
+    options = options || {};
+    var theme = options.theme === "light" ? "light" : "dark";
+    var reduced = !!options.reducedMotion;
+    var allowParticles = options.particles !== false && (options.vizType == null || vizUsesForceLinkParticles(options.vizType)) && !reduced;
+    var width = graphLinkStrokeWidth(link && link.count, options.thickness);
+    var role = forceLinkRole(link, selectedPath);
+    var idle = forceLinkIdleStroke(theme);
+    if (selectedPath && (role === "out" || role === "in")) {
+      return {
+        role,
+        active: true,
+        stroke: role === "out" ? "var(--orange)" : "var(--purple)",
+        opacity: 0.9,
+        width,
+        particle: allowParticles,
+        particleStroke: "#fff",
+        particleWidth: Math.max(4, width + 2.4),
+        particleDash: allowParticles ? "8 20" : "",
+        particleDuration: allowParticles ? 0.7 : 0
+      };
+    }
+    if (selectedPath) {
+      return {
+        role: "quiet",
+        active: false,
+        stroke: idle,
+        opacity: 0.08,
+        width,
+        particle: false,
+        particleStroke: idle,
+        particleWidth: width,
+        particleDash: "",
+        particleDuration: 0
+      };
+    }
+    return {
+      role: "idle",
+      active: false,
+      stroke: idle,
+      opacity: 0.4,
+      width,
+      particle: false,
+      particleStroke: idle,
+      particleWidth: width,
+      particleDash: "",
+      particleDuration: 0
+    };
+  }
+  function forceLinkParticlesNeedTickUpdate(selectedPath, options) {
+    if (!selectedPath) return false;
+    options = options || {};
+    if (options.reducedMotion) return false;
+    if (options.vizType != null && !vizUsesForceLinkParticles(options.vizType)) return false;
+    return true;
+  }
+  function readableLabelScale(k) {
+    var zoom = Number(k);
+    if (!isFinite(zoom) || zoom <= 0) return 1;
+    if (zoom >= 1) return 1;
+    return Math.min(8, 1 / zoom);
+  }
+  var COLOR_BLOCK_ZOOM = 0.4;
+  var CODE_FAR_ZOOM = 0.22;
+  function zoomShowsColorBlocks(k) {
+    var zoom = Number(k);
+    if (!isFinite(zoom) || zoom <= 0) return false;
+    return zoom <= COLOR_BLOCK_ZOOM;
+  }
+  function zoomHidesCodeText(k) {
+    var zoom = Number(k);
+    if (!isFinite(zoom) || zoom <= 0) return false;
+    return zoom < CODE_FAR_ZOOM;
+  }
+  function graphColorBlockSize(d) {
+    var r = Math.max(8, Math.min(24, 5 + (d && d.fnCount || 0) * 0.8));
+    return Math.max(22, r * 2 + 4);
+  }
+  function graphColorBlockScale(k) {
+    var zoom = Number(k);
+    if (!isFinite(zoom) || zoom <= 0) return 1;
+    var minScreen = 16;
+    var screen = 22 * zoom;
+    if (screen >= minScreen) return 1;
+    return Math.min(6, minScreen / screen);
+  }
+  function parseCssHex(color) {
+    var raw = String(color || "").trim();
+    var m = raw.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (!m) return null;
+    var h = m[1];
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    return { r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16), b: parseInt(h.slice(4, 6), 16) };
+  }
+  function cssHexHue(color) {
+    var rgb = parseCssHex(color);
+    if (!rgb) return NaN;
+    var r = rgb.r / 255, g = rgb.g / 255, b = rgb.b / 255;
+    var max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    if (d === 0) return 0;
+    var h = max === r ? (g - b) / d % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    h = h * 60;
+    if (h < 0) h += 360;
+    return h;
+  }
+  function colorBlockLooksLikeDiff(color) {
+    var h = cssHexHue(color);
+    if (!isFinite(h)) return false;
+    return h <= 25 || h >= 335 || h >= 70 && h <= 165;
+  }
+  function graphColorBlockFill(color) {
+    var hex = String(color || "").trim();
+    var known = {
+      "#00ff9d": "#38bdf8",
+      "#00cc7d": "#67e8f9",
+      "#00a86b": "#93c5fd",
+      "#22c55e": "#2dd4bf",
+      "#84cc16": "#e879f9",
+      "#98c379": "#5eead4",
+      "#ff5f5f": "#818cf8",
+      "#e06c75": "#f472b6",
+      "#ff6b6b": "#fbbf24"
+    };
+    var key = hex.toLowerCase();
+    if (known[key]) return known[key];
+    if (!colorBlockLooksLikeDiff(hex)) return hex || "#4d9fff";
+    var h = cssHexHue(hex);
+    return h <= 25 || h >= 335 ? "#c4b5fd" : "#7dd3fc";
+  }
+  function codeColorBlockKindColor(kind) {
+    if (kind === "import") return "#c678dd";
+    if (kind === "export") return "#56b6c2";
+    if (kind === "var" || kind === "file") return "#d19a66";
+    if (kind === "class") return "#e5c07b";
+    return "#61afef";
+  }
+
+  // src/views/graph3d.mjs
+  function createGraph3DView({ React: React2, getRuntime, colors: COLORS2, layerColors: LAYER_COLORS2 }) {
+    const { useEffect: useEffect2, useRef: useRef2, useImperativeHandle } = React2;
+    return React2.forwardRef(function Graph3DView2({ data, folderFilter, colorMap, colorMode, theme, config, selectedPath, blastRadius, lineThickness, onSelect }, ref) {
+      const graph3dRef = useRef2(null), graph3dInstanceRef = useRef2(null), onSelectRef = useRef2(onSelect);
+      onSelectRef.current = onSelect;
+      useImperativeHandle(ref, () => ({
+        zoom(factor) {
+          const graph = graph3dInstanceRef.current;
+          if (!graph) return;
+          const pos = graph.cameraPosition();
+          graph.cameraPosition({ x: pos.x * factor, y: pos.y * factor, z: pos.z * factor }, null, 400);
+        },
+        fit() {
+          graph3dInstanceRef.current?.zoomToFit(600);
+        }
+      }), []);
+      useEffect2(function() {
+        if (!data || !graph3dRef.current) return;
+        const { ForceGraph3D, THREE } = getRuntime();
+        if (typeof ForceGraph3D === "undefined") {
+          console.warn("3d-force-graph library not loaded");
+          return;
+        }
+        var w = graph3dRef.current.clientWidth || 800, h = graph3dRef.current.clientHeight || 600;
+        var filteredFiles = folderFilter ? data.files.filter(function(f) {
+          return f.folder === folderFilter || f.folder.startsWith(folderFilter + "/");
+        }) : data.files;
+        var fileIds = new Set(filteredFiles.map(function(f) {
+          return f.path;
+        }));
+        var existingNodesMap = /* @__PURE__ */ new Map();
+        if (graph3dInstanceRef.current) {
+          var currentData = graph3dInstanceRef.current.graphData();
+          if (currentData && currentData.nodes) {
+            currentData.nodes.forEach(function(n) {
+              existingNodesMap.set(n.id, n);
+            });
+          }
+        }
+        var nodes = filteredFiles.map(function(f) {
+          var existing = existingNodesMap.get(f.path);
+          if (existing) {
+            existing.name = f.name;
+            existing.folder = f.folder;
+            existing.fnCount = f.functions.length;
+            existing.layer = f.layer;
+            existing.churn = f.churn || 0;
+            return existing;
+          }
+          return { id: f.path, name: f.name, folder: f.folder, fnCount: f.functions.length, layer: f.layer, churn: f.churn || 0 };
+        });
+        var linkMap = /* @__PURE__ */ new Map();
+        data.connections.forEach(function(c) {
+          if (!fileIds.has(c.source) || !fileIds.has(c.target)) return;
+          if (c.source === c.target) return;
+          var k = c.source + "|" + c.target;
+          if (!linkMap.has(k)) linkMap.set(k, { source: c.source, target: c.target, count: 0 });
+          linkMap.get(k).count += c.count;
+        });
+        var links = Array.from(linkMap.values());
+        function resolveHex(colorStr) {
+          if (!colorStr) return "#888888";
+          if (colorStr.startsWith("var(--")) {
+            var isLight = theme === "light";
+            if (colorStr === "var(--acc)") return isLight ? "#00a86b" : "#00ff9d";
+            if (colorStr === "var(--purple)") return "#a78bfa";
+            if (colorStr === "var(--orange)") return "#ff9f43";
+            if (colorStr === "var(--cyan)") return "#22d3ee";
+            if (colorStr === "var(--red)") return "#ff5f5f";
+            if (colorStr === "var(--green)") return "#22c55e";
+            if (colorStr === "var(--blue)") return "#4d9fff";
+            if (colorStr === "var(--pink)") return "#ec4899";
+            if (colorStr === "var(--border)") return isLight ? "#dadce0" : "#2d2d35";
+            if (colorStr === "var(--bg0)") return isLight ? "#ffffff" : "#0a0a0c";
+          }
+          return colorStr;
+        }
+        function hexToRgba(hex, alpha) {
+          var resolved = resolveHex(hex);
+          resolved = resolved.replace("#", "");
+          if (resolved.length === 3) {
+            resolved = resolved[0] + resolved[0] + resolved[1] + resolved[1] + resolved[2] + resolved[2];
+          }
+          var r = parseInt(resolved.substring(0, 2), 16);
+          var g = parseInt(resolved.substring(2, 4), 16);
+          var b = parseInt(resolved.substring(4, 6), 16);
+          return "rgba(" + r + "," + g + "," + b + "," + alpha + ")";
+        }
+        function getBaseColor(d) {
+          if (colorMode === "folder") return colorMap[d.folder] || COLORS2[0];
+          if (colorMode === "layer") return LAYER_COLORS2[d.layer] || LAYER_COLORS2["utils"];
+          if (colorMode === "churn") return colorMap[d.id] || "#22c55e";
+          return COLORS2[0];
+        }
+        function getR(d) {
+          var base = Math.max(6, Math.min(20, 4 + d.fnCount * 0.4));
+          if (selectedPath) {
+            if (d.id === selectedPath) return base * 2;
+            if (blastRadius && blastRadius.affected.indexOf(d.id) >= 0) return base * 1.4;
+            if (blastRadius && blastRadius.dependencies.indexOf(d.id) >= 0) return base * 1.4;
+            return base * 0.6;
+          }
+          return base;
+        }
+        function getC(d) {
+          var baseColor = getBaseColor(d);
+          if (selectedPath) {
+            if (d.id === selectedPath) return hexToRgba("var(--acc)", 0.95);
+            if (blastRadius && blastRadius.affected.indexOf(d.id) >= 0) return hexToRgba("var(--purple)", 0.95);
+            if (blastRadius && blastRadius.dependencies.indexOf(d.id) >= 0) return hexToRgba("var(--orange)", 0.95);
+            return hexToRgba(baseColor, 0.15);
+          }
+          return resolveHex(baseColor);
+        }
+        var graph;
+        if (!graph3dInstanceRef.current) {
+          graph = ForceGraph3D({ controlType: "orbit" })(graph3dRef.current);
+          graph3dInstanceRef.current = graph;
+        } else {
+          graph = graph3dInstanceRef.current;
+        }
+        graph.width(w).height(h).backgroundColor(theme === "light" ? "#ffffff" : "#0a0a0c").showNavInfo(false).graphData({ nodes, links }).nodeResolution(24).nodeVal(getR).nodeColor(getC).nodeLabel(function(node) {
+          return '<div style="font-family:JetBrains Mono,monospace;font-size:10px;padding:6px;background:rgba(15,15,18,0.95);border:1px solid var(--border);border-radius:6px;color:#fff;"><strong style="color:var(--acc);">' + node.name + "</strong><br/>" + node.folder + "<br/>" + node.fnCount + " functions \u2022 " + node.layer + " layer \u2022 " + node.churn + " commits</div>";
+        }).linkColor(function(link) {
+          var s = link.source.id || link.source;
+          var t = link.target.id || link.target;
+          if (selectedPath) {
+            if (s === selectedPath) return hexToRgba("var(--orange)", 0.85);
+            if (t === selectedPath) return hexToRgba("var(--purple)", 0.85);
+            return theme === "light" ? "rgba(220,220,220,0.08)" : "rgba(40,40,48,0.08)";
+          }
+          return theme === "light" ? "rgba(200,200,200,0.4)" : "rgba(60,60,70,0.4)";
+        }).linkWidth(function(link) {
+          return graph3dLinkWidth(link, selectedPath, lineThickness);
+        }).linkDirectionalArrowLength(function(link) {
+          if (selectedPath) {
+            var s = link.source.id || link.source;
+            var t = link.target.id || link.target;
+            if (s === selectedPath || t === selectedPath) return 5;
+            return 0;
+          }
+          return 3.5;
+        }).linkDirectionalArrowRelPos(1).linkDirectionalParticles(function(link) {
+          if (selectedPath) {
+            var s = link.source.id || link.source;
+            var t = link.target.id || link.target;
+            if (s === selectedPath || t === selectedPath) return 4;
+            return 0;
+          }
+          return 1;
+        }).linkDirectionalParticleWidth(function(link) {
+          if (selectedPath) {
+            return 2.5;
+          }
+          return 1.2;
+        }).linkDirectionalParticleSpeed(function(link) {
+          if (selectedPath) {
+            return 0.015;
+          }
+          return 4e-3;
+        }).linkDirectionalParticleColor(function(link) {
+          var s = link.source.id || link.source;
+          var t = link.target.id || link.target;
+          if (selectedPath) {
+            if (s === selectedPath) return resolveHex("var(--orange)");
+            if (t === selectedPath) return resolveHex("var(--purple)");
+          }
+          return resolveHex("var(--acc)");
+        }).linkCurvature(config.curvedLinks ? 0.25 : 0).onNodeClick(function(node) {
+          var distance = 120;
+          var distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
+          var newPos = node.x || node.y || node.z ? { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio } : { x: 0, y: 0, z: distance };
+          graph.cameraPosition(newPos, node, 1200);
+          onSelectRef.current(node.id);
+        }).onBackgroundClick(function() {
+          onSelectRef.current(null);
+        });
+        if (THREE && config.showLabels) {
+          graph.nodeThreeObject(function(node) {
+            var r = getR(node);
+            var color = getC(node);
+            var group = new THREE.Group();
+            var sphereGeo = new THREE.SphereGeometry(r, 24, 24);
+            var sphereMat = new THREE.MeshPhongMaterial({
+              color,
+              shininess: 80
+            });
+            var sphereMesh = new THREE.Mesh(sphereGeo, sphereMat);
+            group.add(sphereMesh);
+            var labelText = node.name;
+            var canvas = document.createElement("canvas");
+            var ctx = canvas.getContext("2d");
+            var scale = 4;
+            ctx.font = 10 * scale + 'px "JetBrains Mono", monospace';
+            var textWidth = ctx.measureText(labelText).width;
+            canvas.width = textWidth + 16 * scale;
+            canvas.height = 24 * scale;
+            ctx.font = 10 * scale + 'px "JetBrains Mono", monospace';
+            ctx.fillStyle = theme === "light" ? "rgba(255,255,255,0.9)" : "rgba(10,10,12,0.9)";
+            var w_rect = canvas.width;
+            var h_rect = canvas.height;
+            var r_rect = 4 * scale;
+            ctx.beginPath();
+            ctx.moveTo(r_rect, 0);
+            ctx.lineTo(w_rect - r_rect, 0);
+            ctx.quadraticCurveTo(w_rect, 0, w_rect, r_rect);
+            ctx.lineTo(w_rect, h_rect - r_rect);
+            ctx.quadraticCurveTo(w_rect, h_rect, w_rect - r_rect, h_rect);
+            ctx.lineTo(r_rect, h_rect);
+            ctx.quadraticCurveTo(0, h_rect, 0, h_rect - r_rect);
+            ctx.lineTo(0, r_rect);
+            ctx.quadraticCurveTo(0, 0, r_rect, 0);
+            ctx.closePath();
+            ctx.fill();
+            ctx.strokeStyle = theme === "light" ? "rgba(0,0,0,0.15)" : "rgba(255,255,255,0.15)";
+            ctx.lineWidth = 1 * scale;
+            ctx.stroke();
+            ctx.fillStyle = color;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(labelText, canvas.width / 2, canvas.height / 2);
+            var texture = new THREE.CanvasTexture(canvas);
+            var labelMaterial = new THREE.SpriteMaterial({ map: texture, depthWrite: false });
+            var labelSprite = new THREE.Sprite(labelMaterial);
+            var spriteWidth = canvas.width / scale * 0.15;
+            var spriteHeight = canvas.height / scale * 0.15;
+            labelSprite.scale.set(spriteWidth, spriteHeight, 1);
+            labelSprite.position.set(0, r + spriteHeight / 2 + 2, 0);
+            group.add(labelSprite);
+            return group;
+          });
+          graph.nodeThreeObjectExtend(false);
+        } else {
+          graph.nodeThreeObject(null);
+        }
+        var rotationTimer = setTimeout(function() {
+          if (graph3dInstanceRef.current) {
+            var ctrl = graph3dInstanceRef.current.controls();
+            if (ctrl) {
+              ctrl.autoRotate = !!config.autoRotate;
+              ctrl.autoRotateSpeed = 1;
+            }
+          }
+        }, 100);
+        var linkForce = graph.d3Force("link");
+        if (linkForce) linkForce.distance(config.linkDist || 70);
+        var chargeForce = graph.d3Force("charge");
+        if (chargeForce) chargeForce.strength(-(config.spacing || 200));
+        var groups = [];
+        if (colorMode === "folder") {
+          groups = Array.from(new Set(filteredFiles.map(function(f) {
+            return f.folder;
+          })));
+        } else if (colorMode === "layer") {
+          groups = Array.from(new Set(filteredFiles.map(function(f) {
+            return f.layer;
+          })));
+        }
+        var centers = {};
+        if (groups.length > 0) {
+          var nG = groups.length;
+          groups.forEach(function(g, i) {
+            var phi = Math.acos(1 - 2 * (i + 0.5) / nG);
+            var theta = Math.PI * (1 + Math.sqrt(5)) * (i + 0.5);
+            var radius = 180;
+            centers[g] = {
+              x: radius * Math.sin(phi) * Math.cos(theta),
+              y: radius * Math.sin(phi) * Math.sin(theta),
+              z: radius * Math.cos(phi)
+            };
+          });
+        }
+        function customForce(axis, targetSelector, strength) {
+          var nodes2;
+          function force(alpha) {
+            var prop = axis;
+            var velProp = "v" + axis;
+            for (var i = 0; i < nodes2.length; i++) {
+              var node = nodes2[i];
+              var target = targetSelector(node);
+              node[velProp] += (target - node[prop]) * strength * alpha;
+            }
+          }
+          force.initialize = function(_) {
+            nodes2 = _;
+          };
+          return force;
+        }
+        if (groups.length > 0) {
+          var targetProp = colorMode === "folder" ? "folder" : "layer";
+          var forceStrength = 0.15;
+          graph.d3Force("x", customForce("x", function(d) {
+            return centers[d[targetProp]] ? centers[d[targetProp]].x : 0;
+          }, forceStrength));
+          graph.d3Force("y", customForce("y", function(d) {
+            return centers[d[targetProp]] ? centers[d[targetProp]].y : 0;
+          }, forceStrength));
+          graph.d3Force("z", customForce("z", function(d) {
+            return centers[d[targetProp]] ? centers[d[targetProp]].z : 0;
+          }, forceStrength));
+        } else {
+          graph.d3Force("x", null);
+          graph.d3Force("y", null);
+          graph.d3Force("z", null);
+        }
+        return function() {
+          clearTimeout(rotationTimer);
+        };
+      }, [data, colorMap, colorMode, theme, folderFilter, selectedPath, blastRadius, config.linkDist, config.spacing, config.showLabels, config.curvedLinks, config.autoRotate, lineThickness]);
+      useEffect2(function() {
+        const observer = new ResizeObserver(function() {
+          const graph = graph3dInstanceRef.current, container = graph3dRef.current;
+          if (graph && container) graph.width(container.clientWidth || 800).height(container.clientHeight || 600);
+        });
+        observer.observe(graph3dRef.current);
+        return function() {
+          observer.disconnect();
+          const graph = graph3dInstanceRef.current;
+          if (graph) {
+            graph.pauseAnimation();
+            graph.graphData({ nodes: [], links: [] });
+            graph._destructor();
+            graph3dInstanceRef.current = null;
+          }
+        };
+      }, []);
+      return React2.createElement("div", { ref: graph3dRef, className: "graph3d-container", style: { width: "100%", height: "100%" } });
+    });
+  }
+
   // src/analysis/file-types.mjs
   var codeExts = [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".py", ".pyw", ".pyi", ".java", ".go", ".rb", ".php", ".rs", ".c", ".cpp", ".cc", ".h", ".hpp", ".cs", ".swift", ".kt", ".kts", ".scala", ".clj", ".ex", ".exs", ".erl", ".hs", ".lua", ".r", ".R", ".jl", ".dart", ".elm", ".fs", ".fsx", ".ml", ".pl", ".pm", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".psm1", ".groovy", ".gradle", ".vba", ".bas", ".cls", ".xlsm", ".xlam", ".xlsb", ".xla", ".xlw", ".pas", ".pp", ".dpr", ".dpk", ".lpr", ".inc"];
   var scriptContainerExts = [".html", ".htm", ".xhtml", ".vue", ".svelte"];
@@ -3019,301 +3645,6 @@
       default:
         return state;
     }
-  }
-
-  // src/investigation/preferences.mjs
-  var UI_PREFS_STORAGE_KEY = "codeflow-ui-prefs";
-  var LINE_THICKNESS_MIN = 1;
-  var LINE_THICKNESS_MAX = 6;
-  var LINE_THICKNESS_DEFAULT = 1;
-  function clampLineThickness(value) {
-    var n = Number(value);
-    if (!isFinite(n)) return LINE_THICKNESS_DEFAULT;
-    n = Math.round(n);
-    if (n < LINE_THICKNESS_MIN) return LINE_THICKNESS_MIN;
-    if (n > LINE_THICKNESS_MAX) return LINE_THICKNESS_MAX;
-    return n;
-  }
-  function defaultUiPrefs() {
-    return { lineThickness: LINE_THICKNESS_DEFAULT };
-  }
-  function normalizeUiPrefs(prefs) {
-    prefs = prefs && typeof prefs === "object" ? prefs : {};
-    var next = defaultUiPrefs();
-    if (prefs.lineThickness != null) next.lineThickness = clampLineThickness(prefs.lineThickness);
-    return next;
-  }
-  function resolveUiPrefsStorage(storage) {
-    try {
-      if (storage === void 0) {
-        if (typeof window === "undefined") return null;
-        storage = window.localStorage;
-      }
-      if (!storage || typeof storage.getItem !== "function") return null;
-      return storage;
-    } catch (e) {
-      return null;
-    }
-  }
-  function readUiPrefs(storage) {
-    try {
-      var store = resolveUiPrefsStorage(storage);
-      if (!store) return defaultUiPrefs();
-      var raw = store.getItem(UI_PREFS_STORAGE_KEY);
-      if (!raw) return defaultUiPrefs();
-      return normalizeUiPrefs(JSON.parse(raw));
-    } catch (e) {
-      return defaultUiPrefs();
-    }
-  }
-  function writeUiPrefs(storage, prefs) {
-    var next = normalizeUiPrefs(Object.assign({}, readUiPrefs(storage), prefs || {}));
-    try {
-      var store = resolveUiPrefsStorage(storage);
-      if (store) store.setItem(UI_PREFS_STORAGE_KEY, JSON.stringify(next));
-    } catch (e) {
-    }
-    return next;
-  }
-  function persistUiPrefs(prefs) {
-    return writeUiPrefs(void 0, prefs);
-  }
-
-  // src/views/capabilities.mjs
-  function codeFileNavOpensCard(vizType) {
-    return vizType === "code";
-  }
-  function graphSvgExportEnabled(vizType) {
-    return vizType !== "code";
-  }
-  function vizUsesLineThickness(vizType) {
-    return vizType === "graph" || vizType === "code" || vizType === "graph3d" || vizType === "dendro" || vizType === "sankey" || vizType === "disjoint" || vizType === "bundle";
-  }
-  function vizHasGraphToolbar(vizType) {
-    return vizType === "graph" || vizType === "code" || vizType === "graph3d";
-  }
-  function vizHasCanvasMinimap(vizType) {
-    return vizType === "graph" || vizType === "code";
-  }
-  function vizUsesForceLinkParticles(vizType) {
-    return vizType === "code";
-  }
-
-  // src/views/graph-style.mjs
-  function graphLinkBaseWidth(count) {
-    return Math.max(1, Math.min(2, Math.sqrt(count || 1) * 0.3));
-  }
-  function graphLinkStrokeWidth(count, thickness) {
-    return graphLinkBaseWidth(count) * clampLineThickness(thickness);
-  }
-  function scaleStrokeWidth(base, thickness) {
-    var n = Number(base);
-    if (!isFinite(n) || n <= 0) n = 1;
-    return Math.max(0.4, n * clampLineThickness(thickness));
-  }
-  function graph3dLinkWidth(link, selectedPath, thickness) {
-    link = link || {};
-    var baseWidth = Math.max(0.8, Math.min(3, Math.sqrt(link.count || 1) * 0.4));
-    if (selectedPath) {
-      var s = link.source && (link.source.id || link.source);
-      var t = link.target && (link.target.id || link.target);
-      if (s === selectedPath || t === selectedPath) return scaleStrokeWidth(baseWidth * 2, thickness);
-      return scaleStrokeWidth(baseWidth * 0.3, thickness);
-    }
-    return scaleStrokeWidth(baseWidth, thickness);
-  }
-  function forceLinkEndId(end) {
-    if (end == null) return "";
-    if (typeof end === "object") return String(end.id || "");
-    return String(end);
-  }
-  function forceLinkRole(link, selectedPath) {
-    if (!link || !selectedPath) return "";
-    if (forceLinkEndId(link.source) === selectedPath) return "out";
-    if (forceLinkEndId(link.target) === selectedPath) return "in";
-    return "";
-  }
-  function prefersReducedMotion(query) {
-    try {
-      if (query && typeof query.matches === "boolean") return !!query.matches;
-      var matchMedia = typeof query === "function" ? query : typeof window !== "undefined" ? window.matchMedia : null;
-      if (typeof matchMedia !== "function") return false;
-      var owner = typeof window !== "undefined" ? window : null;
-      var res = matchMedia.call(owner, "(prefers-reduced-motion: reduce)");
-      return !!(res && res.matches);
-    } catch (e) {
-      return false;
-    }
-  }
-  function subscribePrefersReducedMotion(onChange, matchMediaFn) {
-    if (typeof onChange !== "function") return function() {
-    };
-    try {
-      var matchMedia = typeof matchMediaFn === "function" ? matchMediaFn : typeof window !== "undefined" ? window.matchMedia : null;
-      if (typeof matchMedia !== "function") return function() {
-      };
-      var owner = typeof window !== "undefined" ? window : null;
-      var mq = matchMedia.call(owner, "(prefers-reduced-motion: reduce)");
-      if (!mq) return function() {
-      };
-      var handler = function() {
-        onChange(!!mq.matches);
-      };
-      if (typeof mq.addEventListener === "function") {
-        mq.addEventListener("change", handler);
-        return function() {
-          mq.removeEventListener("change", handler);
-        };
-      }
-      if (typeof mq.addListener === "function") {
-        mq.addListener(handler);
-        return function() {
-          mq.removeListener(handler);
-        };
-      }
-    } catch (e) {
-    }
-    return function() {
-    };
-  }
-  function forceLinkIdleStroke(theme) {
-    return theme === "light" ? "#ccc" : "#333";
-  }
-  function forceLinkVisual(link, selectedPath, options) {
-    options = options || {};
-    var theme = options.theme === "light" ? "light" : "dark";
-    var reduced = !!options.reducedMotion;
-    var allowParticles = options.particles !== false && (options.vizType == null || vizUsesForceLinkParticles(options.vizType)) && !reduced;
-    var width = graphLinkStrokeWidth(link && link.count, options.thickness);
-    var role = forceLinkRole(link, selectedPath);
-    var idle = forceLinkIdleStroke(theme);
-    if (selectedPath && (role === "out" || role === "in")) {
-      return {
-        role,
-        active: true,
-        stroke: role === "out" ? "var(--orange)" : "var(--purple)",
-        opacity: 0.9,
-        width,
-        particle: allowParticles,
-        particleStroke: "#fff",
-        particleWidth: Math.max(4, width + 2.4),
-        particleDash: allowParticles ? "8 20" : "",
-        particleDuration: allowParticles ? 0.7 : 0
-      };
-    }
-    if (selectedPath) {
-      return {
-        role: "quiet",
-        active: false,
-        stroke: idle,
-        opacity: 0.08,
-        width,
-        particle: false,
-        particleStroke: idle,
-        particleWidth: width,
-        particleDash: "",
-        particleDuration: 0
-      };
-    }
-    return {
-      role: "idle",
-      active: false,
-      stroke: idle,
-      opacity: 0.4,
-      width,
-      particle: false,
-      particleStroke: idle,
-      particleWidth: width,
-      particleDash: "",
-      particleDuration: 0
-    };
-  }
-  function forceLinkParticlesNeedTickUpdate(selectedPath, options) {
-    if (!selectedPath) return false;
-    options = options || {};
-    if (options.reducedMotion) return false;
-    if (options.vizType != null && !vizUsesForceLinkParticles(options.vizType)) return false;
-    return true;
-  }
-  function readableLabelScale(k) {
-    var zoom = Number(k);
-    if (!isFinite(zoom) || zoom <= 0) return 1;
-    if (zoom >= 1) return 1;
-    return Math.min(8, 1 / zoom);
-  }
-  var COLOR_BLOCK_ZOOM = 0.4;
-  var CODE_FAR_ZOOM = 0.22;
-  function zoomShowsColorBlocks(k) {
-    var zoom = Number(k);
-    if (!isFinite(zoom) || zoom <= 0) return false;
-    return zoom <= COLOR_BLOCK_ZOOM;
-  }
-  function zoomHidesCodeText(k) {
-    var zoom = Number(k);
-    if (!isFinite(zoom) || zoom <= 0) return false;
-    return zoom < CODE_FAR_ZOOM;
-  }
-  function graphColorBlockSize(d) {
-    var r = Math.max(8, Math.min(24, 5 + (d && d.fnCount || 0) * 0.8));
-    return Math.max(22, r * 2 + 4);
-  }
-  function graphColorBlockScale(k) {
-    var zoom = Number(k);
-    if (!isFinite(zoom) || zoom <= 0) return 1;
-    var minScreen = 16;
-    var screen = 22 * zoom;
-    if (screen >= minScreen) return 1;
-    return Math.min(6, minScreen / screen);
-  }
-  function parseCssHex(color) {
-    var raw = String(color || "").trim();
-    var m = raw.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
-    if (!m) return null;
-    var h = m[1];
-    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
-    return { r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16), b: parseInt(h.slice(4, 6), 16) };
-  }
-  function cssHexHue(color) {
-    var rgb = parseCssHex(color);
-    if (!rgb) return NaN;
-    var r = rgb.r / 255, g = rgb.g / 255, b = rgb.b / 255;
-    var max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
-    if (d === 0) return 0;
-    var h = max === r ? (g - b) / d % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
-    h = h * 60;
-    if (h < 0) h += 360;
-    return h;
-  }
-  function colorBlockLooksLikeDiff(color) {
-    var h = cssHexHue(color);
-    if (!isFinite(h)) return false;
-    return h <= 25 || h >= 335 || h >= 70 && h <= 165;
-  }
-  function graphColorBlockFill(color) {
-    var hex = String(color || "").trim();
-    var known = {
-      "#00ff9d": "#38bdf8",
-      "#00cc7d": "#67e8f9",
-      "#00a86b": "#93c5fd",
-      "#22c55e": "#2dd4bf",
-      "#84cc16": "#e879f9",
-      "#98c379": "#5eead4",
-      "#ff5f5f": "#818cf8",
-      "#e06c75": "#f472b6",
-      "#ff6b6b": "#fbbf24"
-    };
-    var key = hex.toLowerCase();
-    if (known[key]) return known[key];
-    if (!colorBlockLooksLikeDiff(hex)) return hex || "#4d9fff";
-    var h = cssHexHue(hex);
-    return h <= 25 || h >= 335 ? "#c4b5fd" : "#7dd3fc";
-  }
-  function codeColorBlockKindColor(kind) {
-    if (kind === "import") return "#c678dd";
-    if (kind === "export") return "#56b6c2";
-    if (kind === "var" || kind === "file") return "#d19a66";
-    if (kind === "class") return "#e5c07b";
-    return "#61afef";
   }
 
   // src/project/changes.mjs
@@ -56246,6 +56577,7 @@ This problem is likely caused by another plugin injecting
   var ArchitectureView = createArchitectureView({ React, mermaid: globalThis.mermaid });
   var COLORS = ["#4d9fff", "#a78bfa", "#22d3ee", "#00ff9d", "#ff9f43", "#ec4899", "#ff5f5f", "#84cc16"];
   var LAYER_COLORS = { ui: "#4d9fff", components: "#22d3ee", services: "#a78bfa", utils: "#00ff9d", data: "#ff9f43", config: "#ec4899", test: "#f59e0b", modules: "#a78bfa", forms: "#22d3ee", classes: "#ff9f43", note: "#c084fc" };
+  var Graph3DView = createGraph3DView({ React, getRuntime: () => ({ ForceGraph3D: globalThis.ForceGraph3D, THREE: globalThis.THREE }), colors: COLORS, layerColors: LAYER_COLORS });
   var ANALYSIS_LIMITS = { repoSoft: 300, localSoft: 500 };
   function calcPRRisk(prData, repoData) {
     if (!prData || !repoData) return { score: 0, level: "low", factors: [] };
@@ -56864,8 +57196,7 @@ This problem is likely caused by another plugin injecting
     var _cliLive = useState(/* @__PURE__ */ Object.create(null)), cliLiveByPath = _cliLive[0], setCliLiveByPath = _cliLive[1];
     var isMobile = viewportWidth <= 980;
     var svgRef = useRef(null);
-    var graph3dRef = useRef(null);
-    var graph3dInstanceRef = useRef(null);
+    var graph3dViewRef = useRef(null);
     var topbarRef = useRef(null);
     var filePreviewRef = useRef(null);
     var treemapRef = useRef(null);
@@ -58422,13 +58753,6 @@ This problem is likely caused by another plugin injecting
       else if (linksRef.current) linksRef.current.attr("stroke-width", function(d) {
         return graphLinkStrokeWidth(d.count, lineThicknessRef.current);
       });
-      var thickness = lineThicknessRef.current;
-      var g3 = graph3dInstanceRef.current;
-      if (g3 && typeof g3.linkWidth === "function") {
-        g3.linkWidth(function(link) {
-          return graph3dLinkWidth(link, selectedPathRef.current, thickness);
-        });
-      }
     }
     function refreshMinimap() {
       var canvas = minimapCanvasRef.current;
@@ -59197,315 +59521,6 @@ This problem is likely caused by another plugin injecting
       };
     }, []);
     useEffect(function() {
-      if (!data || !graph3dRef.current || graphConfig.vizType !== "graph3d") return;
-      if (typeof ForceGraph3D === "undefined") {
-        console.warn("3d-force-graph library not loaded");
-        return;
-      }
-      var w = graph3dRef.current.clientWidth || 800, h = graph3dRef.current.clientHeight || 600;
-      var filteredFiles = folderFilter ? data.files.filter(function(f) {
-        return f.folder === folderFilter || f.folder.startsWith(folderFilter + "/");
-      }) : data.files;
-      var fileIds = new Set(filteredFiles.map(function(f) {
-        return f.path;
-      }));
-      var existingNodesMap = /* @__PURE__ */ new Map();
-      if (graph3dInstanceRef.current) {
-        var currentData = graph3dInstanceRef.current.graphData();
-        if (currentData && currentData.nodes) {
-          currentData.nodes.forEach(function(n) {
-            existingNodesMap.set(n.id, n);
-          });
-        }
-      }
-      var nodes = filteredFiles.map(function(f) {
-        var existing = existingNodesMap.get(f.path);
-        if (existing) {
-          existing.name = f.name;
-          existing.folder = f.folder;
-          existing.fnCount = f.functions.length;
-          existing.layer = f.layer;
-          existing.churn = f.churn || 0;
-          return existing;
-        }
-        return { id: f.path, name: f.name, folder: f.folder, fnCount: f.functions.length, layer: f.layer, churn: f.churn || 0 };
-      });
-      var linkMap = /* @__PURE__ */ new Map();
-      data.connections.forEach(function(c) {
-        if (!fileIds.has(c.source) || !fileIds.has(c.target)) return;
-        if (c.source === c.target) return;
-        var k = c.source + "|" + c.target;
-        if (!linkMap.has(k)) linkMap.set(k, { source: c.source, target: c.target, count: 0 });
-        linkMap.get(k).count += c.count;
-      });
-      var links = Array.from(linkMap.values());
-      function resolveHex(colorStr) {
-        if (!colorStr) return "#888888";
-        if (colorStr.startsWith("var(--")) {
-          var isLight = theme === "light";
-          if (colorStr === "var(--acc)") return isLight ? "#00a86b" : "#00ff9d";
-          if (colorStr === "var(--purple)") return "#a78bfa";
-          if (colorStr === "var(--orange)") return "#ff9f43";
-          if (colorStr === "var(--cyan)") return "#22d3ee";
-          if (colorStr === "var(--red)") return "#ff5f5f";
-          if (colorStr === "var(--green)") return "#22c55e";
-          if (colorStr === "var(--blue)") return "#4d9fff";
-          if (colorStr === "var(--pink)") return "#ec4899";
-          if (colorStr === "var(--border)") return isLight ? "#dadce0" : "#2d2d35";
-          if (colorStr === "var(--bg0)") return isLight ? "#ffffff" : "#0a0a0c";
-        }
-        return colorStr;
-      }
-      function hexToRgba(hex, alpha) {
-        var resolved = resolveHex(hex);
-        resolved = resolved.replace("#", "");
-        if (resolved.length === 3) {
-          resolved = resolved[0] + resolved[0] + resolved[1] + resolved[1] + resolved[2] + resolved[2];
-        }
-        var r = parseInt(resolved.substring(0, 2), 16);
-        var g = parseInt(resolved.substring(2, 4), 16);
-        var b = parseInt(resolved.substring(4, 6), 16);
-        return "rgba(" + r + "," + g + "," + b + "," + alpha + ")";
-      }
-      function getBaseColor(d) {
-        if (colorMode === "folder") return colorMap[d.folder] || COLORS[0];
-        if (colorMode === "layer") return LAYER_COLORS[d.layer] || LAYER_COLORS["utils"];
-        if (colorMode === "churn") return colorMap[d.id] || "#22c55e";
-        return COLORS[0];
-      }
-      function getR(d) {
-        var base = Math.max(6, Math.min(20, 4 + d.fnCount * 0.4));
-        if (selected) {
-          if (d.id === selected.path) return base * 2;
-          if (blastRadius && blastRadius.affected.indexOf(d.id) >= 0) return base * 1.4;
-          if (blastRadius && blastRadius.dependencies.indexOf(d.id) >= 0) return base * 1.4;
-          return base * 0.6;
-        }
-        return base;
-      }
-      function getC(d) {
-        var baseColor = getBaseColor(d);
-        if (selected) {
-          if (d.id === selected.path) return hexToRgba("var(--acc)", 0.95);
-          if (blastRadius && blastRadius.affected.indexOf(d.id) >= 0) return hexToRgba("var(--purple)", 0.95);
-          if (blastRadius && blastRadius.dependencies.indexOf(d.id) >= 0) return hexToRgba("var(--orange)", 0.95);
-          return hexToRgba(baseColor, 0.15);
-        }
-        return resolveHex(baseColor);
-      }
-      var graph;
-      if (!graph3dInstanceRef.current) {
-        graph = ForceGraph3D({ controlType: "orbit" })(graph3dRef.current);
-        graph3dInstanceRef.current = graph;
-      } else {
-        graph = graph3dInstanceRef.current;
-      }
-      graph.width(w).height(h).backgroundColor(theme === "light" ? "#ffffff" : "#0a0a0c").showNavInfo(false).graphData({ nodes, links }).nodeResolution(24).nodeVal(getR).nodeColor(getC).nodeLabel(function(node) {
-        return '<div style="font-family:JetBrains Mono,monospace;font-size:10px;padding:6px;background:rgba(15,15,18,0.95);border:1px solid var(--border);border-radius:6px;color:#fff;"><strong style="color:var(--acc);">' + node.name + "</strong><br/>" + node.folder + "<br/>" + node.fnCount + " functions \u2022 " + node.layer + " layer \u2022 " + node.churn + " commits</div>";
-      }).linkColor(function(link) {
-        var s = link.source.id || link.source;
-        var t = link.target.id || link.target;
-        if (selected) {
-          if (s === selected.path) return hexToRgba("var(--orange)", 0.85);
-          if (t === selected.path) return hexToRgba("var(--purple)", 0.85);
-          return theme === "light" ? "rgba(220,220,220,0.08)" : "rgba(40,40,48,0.08)";
-        }
-        return theme === "light" ? "rgba(200,200,200,0.4)" : "rgba(60,60,70,0.4)";
-      }).linkWidth(function(link) {
-        return graph3dLinkWidth(link, selected && selected.path, lineThicknessRef.current);
-      }).linkDirectionalArrowLength(function(link) {
-        if (selected) {
-          var s = link.source.id || link.source;
-          var t = link.target.id || link.target;
-          if (s === selected.path || t === selected.path) return 5;
-          return 0;
-        }
-        return 3.5;
-      }).linkDirectionalArrowRelPos(1).linkDirectionalParticles(function(link) {
-        if (selected) {
-          var s = link.source.id || link.source;
-          var t = link.target.id || link.target;
-          if (s === selected.path || t === selected.path) return 4;
-          return 0;
-        }
-        return 1;
-      }).linkDirectionalParticleWidth(function(link) {
-        if (selected) {
-          return 2.5;
-        }
-        return 1.2;
-      }).linkDirectionalParticleSpeed(function(link) {
-        if (selected) {
-          return 0.015;
-        }
-        return 4e-3;
-      }).linkDirectionalParticleColor(function(link) {
-        var s = link.source.id || link.source;
-        var t = link.target.id || link.target;
-        if (selected) {
-          if (s === selected.path) return resolveHex("var(--orange)");
-          if (t === selected.path) return resolveHex("var(--purple)");
-        }
-        return resolveHex("var(--acc)");
-      }).linkCurvature(graphConfig.curvedLinks ? 0.25 : 0).onNodeClick(function(node) {
-        var distance = 120;
-        var distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
-        var newPos = node.x || node.y || node.z ? { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio } : { x: 0, y: 0, z: distance };
-        graph.cameraPosition(newPos, node, 1200);
-        if (selectFileRef.current) selectFileRef.current(node.id);
-      }).onBackgroundClick(function() {
-        setSelected(null);
-        setBlastRadius(null);
-      });
-      var THREE = window.THREE;
-      if (THREE && graphConfig.showLabels) {
-        graph.nodeThreeObject(function(node) {
-          var r = getR(node);
-          var color = getC(node);
-          var group = new THREE.Group();
-          var sphereGeo = new THREE.SphereGeometry(r, 24, 24);
-          var sphereMat = new THREE.MeshPhongMaterial({
-            color,
-            shininess: 80
-          });
-          var sphereMesh = new THREE.Mesh(sphereGeo, sphereMat);
-          group.add(sphereMesh);
-          var labelText = node.name;
-          var canvas = document.createElement("canvas");
-          var ctx = canvas.getContext("2d");
-          var scale = 4;
-          ctx.font = 10 * scale + 'px "JetBrains Mono", monospace';
-          var textWidth = ctx.measureText(labelText).width;
-          canvas.width = textWidth + 16 * scale;
-          canvas.height = 24 * scale;
-          ctx.font = 10 * scale + 'px "JetBrains Mono", monospace';
-          ctx.fillStyle = theme === "light" ? "rgba(255,255,255,0.9)" : "rgba(10,10,12,0.9)";
-          var w_rect = canvas.width;
-          var h_rect = canvas.height;
-          var r_rect = 4 * scale;
-          ctx.beginPath();
-          ctx.moveTo(r_rect, 0);
-          ctx.lineTo(w_rect - r_rect, 0);
-          ctx.quadraticCurveTo(w_rect, 0, w_rect, r_rect);
-          ctx.lineTo(w_rect, h_rect - r_rect);
-          ctx.quadraticCurveTo(w_rect, h_rect, w_rect - r_rect, h_rect);
-          ctx.lineTo(r_rect, h_rect);
-          ctx.quadraticCurveTo(0, h_rect, 0, h_rect - r_rect);
-          ctx.lineTo(0, r_rect);
-          ctx.quadraticCurveTo(0, 0, r_rect, 0);
-          ctx.closePath();
-          ctx.fill();
-          ctx.strokeStyle = theme === "light" ? "rgba(0,0,0,0.15)" : "rgba(255,255,255,0.15)";
-          ctx.lineWidth = 1 * scale;
-          ctx.stroke();
-          ctx.fillStyle = color;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillText(labelText, canvas.width / 2, canvas.height / 2);
-          var texture = new THREE.CanvasTexture(canvas);
-          var labelMaterial = new THREE.SpriteMaterial({ map: texture, depthWrite: false });
-          var labelSprite = new THREE.Sprite(labelMaterial);
-          var spriteWidth = canvas.width / scale * 0.15;
-          var spriteHeight = canvas.height / scale * 0.15;
-          labelSprite.scale.set(spriteWidth, spriteHeight, 1);
-          labelSprite.position.set(0, r + spriteHeight / 2 + 2, 0);
-          group.add(labelSprite);
-          return group;
-        });
-        graph.nodeThreeObjectExtend(false);
-      } else {
-        graph.nodeThreeObject(null);
-      }
-      setTimeout(function() {
-        if (graph3dInstanceRef.current) {
-          var ctrl = graph3dInstanceRef.current.controls();
-          if (ctrl) {
-            ctrl.autoRotate = !!graphConfig.autoRotate;
-            ctrl.autoRotateSpeed = 1;
-          }
-        }
-      }, 100);
-      var linkForce = graph.d3Force("link");
-      if (linkForce) linkForce.distance(graphConfig.linkDist || 70);
-      var chargeForce = graph.d3Force("charge");
-      if (chargeForce) chargeForce.strength(-(graphConfig.spacing || 200));
-      var groups = [];
-      if (colorMode === "folder") {
-        groups = Array.from(new Set(filteredFiles.map(function(f) {
-          return f.folder;
-        })));
-      } else if (colorMode === "layer") {
-        groups = Array.from(new Set(filteredFiles.map(function(f) {
-          return f.layer;
-        })));
-      }
-      var centers = {};
-      if (groups.length > 0) {
-        var nG = groups.length;
-        groups.forEach(function(g, i) {
-          var phi = Math.acos(1 - 2 * (i + 0.5) / nG);
-          var theta = Math.PI * (1 + Math.sqrt(5)) * (i + 0.5);
-          var radius = 180;
-          centers[g] = {
-            x: radius * Math.sin(phi) * Math.cos(theta),
-            y: radius * Math.sin(phi) * Math.sin(theta),
-            z: radius * Math.cos(phi)
-          };
-        });
-      }
-      function customForce(axis, targetSelector, strength) {
-        var nodes2;
-        function force(alpha) {
-          var prop = axis;
-          var velProp = "v" + axis;
-          for (var i = 0; i < nodes2.length; i++) {
-            var node = nodes2[i];
-            var target = targetSelector(node);
-            node[velProp] += (target - node[prop]) * strength * alpha;
-          }
-        }
-        force.initialize = function(_) {
-          nodes2 = _;
-        };
-        return force;
-      }
-      if (groups.length > 0) {
-        var targetProp = colorMode === "folder" ? "folder" : "layer";
-        var forceStrength = 0.15;
-        graph.d3Force("x", customForce("x", function(d) {
-          return centers[d[targetProp]] ? centers[d[targetProp]].x : 0;
-        }, forceStrength));
-        graph.d3Force("y", customForce("y", function(d) {
-          return centers[d[targetProp]] ? centers[d[targetProp]].y : 0;
-        }, forceStrength));
-        graph.d3Force("z", customForce("z", function(d) {
-          return centers[d[targetProp]] ? centers[d[targetProp]].z : 0;
-        }, forceStrength));
-      } else {
-        graph.d3Force("x", null);
-        graph.d3Force("y", null);
-        graph.d3Force("z", null);
-      }
-      var resizeObserver = new ResizeObserver(function(entries) {
-        for (var entry of entries) {
-          if (graph3dRef.current) {
-            var width = graph3dRef.current.clientWidth || 800;
-            var height = graph3dRef.current.clientHeight || 600;
-            graph.width(width).height(height);
-          }
-        }
-      });
-      resizeObserver.observe(graph3dRef.current);
-      return function() {
-        resizeObserver.disconnect();
-        if (graph3dInstanceRef.current) {
-          graph3dInstanceRef.current.pauseAnimation();
-          graph3dInstanceRef.current.graphData({ nodes: [], links: [] });
-          graph3dInstanceRef.current = null;
-        }
-      };
-    }, [data, colorMap, colorMode, theme, folderFilter, graphConfig.vizType, selected, blastRadius, graphConfig.linkDist, graphConfig.spacing, graphConfig.showLabels, graphConfig.curvedLinks, graphConfig.autoRotate]);
-    useEffect(function() {
       if (!data || !treemapRef.current || graphConfig.vizType !== "treemap") return;
       var container = d3.select(treemapRef.current);
       container.selectAll("*").remove();
@@ -60217,32 +60232,22 @@ This problem is likely caused by another plugin injecting
       }
     }, [data, graphConfig.vizType, colorMap, folderFilter, selected, blastRadius, lineThickness]);
     function zoomIn() {
-      if (graphConfig.vizType === "graph3d" && graph3dInstanceRef.current) {
-        var pos = graph3dInstanceRef.current.cameraPosition();
-        graph3dInstanceRef.current.cameraPosition({
-          x: pos.x * 0.7,
-          y: pos.y * 0.7,
-          z: pos.z * 0.7
-        }, null, 400);
+      if (graphConfig.vizType === "graph3d") {
+        graph3dViewRef.current?.zoom(0.7);
       } else if (zoomRef.current && svgRef.current) {
         d3.select(svgRef.current).transition().duration(200).call(zoomRef.current.scaleBy, 1.4);
       }
     }
     function zoomOut() {
-      if (graphConfig.vizType === "graph3d" && graph3dInstanceRef.current) {
-        var pos = graph3dInstanceRef.current.cameraPosition();
-        graph3dInstanceRef.current.cameraPosition({
-          x: pos.x * 1.4,
-          y: pos.y * 1.4,
-          z: pos.z * 1.4
-        }, null, 400);
+      if (graphConfig.vizType === "graph3d") {
+        graph3dViewRef.current?.zoom(1.4);
       } else if (zoomRef.current && svgRef.current) {
         d3.select(svgRef.current).transition().duration(200).call(zoomRef.current.scaleBy, 0.7);
       }
     }
     function resetZoom() {
-      if (graphConfig.vizType === "graph3d" && graph3dInstanceRef.current) {
-        graph3dInstanceRef.current.zoomToFit(600);
+      if (graphConfig.vizType === "graph3d") {
+        graph3dViewRef.current?.fit();
       } else if (zoomRef.current && svgRef.current) {
         d3.select(svgRef.current).transition().duration(300).call(zoomRef.current.transform, d3.zoomIdentity);
       }
@@ -60273,8 +60278,8 @@ This problem is likely caused by another plugin injecting
       return d3.zoomIdentity.translate(w / 2 - scale * (minX + maxX) / 2, h / 2 - scale * (minY + maxY) / 2).scale(Math.min(scale, 2));
     }
     function fitView() {
-      if (graphConfig.vizType === "graph3d" && graph3dInstanceRef.current) {
-        graph3dInstanceRef.current.zoomToFit(600);
+      if (graphConfig.vizType === "graph3d") {
+        graph3dViewRef.current?.fit();
       } else {
         var t = computeGraphFitTransform(100);
         if (!t) return;
@@ -61937,7 +61942,13 @@ This problem is likely caused by another plugin injecting
             ),
             graphConfig.vizType === "graph" && React.createElement("svg", { ref: svgRef }),
             graphConfig.vizType === "code" && renderCodeView(),
-            graphConfig.vizType === "graph3d" && React.createElement("div", { ref: graph3dRef, className: "graph3d-container", style: { width: "100%", height: "100%" } }),
+            graphConfig.vizType === "graph3d" && React.createElement(Graph3DView, { ref: graph3dViewRef, data, folderFilter, colorMap, colorMode, theme, config: graphConfig, selectedPath: selected && selected.path, blastRadius, lineThickness, onSelect: function(path) {
+              if (path) selectFile(path);
+              else {
+                setSelected(null);
+                setBlastRadius(null);
+              }
+            } }),
             graphConfig.vizType === "treemap" && React.createElement("div", { ref: treemapRef, className: "treemap-container" }),
             graphConfig.vizType === "matrix" && React.createElement("div", { ref: matrixRef, className: "matrix-container", style: { width: "100%", height: "100%", overflow: "auto", display: "flex", alignItems: "center", justifyContent: "center" } }),
             graphConfig.vizType === "dendro" && React.createElement("div", { ref: dendroRef, className: "dendro-container", style: { width: "100%", height: "100%", position: "relative" } }),

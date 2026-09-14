@@ -334,8 +334,32 @@ test('3D graph mounts the native renderer and returns to the same file graph', {
   await mode.selectOption('graph');
   await page.waitForFunction(()=>document.querySelectorAll('.canvas-area svg circle.nc').length===2&&[...document.querySelectorAll('.canvas-area svg path')].some(el=>el.__data__?.source?.id==='provider.js'&&el.__data__?.target?.id==='consumer.js'));
   const before = await page.locator('.canvas-area svg circle.nc').evaluateAll(nodes=>nodes.map(node=>node.__data__.id).sort());
+  // Observe the real renderer through its public factory; retain the actual
+  // WebGL canvas and use real DOM/pointer interactions below.
+  await page.evaluate(()=>{
+    const factory=window.ForceGraph3D;
+    window.ForceGraph3D=(...options)=>{
+      const mount=factory(...options);
+      return element=>{const graph=mount(element);window.__graph3dTest=graph;return graph;};
+    };
+  });
   await mode.selectOption('graph3d');
   await page.locator('.graph3d-container canvas').waitFor({state:'visible'});
+  const canvas=await page.locator('.graph3d-container canvas').elementHandle();
+  const camera=await page.evaluate(()=>window.__graph3dTest.cameraPosition());
+  await page.getByRole('tab',{name:'Files',exact:true}).click();
+  await page.locator('.tree-file').filter({hasText:'provider.js'}).click();
+  await page.locator('.tree-file.active').filter({hasText:'provider.js'}).waitFor();
+  assert.equal(await canvas.evaluate(el=>el===document.querySelector('.graph3d-container canvas')),true,'selecting a file retains the WebGL canvas');
+  assert.deepEqual(await page.evaluate(()=>window.__graph3dTest.cameraPosition()),camera,'file selection does not reset the camera');
+  await page.getByRole('button',{name:'Graph settings'}).click();
+  await page.getByText('Show labels',{exact:true}).click();
+  assert.equal(await canvas.evaluate(el=>el===document.querySelector('.graph3d-container canvas')),true,'changing labels retains the WebGL canvas');
+  await page.getByRole('button',{name:'Graph settings'}).click();
+  const beforeZoom=await page.evaluate(()=>window.__graph3dTest.cameraPosition().z);
+  await page.getByRole('button',{name:'Zoom in',exact:true}).click();
+  await page.waitForFunction(z=>Math.abs(window.__graph3dTest.cameraPosition().z)<Math.abs(z),beforeZoom);
+  assert.equal(await canvas.evaluate(el=>el===document.querySelector('.graph3d-container canvas')),true,'toolbar camera changes retain the WebGL canvas');
   assert.ok(await page.locator('.graph3d-container canvas').evaluate(canvas=>canvas.width>0&&canvas.height>0));
   await mode.selectOption('graph');
   await page.waitForFunction(()=>document.querySelectorAll('.canvas-area svg circle.nc').length===2&&[...document.querySelectorAll('.canvas-area svg path')].some(el=>el.__data__?.source?.id==='provider.js'&&el.__data__?.target?.id==='consumer.js'));
