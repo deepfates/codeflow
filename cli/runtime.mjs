@@ -49,7 +49,9 @@ export async function collectRuntimeSnapshot(root, options = {}) {
     }
     return { schemaVersion: 1, status: 'ready', node, collectedAt: new Date().toISOString(), ...raw,
       warnings: [
+        ...(raw.processInventoryStatus === 'unavailable' ? ['The process inventory could not be queried; only observed application trees are shown.'] : []),
         ...(raw.truncated ? ['The runtime snapshot reached its process or depth limit.'] : []),
+        ...raw.processes.filter(p => p.observationStatus === 'unavailable').map(p => `Process information unavailable for ${p.pid || p.id}; liveness is unknown.`),
         ...(raw.processes.some(p => p.childrenStatus === 'unavailable') ? ['Some supervisors did not respond during this snapshot.'] : [])
       ] };
   } catch {

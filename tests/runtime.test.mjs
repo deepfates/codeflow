@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir, hostname } from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
 import { collectRuntimeSnapshot } from '../cli/runtime.mjs';
 
 test('runtime stays unavailable without a local node and does not expose credentials', async () => {
@@ -76,4 +78,52 @@ Process.sleep(:infinity)
     assert.equal(bounded.processes.length, 2);
     assert.equal(bounded.truncated, true);
   } finally { child.kill('SIGKILL'); await rm(root, { recursive: true, force: true }); }
+});
+
+test('real process-info distinguishes live, exited and unavailable observations', {skip: !process.env.CODEFLOW_TEST_MIX}, async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'codeflow-runtime-observation-'));
+  try {
+    const script = path.join(root, 'observe.exs');
+    await writeFile(script, `Code.require_file(System.fetch_env!("CODEFLOW_RUNTIME_MODULE"))
+live = spawn(fn -> Process.sleep(:infinity) end)
+dead = spawn(fn -> :ok end)
+monitor = Process.monitor(dead)
+receive do {:DOWN, ^monitor, :process, ^dead, _} -> :ok end
+state = %{processes: %{}, sources: %{Codeflow.Runtime => System.fetch_env!("CODEFLOW_RUNTIME_MODULE")}, truncated: false}
+observe = fn target, pid ->
+  Codeflow.Runtime.walk(target, pid, nil, nil, :process, [Codeflow.Runtime], 0, state, 10, 5).processes[inspect(pid)]
+end
+ready = observe.(node(), live)
+exited = observe.(node(), dead)
+unavailable = observe.(:codeflow_missing@localhost, live)
+{inventory_status, inventory} = Codeflow.Runtime.process_inventory(node())
+{failed_status, failed_inventory} = Codeflow.Runtime.process_inventory(:codeflow_missing@localhost)
+IO.puts(JSON.encode!(%{ready: ready, exited: exited, unavailable: unavailable, stillAlive: Process.alive?(live), inventoryStatus: inventory_status, hasLiveProcess: live in inventory, failedInventoryStatus: failed_status, failedInventory: failed_inventory}))
+Process.exit(live, :kill)
+`);
+    const modulePath = fileURLToPath(new URL('../cli/runtime.ex', import.meta.url));
+    const {stdout} = await promisify(execFile)('elixir', [script], {env: {...process.env, CODEFLOW_RUNTIME_MODULE: modulePath}});
+    const observed = JSON.parse(stdout.trim());
+    assert.equal(observed.inventoryStatus, 'ready');
+    assert.equal(observed.hasLiveProcess, true);
+    assert.equal(observed.failedInventoryStatus, 'unavailable');
+    assert.deepEqual(observed.failedInventory, []);
+    assert.equal(observed.stillAlive, true, 'failed RPC did not establish that the real process exited');
+    assert.equal(observed.unavailable.metrics.status, 'unavailable');
+    assert.equal(observed.unavailable.observationStatus, 'unavailable');
+    assert.equal(observed.exited.metrics.status, 'exited');
+    assert.equal(observed.exited.observationStatus, 'exited');
+    assert.equal(observed.ready.observationStatus, 'ready');
+    assert.ok(observed.ready.metrics.memory > 0);
+    assert.equal(observed.unavailable.source, modulePath, 'previously observed module source survives unavailable process metrics');
+    const snapshot = await collectRuntimeSnapshot(path.dirname(modulePath), {
+      node: `test@${hostname().split('.')[0]}`,
+      execute: async () => ({stdout: 'CODEFLOW_RUNTIME:' + JSON.stringify({applications: [], processes: [observed.ready, observed.exited, observed.unavailable], processInventoryStatus: observed.failedInventoryStatus, truncated: false})}),
+    });
+    assert.equal(snapshot.processes.length, 3, 'inventory failure preserves observed application processes');
+    assert.equal(snapshot.processes[2].sourcePath, 'runtime.ex');
+    assert.ok(snapshot.warnings.some(warning => warning.includes('process inventory')));
+    assert.ok(snapshot.warnings.some(warning => warning.includes(observed.unavailable.pid) && warning.includes('unknown')));
+    assert.ok(!snapshot.warnings.some(warning => warning.includes(observed.exited.pid)), 'confirmed exit is not an observation failure');
+  } finally { await rm(root, {recursive: true, force: true}); }
 });
