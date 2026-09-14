@@ -1,3 +1,4 @@
+import {createSourceNavigationHook} from './source-navigation.mjs';
 import {createProjectHook,parseUrl,buildAppUrl} from './project.mjs';
 import {createAlternateViews} from '../views/alternate.mjs';
 import {indexSourceFindings} from '../project/source-findings.mjs';
@@ -45,6 +46,7 @@ const useProject=createProjectHook({React,runAnalysisData,GitHub,JSZip:globalThi
 const{useState,useReducer,useEffect,useLayoutEffect,useRef,useMemo,useCallback}=React;
 const {SourceNavigation,AnalysisTools,SourceProcesses,SourceFindings,RuntimePanel}=createInspectionPanels(React);
 const useRuntimeInspection=createRuntimeInspectionHook(React);
+const useSourceNavigation=createSourceNavigationHook(React);
 const ArchitectureView=createArchitectureView({React,mermaid:globalThis.mermaid});
 const COLORS=['#4d9fff','#a78bfa','#22d3ee','#00ff9d','#ff9f43','#ec4899','#ff5f5f','#84cc16'];
 const LAYER_COLORS={ui:'#4d9fff',components:'#22d3ee',services:'#a78bfa',utils:'#00ff9d',data:'#ff9f43',config:'#ec4899',test:'#f59e0b',modules:'#a78bfa',forms:'#22d3ee',classes:'#ff9f43',note:'#c084fc'};
@@ -552,16 +554,12 @@ function App(){
         window.addEventListener('keydown',quickOpen);return function(){window.removeEventListener('keydown',quickOpen);};
     },[viewportWidth]);
 
-    var [beamSymbols,setBeamSymbols]=useState([]),[beamLocations,setBeamLocations]=useState(null);
-    var [beamNavigationError,setBeamNavigationError]=useState(null);
-    function beamLanguage(method,path,position){
-        if(!localTools)return Promise.reject(new Error('Open this checkout with the CLI to use language navigation.'));
-        return localTools.language(method,path,position);
-    }
+    const sourceNavigation=useSourceNavigation({connection:localTools,selection:investigation,loading,language:beamAnalysis?.language,onOpen:openSourceLocation});
+    const {symbols:beamSymbols,locations:beamLocations,error:beamNavigationError}=sourceNavigation;
     function openSourceLocation(location){
         if(!location.range&&Number.isInteger(location.line)&&location.line>0){const position={line:location.line-1,character:0};location={...location,range:{start:position,end:position}};}
-        if(!location.path){setBeamNavigationError('Source is outside this project.');return;}
-        if(!data.files.some(function(file){return file.path===location.path;})){setBeamNavigationError('Source is excluded or unavailable in this project.');return;}
+        if(!location.path){sourceNavigation.unavailable('Source is outside this project.');return;}
+        if(!data.files.some(function(file){return file.path===location.path;})){sourceNavigation.unavailable('Source is excluded or unavailable in this project.');return;}
         setGraphConfig(function(prev){return Object.assign({},prev,{vizType:'code'});});
         nativeCanvasRef.current?.prepareSource(location);
         openCodeFile(location.path,false,location.range);setRightTab('details');
@@ -575,11 +573,7 @@ function App(){
         setDrillDown(null);
     }
 
-    async function navigateBeamSymbol(method,path,position){
-        setBeamNavigationError(null);
-        try{var locations=await beamLanguage(method,path,position);if(method==='definition'&&locations.length===1)openSourceLocation(locations[0]);else setBeamLocations({title:method==='references'?'References':'Definitions',items:locations});}
-        catch(error){if(error.name!=='AbortError')setBeamNavigationError(error.message);}
-    }
+    function navigateBeamSymbol(method,path,position){return sourceNavigation.navigate(method,path,position);}
     function beamSourceClick(event,path,line){
         if(!event.metaKey&&!event.ctrlKey)return;
         event.preventDefault();event.stopPropagation();
@@ -736,18 +730,6 @@ function App(){
     analysisHydrationIdRef.current=currentHydrationId;
     const runtimeInspection=useRuntimeInspection(localTools,cliStatus?.runtimeNode||'');
     const runtimeIndex=useMemo(()=>indexRuntime(runtimeInspection.snapshot,data?.files||[]),[runtimeInspection.snapshot,data]);
-    useEffect(function(){
-        setBeamLocations(null);setBeamNavigationError(null);
-    },[localTools]);
-
-    useEffect(function(){
-        setBeamSymbols([]);setBeamLocations(null);setBeamNavigationError(null);
-        if(loading||!localTools||!data||!data.beam||!selected||!/\.exs?$/.test(selected.path)||!beamAnalysis||beamAnalysis.language.state!=='ready')return;
-        var cancelled=false;
-        beamLanguage('symbols',selected.path).then(function(items){if(!cancelled)setBeamSymbols(items);}).catch(function(error){if(!cancelled&&error.name!=='AbortError')setBeamNavigationError(error.message);});
-        return function(){cancelled=true;};
-    },[loading,localTools,selected&&selected.path,beamAnalysis&&beamAnalysis.language.build&&beamAnalysis.language.build.completedAt,beamAnalysis&&beamAnalysis.language.state]);
-
     function clearPendingRecentDelete(){
         if(pendingRecentDeleteTimerRef.current){
             clearTimeout(pendingRecentDeleteTimerRef.current);
