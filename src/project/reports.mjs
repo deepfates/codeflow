@@ -97,10 +97,13 @@ export function buildAnalysisReport({data,repository,analyzedAt}){
 }
 
 function affectedLabel(item){
+    if(typeof item==='string')return item;
     const path=item.path||item.file||item.sourceLocation?.path;
     const label=item.name||item.title;
     const line=item.line||((item.sourceLocation?.range?.start.line??-1)+1);
-    return (path||label||'Unknown source')+(line?':'+line:'')+(path&&label&&label!==path?' · '+label:'');
+    const primary=(path||label||'Unknown source')+(line?':'+line:'')+(path&&label&&label!==path?' · '+label:'');
+    const related=Array.isArray(item.files)?item.files.map(affectedLabel):[];
+    return primary+(item.toFile?' → '+affectedLabel(item.toFile):'')+(related.length?' ['+related.join(', ')+']':'');
 }
 function dependencyLabel(edge){
     const count=edge.referenceCount;

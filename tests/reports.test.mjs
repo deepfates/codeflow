@@ -65,3 +65,21 @@ test('reports use shared function identities and explicit dates without mutating
  assert.equal(JSON.stringify(data),before);
  assert.throws(()=>generateAnalysisReport({...context,data,format:'csv'}),/Unsupported report format/);
 });
+
+test('human reports retain every duplicate, cycle and layer-violation location alongside its original label',()=>{
+ const data=analysis();
+ const items=[
+  {name:'shared (2 files)',files:[{file:'duplicates/first/same.ex',line:12},{file:'duplicates/second/same.ex',name:'shared',line:48}]},
+  {name:'same.ex ↔ same.ex',files:['cycle/first/same.ex','cycle/second/same.ex']},
+  {name:'utils → ui',file:'layers/utils/same.ex',line:7,toFile:'layers/ui/same.ex',fn:'render'},
+ ];
+ data.issues=[{type:'warning',title:'Related locations',desc:'Each finding retains all of its locations',items}];
+ for(const format of ['md','txt']){
+  const {content}=generateAnalysisReport({...context,data,format});
+  for(const item of items)assert.ok(content.includes(item.name),'original finding label must survive');
+  for(const location of ['duplicates/first/same.ex:12','duplicates/second/same.ex:48','cycle/first/same.ex','cycle/second/same.ex','layers/utils/same.ex:7','layers/ui/same.ex']){
+   assert.ok(content.includes(location),'related location omitted: '+location);
+  }
+ }
+ assert.deepEqual(buildAnalysisReport({...context,data}).architectureIssues[0].affectedItems,items);
+});
