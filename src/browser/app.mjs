@@ -1,3 +1,4 @@
+import {createArchitectureView} from '../views/architecture.mjs';
 import {createProjectLoading} from '../project/loading.mjs';
 import {createLocalTools} from '../project/local-tools.mjs';
 import {createProjectSource} from '../project/access.mjs';
@@ -41,6 +42,7 @@ const runAnalysisData=createAnalysisClient({analyzeFiles,yieldFn:yieldToBrowser}
 const GitHub=createGitHubAdapter({KJUR:globalThis.KJUR});
 
 const{useState,useReducer,useEffect,useLayoutEffect,useRef,useMemo,useCallback}=React;
+const ArchitectureView=createArchitectureView({React,mermaid:globalThis.mermaid});
 const COLORS=['#4d9fff','#a78bfa','#22d3ee','#00ff9d','#ff9f43','#ec4899','#ff5f5f','#84cc16'];
 const LAYER_COLORS={ui:'#4d9fff',components:'#22d3ee',services:'#a78bfa',utils:'#00ff9d',data:'#ff9f43',config:'#ec4899',test:'#f59e0b',modules:'#a78bfa',forms:'#22d3ee',classes:'#ff9f43',note:'#c084fc'};
 
@@ -525,8 +527,6 @@ function App(){
     var _am=useState(window.innerWidth),viewportWidth=_am[0],setViewportWidth=_am[1];
     var _an=useState(null),mobilePanel=_an[0],setMobilePanel=_an[1];
     var _ao=useState(48),topbarHeight=_ao[0],setTopbarHeight=_ao[1];
-    var _arch=useState({scale:1,x:0,y:0}),architectureViewport=_arch[0],setArchitectureViewport=_arch[1];
-    var _archDrag=useState(false),architectureDragging=_archDrag[0],setArchitectureDragging=_archDrag[1];
     var _archTests=useState(false),architectureIncludeTests=_archTests[0],setArchitectureIncludeTests=_archTests[1];
     var _archBuild=useState(false),architectureIncludeBuildOutput=_archBuild[0],setArchitectureIncludeBuildOutput=_archBuild[1];
     var [selectedArchitectureBlock,setSelectedArchitectureBlock]=useState(null);
@@ -606,8 +606,7 @@ function App(){
     var sankeyRef=useRef(null);
     var disjointRef=useRef(null);
     var bundleRef=useRef(null);
-    var architectureRenderRef=useRef(null);
-    var architectureDragRef=useRef(null);
+    var architectureViewRef=useRef(null);
     var zoomRef=useRef(null);
     var simRef=useRef(null);
     var nodesRef=useRef(null);
@@ -690,80 +689,6 @@ function App(){
             });
         }
     },[theme]);
-
-    useEffect(function(){
-        if(graphConfig.vizType!=='architecture')return;
-        var container=architectureRenderRef.current;
-        if(!container)return;
-        var diagram=data&&data.architectureDiagram;
-        var mermaidText=diagram?generateMermaidBlockDiagram(diagram,architectureIncludeTests,architectureIncludeBuildOutput,true):'';
-        if(!mermaidText){
-            container.innerHTML='<div class="empty-state"><div class="empty-title">No architecture diagram</div><div class="empty-desc">Analyze a repository to generate a block diagram.</div></div>';
-            return;
-        }
-        if(!window.mermaid){
-            container.innerHTML='<div class="empty-state"><div class="empty-title">Mermaid unavailable</div><div class="empty-desc">The Mermaid renderer did not load. You can still export the raw Mermaid source.</div></div>';
-            return;
-        }
-        var cancelled=false;
-        var renderId='codeflow-architecture-'+Date.now();
-        container.innerHTML='<div class="loading"><div class="spinner"></div><div class="loading-text">Rendering block diagram...</div></div>';
-        try{
-            window.mermaid.initialize({
-                startOnLoad:false,
-                securityLevel:'strict',
-                theme:theme==='light'?'default':'dark',
-                flowchart:{htmlLabels:true,curve:'basis'}
-            });
-            window.mermaid.render(renderId,mermaidText).then(function(result){
-                if(cancelled||!architectureRenderRef.current)return;
-                architectureRenderRef.current.innerHTML='<div class="architecture-pan">'+result.svg+'</div>';
-                var svg=architectureRenderRef.current.querySelector('.architecture-pan svg');
-                if(!svg){
-                    architectureRenderRef.current.innerHTML='<div class="empty-state"><div class="empty-title">Mermaid render failed</div><div class="empty-desc">The renderer returned no SVG for this diagram.</div></div>';
-                    return;
-                }
-                normalizeArchitectureSvg(svg);
-                svg.querySelectorAll('g.node').forEach(function(node){
-                    var block=(diagram.blocks||[]).find(function(b){return node.id.indexOf('flowchart-'+b.id+'-')===0;});
-                    if(!block)return;
-                    node.setAttribute('data-architecture-id',block.id);node.setAttribute('role','button');node.setAttribute('tabindex','0');node.setAttribute('aria-label',block.title);
-                    node.style.cursor='pointer';
-                    node.addEventListener('click',function(event){event.stopPropagation();selectArchitectureBlock(block.id);});
-                    node.addEventListener('keydown',function(event){if(event.key==='Enter'||event.key===' '){event.preventDefault();selectArchitectureBlock(block.id);}});
-                });
-                svg.querySelectorAll('path.flowchart-link').forEach(function(path){
-                    var classes=Array.from(path.classList),from=(classes.find(function(c){return c.startsWith('LS-');})||'').slice(3),to=(classes.find(function(c){return c.startsWith('LE-');})||'').slice(3);
-                    var evidence=(diagram.dependencies||[]).filter(function(d){return d.from===from&&d.to===to;});
-                    var title=document.createElementNS('http://www.w3.org/2000/svg','title');
-                    title.textContent=evidence.map(function(d){return d.label+(d.evidence?' · '+d.evidence:'');}).join('\n');path.appendChild(title);
-                });
-                updateArchitectureHighlight(selectedArchitectureBlock);
-                requestAnimationFrame(function(){
-                    if(!cancelled){fitArchitectureViewport();if(selectedArchitectureBlock)requestAnimationFrame(function(){focusArchitectureBlock(selectedArchitectureBlock);});}
-                });
-            }).catch(function(err){
-                if(cancelled||!architectureRenderRef.current)return;
-                architectureRenderRef.current.innerHTML='<div class="empty-state"><div class="empty-title">Mermaid render failed</div><div class="empty-desc">'+escapeHtml(err&&err.message?err.message:String(err))+'</div></div>';
-            });
-        }catch(err){
-            container.innerHTML='<div class="empty-state"><div class="empty-title">Mermaid render failed</div><div class="empty-desc">'+escapeHtml(err&&err.message?err.message:String(err))+'</div></div>';
-        }
-        return function(){cancelled=true;};
-    },[data,graphConfig.vizType,theme,architectureIncludeTests,architectureIncludeBuildOutput]);
-
-    useEffect(function(){
-        var container=architectureRenderRef.current;
-        var pan=container?container.querySelector('.architecture-pan'):null;
-        if(!pan)return;
-        pan.style.transform='translate('+architectureViewport.x+'px,'+architectureViewport.y+'px) scale('+architectureViewport.scale+')';
-    },[architectureViewport,data,graphConfig.vizType,theme]);
-
-    useEffect(function(){
-        if(graphConfig.vizType!=='architecture')return;
-        var frame=requestAnimationFrame(function(){fitArchitectureViewport();});
-        return function(){cancelAnimationFrame(frame);};
-    },[viewportWidth,sidebarWidth,rightPanelWidth,graphConfig.vizType]);
 
     useEffect(function(){
         var el=folderInputRef.current;
@@ -3644,115 +3569,6 @@ function App(){
         var text=diagram?generateMermaidBlockDiagram(diagram,architectureIncludeTests,architectureIncludeBuildOutput):'';
         copyText(text,'Mermaid diagram copied.');
     }
-    function normalizeArchitectureSvg(svg){
-        if(!svg)return{width:0,height:0};
-        var width=0;
-        var height=0;
-        var viewBox=svg.getAttribute('viewBox')||'';
-        var viewBoxParts=viewBox.trim().split(/\s+/).map(function(part){return Number(part);});
-        if(viewBoxParts.length===4&&viewBoxParts.every(function(value){return isFinite(value);})){
-            width=viewBoxParts[2];
-            height=viewBoxParts[3];
-        }
-        if(!width||!height){
-            try{
-                var bbox=svg.getBBox();
-                if(bbox&&bbox.width&&bbox.height){
-                    width=bbox.width;
-                    height=bbox.height;
-                    svg.setAttribute('viewBox',[bbox.x,bbox.y,bbox.width,bbox.height].join(' '));
-                }
-            }catch(err){}
-        }
-        if(!width||!height){
-            var rect=svg.getBoundingClientRect();
-            width=rect.width||900;
-            height=rect.height||600;
-        }
-        width=Math.max(320,Math.ceil(width));
-        height=Math.max(240,Math.ceil(height));
-        svg.setAttribute('width',String(width));
-        svg.setAttribute('height',String(height));
-        svg.setAttribute('data-codeflow-width',String(width));
-        svg.setAttribute('data-codeflow-height',String(height));
-        svg.style.width=width+'px';
-        svg.style.height=height+'px';
-        svg.style.maxWidth='none';
-        return{width:width,height:height};
-    }
-    function fitArchitectureViewport(){
-        var container=architectureRenderRef.current;
-        var svg=container?container.querySelector('.architecture-pan svg'):null;
-        if(!container||!svg)return;
-        var rect=container.getBoundingClientRect();
-        var dims=normalizeArchitectureSvg(svg);
-        var availableWidth=Math.max(240,rect.width-64);
-        var availableHeight=Math.max(180,rect.height-64);
-        var scale=Math.min(1,availableWidth/dims.width,availableHeight/dims.height);
-        scale=clampArchitectureScale(scale);
-        var x=Math.max(24,Math.round((rect.width-dims.width*scale)/2));
-        var y=Math.max(24,Math.round((rect.height-dims.height*scale)/2));
-        setArchitectureViewport({scale:scale,x:x,y:y});
-    }
-    function clampArchitectureScale(value){
-        return Math.max(0.005,Math.min(3,value));
-    }
-    function zoomArchitecture(multiplier,clientX,clientY){
-        var container=architectureRenderRef.current;
-        setArchitectureViewport(function(prev){
-            var nextScale=clampArchitectureScale(prev.scale*multiplier);
-            var rect=container?container.getBoundingClientRect():null;
-            var px=rect?(clientX==null?rect.left+rect.width/2:clientX)-rect.left:0;
-            var py=rect?(clientY==null?rect.top+rect.height/2:clientY)-rect.top:0;
-            var ratio=nextScale/prev.scale;
-            return{
-                scale:nextScale,
-                x:px-(px-prev.x)*ratio,
-                y:py-(py-prev.y)*ratio
-            };
-        });
-    }
-    function resetArchitectureViewport(){
-        fitArchitectureViewport();
-    }
-    function handleArchitecturePointerDown(e){
-        if(e.target&&e.target.closest&&e.target.closest('g.node'))return;
-        if(e.button!==undefined&&e.button!==0)return;
-        e.preventDefault();
-        architectureDragRef.current={
-            pointerId:e.pointerId,
-            startX:e.clientX,
-            startY:e.clientY,
-            originX:architectureViewport.x,
-            originY:architectureViewport.y
-        };
-        if(e.currentTarget&&e.currentTarget.setPointerCapture){
-            try{e.currentTarget.setPointerCapture(e.pointerId);}catch(err){}
-        }
-        setArchitectureDragging(true);
-    }
-    function handleArchitecturePointerMove(e){
-        var drag=architectureDragRef.current;
-        if(!drag)return;
-        e.preventDefault();
-        setArchitectureViewport(function(prev){
-            return Object.assign({},prev,{
-                x:drag.originX+e.clientX-drag.startX,
-                y:drag.originY+e.clientY-drag.startY
-            });
-        });
-    }
-    function handleArchitecturePointerUp(e){
-        if(e&&e.currentTarget&&e.currentTarget.releasePointerCapture&&architectureDragRef.current){
-            try{e.currentTarget.releasePointerCapture(architectureDragRef.current.pointerId);}catch(err){}
-        }
-        architectureDragRef.current=null;
-        setArchitectureDragging(false);
-    }
-    function handleArchitectureWheel(e){
-        e.preventDefault();
-        zoomArchitecture(e.deltaY<0?1.12:0.88,e.clientX,e.clientY);
-    }
     function downloadMermaid(){
         var diagram=data&&data.architectureDiagram;
         var text=diagram?generateMermaidBlockDiagram(diagram,architectureIncludeTests,architectureIncludeBuildOutput):'';
@@ -3767,7 +3583,7 @@ function App(){
         showNotification('Mermaid source downloaded.','success');
     }
     function downloadArchitectureSVG(){
-        var svg=architectureRenderRef.current?architectureRenderRef.current.querySelector('svg'):null;
+        var svg=architectureViewRef.current?.getSvg();
         if(!svg){showNotification('No rendered architecture SVG to download.','error');return;}
         var clone=svg.cloneNode(true);
         clone.setAttribute('xmlns','http://www.w3.org/2000/svg');
@@ -4560,27 +4376,6 @@ function App(){
         stats.warnings=diagram.stats&&diagram.stats.warnings!=null?diagram.stats.warnings:(diagram.warnings?diagram.warnings.length:0);
         return stats;
     }
-    function renderArchitectureView(){
-        return React.createElement('div',{className:'architecture-view'},
-            React.createElement('div',{className:'architecture-shell'},
-                React.createElement('div',{className:'canvas-toolbar'},
-                    React.createElement('button',{className:'tool-btn',onClick:function(){zoomArchitecture(1.4);},'aria-label':'Zoom in'},'+'),
-                    React.createElement('button',{className:'tool-btn',onClick:function(){zoomArchitecture(0.7);},'aria-label':'Zoom out'},'−'),
-                    React.createElement('button',{className:'tool-btn',onClick:fitArchitectureViewport,'aria-label':'Fit view'},'⊡')),
-                React.createElement('div',{
-                    className:'mermaid-render'+(architectureDragging?' dragging':''),
-                    ref:architectureRenderRef,
-                    onPointerDown:handleArchitecturePointerDown,
-                    onPointerMove:handleArchitecturePointerMove,
-                    onPointerUp:handleArchitecturePointerUp,
-                    onPointerCancel:handleArchitecturePointerUp,
-                    onWheel:handleArchitectureWheel,
-                    role:'img',
-                    'aria-label':'Architecture block diagram. Drag to pan, mouse wheel to zoom.'
-                })
-            )
-        );
-    }
     function architectureGroupDotColor(group){
         if(group==='Browser App'||group==='App Entry / Shell'||group==='Analysis Core'||group==='Frontend Routes'||group==='Frontend Page Components')return'var(--blue)';
         if(group==='GitHub Action'||group==='Repository Collection'||group==='Backend API / Platform Logic')return'var(--purple)';
@@ -4589,36 +4384,11 @@ function App(){
         if(group==='Testing'||group==='Fixtures / Examples'||group==='Build Output')return'var(--t3)';
         return'var(--t2)';
     }
-    function focusArchitectureBlock(id){
-        var container=architectureRenderRef.current,svg=container&&container.querySelector('svg');
-        if(!svg)return;
-        var node=Array.from(svg.querySelectorAll('g.node')).find(function(n){return n.id.indexOf('flowchart-'+id+'-')===0;});
-        if(!node)return;
-        var bounds=node.getBoundingClientRect(),svgBounds=svg.getBoundingClientRect();
-        var currentScale=svgBounds.width/Number(svg.getAttribute('width'));
-        if(!currentScale)return;
-        var cx=(bounds.left+bounds.width/2-svgBounds.left)/currentScale,cy=(bounds.top+bounds.height/2-svgBounds.top)/currentScale;
-        setArchitectureViewport({scale:1,x:container.clientWidth/2-cx,y:container.clientHeight/2-cy});
-    }
-    function updateArchitectureHighlight(id){
-        var svg=architectureRenderRef.current&&architectureRenderRef.current.querySelector('svg');if(!svg)return;
-        var connected=new Set([id]);
-        svg.querySelectorAll('path.flowchart-link').forEach(function(path){
-            var classes=Array.from(path.classList),from=(classes.find(function(c){return c.startsWith('LS-');})||'').slice(3),to=(classes.find(function(c){return c.startsWith('LE-');})||'').slice(3);
-            var incident=from===id||to===id;if(incident){connected.add(from);connected.add(to);}
-            path.style.opacity=id?(incident?'1':'0.08'):'0.4';
-        });
-        svg.querySelectorAll('[data-architecture-id]').forEach(function(node){
-            node.style.opacity=!id||connected.has(node.dataset.architectureId)?'1':'0.25';
-            var shape=node.querySelector('rect,polygon');if(shape)shape.style.strokeWidth=node.dataset.architectureId===id?'3px':'';
-        });
-    }
     useLayoutEffect(function(){
         var panel=document.querySelector('.panel-content');if(panel)panel.scrollTop=0;
     },[selected&&selected.path,rightTab,selectedArchitectureBlock]);
     function selectArchitectureBlock(id){
         setSelectedArchitectureBlock(id);setSelected(null);setBlastRadius(null);setRightTab('details');
-        focusArchitectureBlock(id);updateArchitectureHighlight(id);
     }
     function renderArchitectureBlockList(blocks,emptyText){
         if(!blocks||!blocks.length)return React.createElement('div',{style:{fontSize:10,color:'var(--t3)',padding:8}},emptyText);
@@ -4630,7 +4400,7 @@ function App(){
     function renderArchitectureBlockDetails(diagram,block){
         var dependencies=groupArchitectureRelationships((diagram.dependencies||[]).filter(function(d){return d.from===block.id||d.to===block.id;}));
         return React.createElement(React.Fragment,null,
-            React.createElement('button',{type:'button',className:'top-btn',onClick:function(){setSelectedArchitectureBlock(null);updateArchitectureHighlight(null);fitArchitectureViewport();}},'← Architecture'),
+            React.createElement('button',{type:'button',className:'top-btn',onClick:function(){setSelectedArchitectureBlock(null);}},'← Architecture'),
             React.createElement('div',{className:'card','data-architecture-block':block.id},
                 React.createElement('div',{className:'card-header'},React.createElement('div',{className:'card-title'},block.title)),
                 React.createElement('div',{className:'card-body'},
@@ -4906,7 +4676,7 @@ function App(){
                     graphConfig.vizType==='sankey'&&React.createElement('div',{ref:sankeyRef,className:'sankey-container',style:{width:'100%',height:'100%',position:'relative'}}),
                     graphConfig.vizType==='disjoint'&&React.createElement('div',{ref:disjointRef,className:'disjoint-container',style:{width:'100%',height:'100%',position:'relative'}}),
                     graphConfig.vizType==='bundle'&&React.createElement('div',{ref:bundleRef,className:'bundle-container'}),
-                    graphConfig.vizType==='architecture'&&renderArchitectureView(),
+                    graphConfig.vizType==='architecture'&&React.createElement(ArchitectureView,{ref:architectureViewRef,diagram:data&&data.architectureDiagram,theme,includeTests:architectureIncludeTests,includeBuildOutput:architectureIncludeBuildOutput,selectedBlock:selectedArchitectureBlock,onSelect:selectArchitectureBlock}),
                     vizUsesLineThickness(graphConfig.vizType)&&React.createElement('div',{className:'canvas-toolbar'},
                         vizHasGraphToolbar(graphConfig.vizType)&&React.createElement('button',{className:'tool-btn',onClick:zoomIn,'aria-label':'Zoom in'},'+'),
                         vizHasGraphToolbar(graphConfig.vizType)&&React.createElement('button',{className:'tool-btn',onClick:zoomOut,'aria-label':'Zoom out'},'−'),

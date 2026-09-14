@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir, hostname } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -304,6 +304,16 @@ test('large architecture maps fit completely and selected blocks become readable
  assert.ok(Math.abs(bounds.x+bounds.width/2-frame.x-frame.width/2)<4,'selected block is centered');
  assert.equal(await page.locator('.panel-content').evaluate(el=>el.scrollTop),0,'details start at their heading');
  assert.equal(await svg.locator('path.flowchart-link title').count(),60,'relationship evidence remains available on hover');
+ await page.getByRole('button',{name:'Export analysis',exact:true}).click();
+ const downloading=page.waitForEvent('download');
+ await page.getByText('Diagram SVG',{exact:true}).click();
+ const download=await downloading;
+ const exported=await readFile(await download.path(),'utf8');
+ assert.equal((exported.match(/class="[^"]*flowchart-link/g)||[]).length,60,'export contains every rendered relationship');
+ await page.setViewportSize({width:1200,height:800});
+ await page.waitForTimeout(300);
+ const resizedFrame=await page.locator('.mermaid-render').boundingBox(),resizedSvg=await svg.boundingBox();
+ assert.ok(resizedSvg.width<=resizedFrame.width&&resizedSvg.height<=resizedFrame.height,'diagram fits its resized container');
  assert.deepEqual(errors,[]);
 });
 
