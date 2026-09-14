@@ -201,65 +201,49 @@ var GitHub={
             });
         }).catch(function(){return null;});
     },
-    // Fast scan using Git Trees API (single request for all files!)
-    scanTree:function(o,r,cb,compiledPatterns,signal){
-        var self=this;
+    async scan(o,r,cb,compiledPatterns,signal){
         if(cb)cb('Fetching repository tree...');
-        // First get repo info to find default branch
-        return this.fetch(buildRepoApiUrl(o,r),{signal}).then(function(repo){
-            var branch=repo.default_branch||'main';
-            if(cb)cb('Loading file tree ('+branch+')...');
-            // Get full tree in one request with recursive flag
-            return self.fetch(buildRepoApiUrl(o,r,['git','trees',branch],{recursive:1}),{signal});
-        }).then(function(tree){
-            if(!tree.tree)throw new Error('Invalid tree response');
-            var f=[];
-            tree.tree.forEach(function(i){
-                if(i.type!=='blob')return;
-                var name=i.path.includes('/')?i.path.substring(i.path.lastIndexOf('/')+1):i.path;
-                if(shouldExcludeFile(i.path,name,compiledPatterns))return;
-                var pathParts=i.path.split('/');
-                var ignored=pathParts.slice(0,-1).some(function(part,idx){
-                    var dirPath=pathParts.slice(0,idx+1).join('/');
-                    return shouldIgnoreDirectory(dirPath,part,compiledPatterns);
-                });
-                if(ignored)return;
-                var folder=i.path.includes('/')?i.path.substring(0,i.path.lastIndexOf('/')):'root';
-                f.push({path:i.path,name:name,folder:folder,size:i.size||0,isCode:isCode(name)});
-            });
-            if(cb)cb('Found '+f.length+' files');
-            return f;
-        });
-    },
-    // Fallback: recursive scan using Contents API (many requests)
-    scanRecursive:function(o,r,cb,p,d,compiledPatterns,signal){
-        var self=this;p=p||'';d=d||0;
-        if(d>10)return Promise.resolve([]);
-        return this.fetch(buildRepoApiUrl(o,r,['contents'].concat(splitRepoPath(p))),{signal}).then(function(c){
-            var f=[];
-            var promises=[];
-            c.forEach(function(i){
-                if(i.type==='file'&&!shouldExcludeFile(i.path,i.name,compiledPatterns)){
-                    f.push({path:i.path,name:i.name,folder:i.path.includes('/')?i.path.substring(0,i.path.lastIndexOf('/')):'root',size:i.size,isCode:isCode(i.name)});
-                }else if(i.type==='dir'&&!shouldIgnoreDirectory(i.path,i.name,compiledPatterns)){
-                    if(cb)cb('/'+i.path);
-                    promises.push(self.scanRecursive(o,r,cb,i.path,d+1,compiledPatterns,signal).catch(function(){if(signal)signal.throwIfAborted();return[];}));
+        const repo=await this.fetch(buildRepoApiUrl(o,r),{signal});
+        const branch=repo.default_branch||'main';
+        const tree=await this.fetch(buildRepoApiUrl(o,r,['git','trees',branch],{recursive:1}),{signal});
+        if(!Array.isArray(tree.tree))throw new Error('Invalid GitHub tree response');
+        let entries=tree.tree;
+        if(tree.truncated){
+            // GitHub's recursive response is bounded. Walk immutable subtrees of
+            // the same root SHA, as documented by the Git Trees API, without a
+            // depth cutoff or treating a failed directory read as an empty one.
+            if(!tree.sha)throw new Error('Truncated GitHub tree has no root SHA');
+            entries=[];
+            const pending=[{sha:tree.sha,path:''}];
+            while(pending.length){
+                if(signal)signal.throwIfAborted();
+                const directory=pending.pop();
+                if(cb)cb('Reading repository tree: '+(directory.path||'/'));
+                const subtree=await this.fetch(buildRepoApiUrl(o,r,['git','trees',directory.sha]),{signal});
+                if(!Array.isArray(subtree.tree)||subtree.truncated){
+                    throw new Error('Incomplete GitHub tree at '+(directory.path||'/'));
                 }
-            });
-            return Promise.all(promises).then(function(results){
-                results.forEach(function(res){f=f.concat(res);});
-                return f;
-            });
-        }).catch(function(e){if(signal)signal.throwIfAborted();if(d===0)throw e;return[];});
-    },
-    // Smart scan: try tree API first (1 request), fallback to recursive
-    scan:function(o,r,cb,compiledPatterns,signal){
-        var self=this;
-        return this.scanTree(o,r,cb,compiledPatterns,signal).catch(function(e){
-            if(signal)signal.throwIfAborted();
-            if(cb)cb('Tree API failed, using fallback...');
-            return self.scanRecursive(o,r,cb,'',0,compiledPatterns,signal);
-        });
+                for(const entry of subtree.tree){
+                    const path=directory.path?directory.path+'/'+entry.path:entry.path;
+                    if(entry.type==='tree'){
+                        if(!shouldIgnoreDirectory(path,entry.path,compiledPatterns)){
+                            if(!entry.sha)throw new Error('GitHub subtree has no SHA: '+path);
+                            pending.push({sha:entry.sha,path});
+                        }
+                    }else if(entry.type==='blob')entries.push({...entry,path});
+                }
+            }
+        }
+        const files=[];
+        for(const entry of entries){
+            if(entry.type!=='blob')continue;
+            const parts=entry.path.split('/'),name=parts.at(-1);
+            if(shouldExcludeFile(entry.path,name,compiledPatterns))continue;
+            if(parts.slice(0,-1).some((part,index)=>shouldIgnoreDirectory(parts.slice(0,index+1).join('/'),part,compiledPatterns)))continue;
+            files.push({path:entry.path,name,folder:parts.length>1?parts.slice(0,-1).join('/'):'root',size:entry.size||0,isCode:isCode(name)});
+        }
+        if(cb)cb('Found '+files.length+' files');
+        return files;
     }
 };
 return GitHub;

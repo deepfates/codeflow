@@ -20,7 +20,9 @@ test('GitHub imports every eligible file beyond the former sample cap and preser
         let body;
         if(url.pathname==='/rate_limit')body={resources:{core:{remaining:5000,limit:5000,reset:0}}};
         else if(url.pathname==='/repos/example/project')body={default_branch:'main'};
-        else if(url.pathname.includes('/git/trees/'))body={tree:paths.map(path=>({path,type:'blob',size:20})),truncated:false};
+        else if(url.searchParams.has('recursive'))body={sha:'root-tree',tree:[{path:paths[0],type:'blob',size:20}],truncated:true};
+        else if(url.pathname.endsWith('/git/trees/root-tree'))body={tree:[{path:'notes',type:'tree',sha:'notes-tree'},...['missing.md','empty.md'].map(path=>({path,type:'blob',size:20}))],truncated:false};
+        else if(url.pathname.endsWith('/git/trees/notes-tree'))body={tree:paths.filter(path=>path.startsWith('notes/')).map(path=>({path:path.slice(6),type:'blob',size:20})),truncated:false};
         else if(url.pathname.includes('/contents/')){
             const path=decodeURIComponent(url.pathname.split('/contents/')[1]);reads.add(path);
             if(path==='missing.md')return route.fulfill({status:503,json:{message:'unavailable'}});

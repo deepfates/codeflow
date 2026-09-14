@@ -10,7 +10,7 @@ function pendingAdapter(){
     })});
     return {adapter,calls};
 }
-test('cancelling a GitHub scan aborts its request without starting the recursive fallback',async()=>{
+test('cancelling a GitHub scan aborts its request without issuing further requests',async()=>{
     const {adapter,calls}=pendingAdapter(),controller=new AbortController();
     const scan=adapter.scan('owner','repo',()=>{},[],controller.signal);
     controller.abort();
