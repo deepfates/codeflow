@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { tmpdir, hostname } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 
-async function openProject(t,root) {
+async function openProject(t,root,options={}) {
   const { chromium } = await import('playwright');
-  const server = spawn(process.execPath, [fileURLToPath(new URL('../cli/codeflow.mjs', import.meta.url)), root, '--port', '0', '--no-open'], {stdio:['ignore','pipe','pipe']});
+  const server = spawn(process.execPath, [fileURLToPath(new URL('../cli/codeflow.mjs', import.meta.url)), root, '--port', '0', '--no-open', ...(options.args||[])], {env:{...process.env,...options.env},stdio:['ignore','pipe','pipe']});
   const exited = new Promise(resolve => server.once('exit', resolve));
   let browser;
   t.after(async () => {
@@ -81,6 +81,20 @@ test('BEAM browser journey: file graph, fresh compilation, source navigation and
       && edge.kind === 'runtime' && el.getAttribute('d')?.length > 0
       && Number(getComputedStyle(el).strokeOpacity) > 0;
   }));
+  // The native Block Diagram must consume the real worker's parsed modules,
+  // and be a navigable overview rather than an inert picture.
+  const visualization=page.getByRole('combobox',{name:'Visualization type'});
+  await visualization.selectOption('architecture');
+  const targetBlock=page.locator('.architecture-pan svg').getByRole('button',{name:'Target',exact:true});
+  await targetBlock.waitFor();
+  await targetBlock.click();
+  await page.locator('[data-architecture-block]').getByRole('button',{name:'lib/target.ex',exact:true}).waitFor();
+  await page.getByRole('button',{name:/← Caller · runtime reference/}).click();
+  await page.locator('[data-architecture-block]').getByRole('button',{name:'lib/caller.ex',exact:true}).click();
+  await page.locator('[data-code-card="lib/caller.ex"]').waitFor();
+  await visualization.selectOption('architecture');
+  await page.locator('[data-architecture-block]').getByRole('button',{name:'lib/caller.ex',exact:true}).waitFor();
+  await visualization.selectOption('graph');
   // Reload the edited source so definition navigation exercises the ordinary,
   // unchanged-source renderer rather than only the diff renderer.
   await page.reload();
@@ -120,7 +134,12 @@ test('BEAM browser journey: file graph, fresh compilation, source navigation and
   await page.getByRole('button',{name:'Close target.ex',exact:true}).click();
   assert.equal(await target.count(),0);assert.equal(await caller.count(),1);
   await page.getByRole('button',{name:'Close caller.ex',exact:true}).click();
+  // Wait through the normal persistence interval so re-seeding cannot pass
+  // merely by occurring after an immediate DOM assertion.
+  await page.waitForTimeout(1200);
   assert.equal(await page.locator('[data-code-card]').count(),0);
+  await page.reload();await page.getByRole('combobox',{name:'Visualization type'}).waitFor();await page.waitForTimeout(500);
+  assert.equal(await page.locator('[data-code-card]').count(),0,'an intentionally empty workspace stays empty after reload');
   assert.deepEqual(errors,[]);
 });
 
@@ -165,4 +184,114 @@ test('JavaScript workspace restores Graph selection and open Code cards', {
   assert.match(await caller.innerText(),/return target\(\)/);
   assert.match(await target.innerText(),/return 42/);
   assert.deepEqual(errors,[]);
+});
+
+test('project investigation follows search, graph relationships and back/forward history', {skip:!process.env.CODEFLOW_TEST_BROWSER,timeout:90000}, async t=>{
+ const root=await mkdtemp(join(tmpdir(),'codeflow-investigation-'));
+ await mkdir(join(root,'src'));
+ await writeFile(join(root,'src/target.js'),'export function target() { return 42; }\nexport function anotherTarget() { return 43; }');
+ await writeFile(join(root,'src/caller.js'),"import {target} from './target.js';\nexport function caller() { return target(); }");
+ const {page,url,errors}=await openProject(t,root);
+ await page.getByRole('combobox',{name:'Visualization type'}).waitFor({timeout:45000});
+ await page.getByRole('combobox',{name:'Visualization type'}).selectOption('graph');
+ await page.getByRole('tab',{name:'Files',exact:true}).click();
+ const search=page.getByRole('searchbox',{name:'Find files and symbols'});
+ await search.fill('target.js');await search.press('Enter');
+ await page.locator('.panel-header .panel-title').filter({hasText:'target.js'}).waitFor();
+ await search.fill('caller.js');await search.press('Enter');
+ await page.locator('.panel-header .panel-title').filter({hasText:'caller.js'}).waitFor();
+ // A dependency stays emphasized while its consumer is selected.
+ await page.waitForFunction(()=>Number([...document.querySelectorAll('circle.nc')].find(n=>n.__data__.id==='src/target.js')?.getAttribute('opacity'))===1);
+ await page.getByRole('button',{name:'Back',exact:true}).click();
+ await page.locator('.panel-header .panel-title').filter({hasText:'target.js'}).waitFor();
+ await page.getByRole('button',{name:'Forward',exact:true}).click();
+ await page.locator('.panel-header .panel-title').filter({hasText:'caller.js'}).waitFor();
+ await search.fill('target');
+ await page.locator('button.tree-file').filter({hasText:'src/target.js:1'}).click();
+ await page.locator('[data-code-card="src/target.js"] [data-line="1"].highlighted').waitFor();
+ assert.equal(await page.getByRole('combobox',{name:'Visualization type'}).inputValue(),'code');
+ await page.waitForFunction(()=>Object.keys(localStorage).some(k=>k.startsWith('codeflow:workspace:')&&JSON.parse(localStorage.getItem(k)).navigation?.entries.length>=3));
+ await page.reload();await page.getByRole('combobox',{name:'Visualization type'}).waitFor({timeout:45000});
+ await page.getByRole('tab',{name:'Files',exact:true}).click();
+ await page.getByRole('button',{name:'Back',exact:true}).click();
+ await page.locator('.panel-header .panel-title').filter({hasText:'caller.js'}).waitFor();
+ assert.equal(await page.getByRole('combobox',{name:'Visualization type'}).inputValue(),'graph');
+ await search.fill('anotherTarget');await search.press('Enter');
+ await page.locator('[data-code-card="src/target.js"] [data-line="2"].highlighted').waitFor();
+ await search.fill('target');await page.locator('button.tree-file').filter({hasText:'src/target.js:1'}).click();
+ await page.locator('[data-code-card="src/target.js"] [data-line="1"].highlighted').waitFor();
+ await page.getByRole('button',{name:'Back',exact:true}).click();
+ await page.locator('[data-code-card="src/target.js"] [data-line="2"].highlighted').waitFor();
+ await page.getByRole('button',{name:'Forward',exact:true}).click();
+ await page.locator('[data-code-card="src/target.js"] [data-line="1"].highlighted').waitFor();
+ assert.deepEqual(errors,[]);
+});
+
+
+test('runtime investigation returns from source to the actual supervised process', {skip:!process.env.CODEFLOW_TEST_BROWSER,timeout:90000}, async t=>{
+ const root=await mkdtemp(join(tmpdir(),'codeflow-runtime-browser-'));
+ const node=`codeflow_browser_${process.pid}@${hostname().split('.')[0]}`;
+ const cookie='codeflow_browser_disposable';
+ await writeFile(join(root,'worker.exs'),`defmodule BrowserWorker do
+ use GenServer
+ def start_link(_), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
+ def init(_), do: {:ok, nil}
+end
+defmodule BrowserApplication do
+ use Application
+ def start(_, _), do: Supervisor.start_link([BrowserWorker], strategy: :one_for_one)
+end
+:application.load({:application, :browser_runtime, [{:description, ~c"Browser runtime"}, {:vsn, ~c"1"}, {:modules, [BrowserApplication, BrowserWorker]}, {:registered, []}, {:applications, [:kernel, :stdlib, :elixir]}, {:mod, {BrowserApplication, []}}]})
+:ok = Application.start(:browser_runtime)
+IO.puts("READY")
+Process.sleep(:infinity)
+`);
+ const runtime=spawn('elixir',['--sname',node,'--cookie',cookie,join(root,'worker.exs')],{stdio:['ignore','pipe','pipe']});
+ t.after(()=>runtime.kill('SIGTERM'));
+ await new Promise((resolve,reject)=>{
+  let output='';const timer=setTimeout(()=>reject(new Error(output)),15000);
+  runtime.stdout.on('data',chunk=>{output+=chunk;if(output.includes('READY')){clearTimeout(timer);resolve();}});
+  runtime.stderr.on('data',chunk=>{output+=chunk;});
+  runtime.once('exit',code=>{clearTimeout(timer);reject(new Error('Runtime exited '+code+': '+output));});
+ });
+ const {page,errors}=await openProject(t,root,{args:['--beam','--source-only'],env:{CODEFLOW_BEAM_COOKIE:cookie}});
+ await page.getByRole('button',{name:'RUNTIME',exact:true}).click();
+ await page.getByRole('textbox',{name:'BEAM node'}).fill(node);
+ await page.getByRole('button',{name:'Connect',exact:true}).click();
+ await page.getByRole('button',{name:'Refresh',exact:true}).waitFor({timeout:30000});
+ await page.getByRole('tab',{name:'Files',exact:true}).click();
+ await page.getByRole('searchbox',{name:'Find files and symbols'}).fill('worker.exs');
+ await page.getByRole('searchbox',{name:'Find files and symbols'}).press('Enter');
+ const processButton=page.locator('.card').filter({hasText:'Running processes'}).getByRole('button').filter({hasText:'BrowserWorker'}).first();
+ await processButton.click();
+ const focused=page.locator('[data-process-id][style*="outline"]');
+ await focused.waitFor();
+ assert.ok(await focused.isVisible(),'source expands the application and reveals its supervised runtime process');
+ assert.match(await focused.innerText(),/queue.* B .*reductions/);
+ await focused.getByRole('button',{name:'Source',exact:true}).click();
+ await page.locator('[data-code-card="worker.exs"]').waitFor();
+ assert.deepEqual(errors,[]);
+});
+
+
+test('large architecture maps fit completely and selected blocks become readable without losing relationships', {skip:!process.env.CODEFLOW_TEST_BROWSER,timeout:90000}, async t=>{
+ const root=await mkdtemp(join(tmpdir(),'codeflow-architecture-browser-'));
+ await Promise.all(Array.from({length:60},(_,i)=>writeFile(join(root,`target_${i}.ex`),`defmodule Target${i} do\n def run, do: :ok\nend`)));
+ await writeFile(join(root,'caller.ex'),'defmodule Caller do\n def run do\n'+Array.from({length:60},(_,i)=>` Target${i}.run()`).join('\n')+'\n end\nend');
+ const {page,errors}=await openProject(t,root);
+ const views=page.getByRole('combobox',{name:'Visualization type'});await views.waitFor({timeout:45000});await views.selectOption('architecture');
+ const svg=page.locator('.architecture-pan svg');await svg.waitFor();
+ await page.getByRole('button',{name:'Fit view',exact:true}).click();
+ await page.waitForTimeout(200);
+ const frame=await page.locator('.mermaid-render').boundingBox(),overview=await svg.boundingBox();
+ assert.ok(overview.width<=frame.width&&overview.height<=frame.height,'fit does not clip a large diagram at an arbitrary minimum scale');
+ assert.equal(await svg.locator('path.flowchart-link').count(),60,'all60 source relationships are drawn');
+ await page.locator('.panel-content').getByRole('button',{name:'Caller',exact:true}).click();
+ const block=svg.getByRole('button',{name:'Caller',exact:true});await page.waitForTimeout(200);
+ const bounds=await block.boundingBox();
+ assert.ok(bounds.height>=30,'selected block is legible at normal reading scale');
+ assert.ok(Math.abs(bounds.x+bounds.width/2-frame.x-frame.width/2)<4,'selected block is centered');
+ assert.equal(await page.locator('.panel-content').evaluate(el=>el.scrollTop),0,'details start at their heading');
+ assert.equal(await svg.locator('path.flowchart-link title').count(),60,'relationship evidence remains available on hover');
+ assert.deepEqual(errors,[]);
 });

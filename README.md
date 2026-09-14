@@ -48,6 +48,11 @@ build directories (`deps`, `_build`, `.elixir_ls`) are excluded by default, incl
 nested umbrella projects. Application source, tests and documentation remain in
 the inventory. The exclusions dialog lists these defaults alongside custom patterns.
 
+Use **Files** (or **⌘P / Ctrl+P**) to find a file, module or function. File results
+locate the file in the current view; module and function results open source at
+the definition. Back and Forward retrace the investigation across Graph and Code, including
+distinct definitions within the same file.
+
 Code view uses the existing source cards. The File panel adds an ElixirLS outline;
 Command-click (or Ctrl-click) source text to go to a definition, and add Shift to
 find references. Compiler diagnostics and Credo findings appear in Issues with
@@ -55,7 +60,8 @@ source locations and provider attribution, and are included in analysis exports.
 Patterns, Security, Actions, Block Diagram and reports remain available. Tool
 failure is reported as unavailable, not as a clean assessment.
 
-Workspace scope, selection, open cards, placement, sizes and camera are saved in
+Workspace view, scope, selection, navigation history, open cards, placement, sizes
+and Graph/Code camera are saved in
 this browser for each project, including projects without Elixir. Source contents
 are loaded from the local server.
 
@@ -69,6 +75,8 @@ You can also enter the node name in Runtime and connect there. The inspector use
 the normal Erlang cookie, or `CODEFLOW_BEAM_COOKIE` from the CLI environment. The
 node must already be running locally with matching distribution naming and cookie.
 Refresh collects applications, supervision trees, process metrics and source links.
+Open Source on a process to inspect its implementation; the File panel links back
+to matching running processes and expands their supervision ancestry.
 It does not start the application, inspect process state or record messages.
 
 Compiler relationships come from Mix manifests; source-analysis relationships
@@ -84,8 +92,16 @@ The health score remains Codeflow's heuristic summary. Functions without observe
 callers stay available for investigation; Elixir callbacks and dynamic invocation
 make their usage uncertain, so those candidates do not count as proven dead code
 in the score. Source-based patterns and security checks remain heuristic findings,
-not compiler guarantees. Block Diagram retains its existing grouping, which can
-be coarse for Elixir projects, and adds compiler links between those blocks.
+not compiler guarantees. Elixir source analysis uses the vendored Tree-sitter
+grammar to distinguish modules, function arities and clauses, aliases and imports.
+The analysis JSON retains unresolved dynamic calls and macro-generated definitions
+as explicit unknowns.
+Block Diagram groups declared namespaces and recognizes OTP/Phoenix roles, retaining
+member files and source evidence alongside compiler links. Select a block to
+bring it into focus, follow its connections or open any member at its declaration.
+The diagram uses the bundled Mermaid/ELK renderer. Parallel evidence shares a
+connection on screen; hover or inspect its details for the evidence, and export
+JSON or Mermaid to retain the individual observations.
 
 Live message tracing, execution replay and agent-history integration are outside
 this version. The hosted upstream demo does not include this fork's integration.
@@ -110,7 +126,7 @@ Paste URL / Select Files -> See Architecture -> Make Better Decisions
 ## Features
 
 ### Interactive Dependency Graph
-See how your files connect at a glance. Click any node to highlight its dependencies. Drag, zoom, and explore. The **Code** view keeps that map and opens the selected file plus its connected files as full-file cards on the canvas, grouped by directory.
+See how your files connect at a glance. Click any node to highlight its dependencies. Drag, zoom, and explore. The **Code** view keeps that map and opens source cards as you navigate, grouped by directory. Open cards stay in the investigation until you close them.
 
 ### Blast Radius Analysis
 *"If I change this file, what breaks?"* — CodeFlow answers this instantly. Select any file and see exactly how many files would be affected by changes.
@@ -332,7 +348,7 @@ strings and Pascal comment forms; unsupported language features fall back gracef
 | **Layer** | Color by architectural layer (UI, Services, Utils, etc.) |
 | **Churn** | Color by commit frequency (hot spots) |
 | **Blast** | Color by impact when a file is selected |
-| **Code** | Same graph, with selected and connected files as full-file cards grouped by directory |
+| **Code** | Same graph, with opened source cards grouped by directory |
 
 ---
 

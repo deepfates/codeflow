@@ -44,6 +44,60 @@ vm.runInContext(
 
 const { Parser, buildAnalysisData, buildArchitectureDiagram, generateMermaidBlockDiagram, getVisibleArchitectureBlocks, getArchitectureGroupOrder } = context;
 
+test('architecture relationship projection preserves direction and all independent observations', () => {
+  const observations = [
+    {from:'a',to:'b',kind:'compile',label:'compile reference',evidence:'mix xref',line:4},
+    {from:'a',to:'b',kind:'source-reference',label:'references',evidence:'tree-sitter:elixir',line:8},
+    {from:'a',to:'b',kind:'compile',label:'compile reference',evidence:'mix xref',line:12},
+    {from:'b',to:'a',kind:'runtime',label:'runtime reference',evidence:'mix xref'},
+  ].map(Object.freeze);
+  const before = JSON.stringify(observations);
+  const relationships = context.groupArchitectureRelationships(observations);
+  assert.equal(relationships.length, 2, 'reverse direction is a separate relationship');
+  const forward = relationships.find(r => r.from === 'a');
+  assert.deepEqual(Array.from(forward.kinds), ['compile','source-reference']);
+  assert.deepEqual(Array.from(forward.labels), ['compile reference','references']);
+  assert.deepEqual(Array.from(forward.evidence), ['mix xref','tree-sitter:elixir']);
+  assert.equal(forward.observations.length, 3, 'repeated evidence can describe distinct source observations');
+  assert.equal(forward.observations[2], observations[2]);
+  assert.equal(JSON.stringify(observations), before, 'projection does not rewrite source evidence');
+  assert.equal(context.groupArchitectureRelationships([
+    {from:'a|b',to:'c'}, {from:'a',to:'b|c'},
+  ]).length, 2, 'endpoint identifiers cannot collide through concatenation');
+});
+
+test('diagram statistics and compact edges share the visible directed relationships while full export keeps evidence', () => {
+  const blocks = [
+    {id:'a',title:'A',kind:'module',group:'Application',files:['a.ex']},
+    {id:'b',title:'B',kind:'module',group:'Application',files:['b.ex']},
+    {id:'test',title:'Tests',kind:'test',group:'Testing',files:['test.exs'],isTest:true},
+  ];
+  const dependencies = [
+    {from:'a',to:'b',kind:'compile',label:'references',evidence:'mix xref'},
+    {from:'a',to:'b',kind:'runtime',label:'references',evidence:'mix xref'},
+    {from:'a',to:'b',kind:'source-reference',label:'references',evidence:'tree-sitter:elixir'},
+    {from:'b',to:'a',kind:'database',label:'queries',evidence:'source analysis'},
+    {from:'test',to:'a',kind:'tests',label:'tests'},
+  ];
+  const diagram = {profile:'generic',blocks,dependencies};
+  const visible = getVisibleArchitectureBlocks(blocks,false,false);
+  const stats = context.computeArchitectureStats(visible,dependencies);
+  const compact = generateMermaidBlockDiagram(diagram,false,false,true);
+  assert.equal(stats.dependencies, 2);
+  assert.equal(stats.dependencyObservations, 4);
+  assert.equal(stats.databaseTouchpoints, 1);
+  assert.equal(compact.split('\n').filter(line => line.includes(' --> ')).length, stats.dependencies);
+  assert.match(compact, /a --> b/);
+  assert.match(compact, /b --> a/);
+  assert.doesNotMatch(compact, /test -->/);
+  const full = generateMermaidBlockDiagram(diagram,false,false,false);
+  assert.equal(full.split('\n').filter(line => line.includes(' -->|')).length, 4);
+  for (const kind of ['compile','runtime','source-reference','database']) assert.ok(full.includes('('+kind+')'), kind+' survives the labeled export');
+  assert.equal(context.computeArchitectureStats(blocks,dependencies).dependencies, 3);
+  assert.match(generateMermaidBlockDiagram(diagram,true,false,true), /test --> a/);
+  assert.equal(diagram.dependencies, dependencies, 'full underlying observations remain available to JSON export');
+});
+
 async function collectRepoFiles(root) {
   const files = [];
   const ignored = new Set([

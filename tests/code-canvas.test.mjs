@@ -284,70 +284,13 @@ test('visible code files are not capped at four', () => {
   assert.equal(seeded.length, 6);
 });
 
-test('root file count ignores nested files including a lone top-level directory', () => {
-  const flat = {
-    files: [
-      { path: 'a.js', folder: 'root' },
-      { path: 'b.js', folder: 'root' },
-      { path: 'src/c.js', folder: 'src' }
-    ]
-  };
-  assert.equal(context.codeViewAnalysisRootFolder(flat), 'root');
-  assert.equal(context.countCodeViewRootFiles(flat), 2);
-  assert.equal(context.isCodeViewRootFile(flat.files[0], 'root'), true);
-  assert.equal(context.isCodeViewRootFile(flat.files[2], 'root'), false);
-  const wrapped = {
-    files: [
-      { path: 'repo/a.js', folder: 'repo' },
-      { path: 'repo/b.js', folder: 'repo' },
-      { path: 'repo/src/c.js', folder: 'repo/src' }
-    ]
-  };
-  assert.equal(context.codeViewAnalysisRootFolder(wrapped), 'root');
-  assert.equal(context.countCodeViewRootFiles(wrapped), 0);
-  const nested = {
-    files: [
-      { path: 'src/a.js', folder: 'src' },
-      { path: 'lib/b.js', folder: 'lib' }
-    ]
-  };
-  assert.equal(context.codeViewAnalysisRootFolder(nested), 'root');
-  assert.equal(context.countCodeViewRootFiles(nested), 0);
-  assert.equal(context.countCodeViewRootFiles({ files: [] }), 0);
-  const loneTop = {
-    files: Array.from({ length: 60 }, (_, i) => ({
-      path: 'src/f' + i + '.js',
-      folder: 'src',
-      name: 'f' + i + '.js'
-    }))
-  };
-  assert.equal(context.codeViewAnalysisRootFolder(loneTop), 'root');
-  assert.equal(context.countCodeViewRootFiles(loneTop), 0);
-  assert.equal(context.codeViewRootGateActive(loneTop, null, null, [], 50), false);
-});
-
-test('Code root gate waits for a folder or file when the root is crowded', () => {
-  const files = Array.from({ length: 60 }, (_, i) => ({
-    path: i < 50 ? 'f' + i + '.js' : 'src/n' + i + '.js',
-    folder: i < 50 ? 'root' : 'src',
-    name: i < 50 ? 'f' + i + '.js' : 'n' + i + '.js'
-  }));
-  const data = { files };
-  assert.equal(context.countCodeViewRootFiles(data), 50);
-  assert.equal(context.clampCodeViewRootGate(undefined), 50);
-  assert.equal(context.clampCodeViewRootGate(40), 50);
-  assert.equal(context.clampCodeViewRootGate(70), 75);
-  assert.equal(context.codeViewRootGateActive(data, null, null, [], 50), true);
-  assert.equal(context.codeViewRootGateActive(data, 'src', null, [], 50), false);
-  assert.equal(context.codeViewRootGateActive(data, null, 'f0.js', [], 50), false);
-  assert.equal(context.codeViewRootGateActive(data, null, null, ['f0.js'], 50), false);
-  assert.equal(context.codeViewRootGateActive(data, null, null, [], 75), false);
-  assert.equal(context.codeViewRootGateActive(data, null, null, [], 25), true);
-  assert.equal(context.shouldSeedOpenedCodeCards(true, false, [], true), false);
-  assert.equal(context.shouldSeedOpenedCodeCards(true, false, [], false), true);
-  assert.match(context.codeViewRootGateMessage(50, 50), /Pick a folder or file/);
-  const small = { files: files.slice(0, 10) };
-  assert.equal(context.codeViewRootGateActive(small, null, null, [], 50), false);
+test('large inventories still seed Code and retain explicitly opened cards', () => {
+  const files = Array.from({ length: 400 }, (_, i) => ({ path: 'f'+i+'.js', folder: 'root', name: 'f'+i+'.js', functions: [] }));
+  const data = { files, connections: [] };
+  const seed = context.codeViewSeedPath(null, data, null);
+  assert.ok(files.some(file => file.path === seed));
+  assert.deepEqual(J(context.filesForOpenedCodePaths([seed, 'f399.js'], data, null)).map(file => file.path), [seed, 'f399.js']);
+  assert.equal(data.files.length, 400);
 });
 
 test('Code view seeds the filtered folder when the selection is outside it', () => {
@@ -431,10 +374,6 @@ test('returning to Code opens the current selection without dropping old cards',
       { source: 'hub.js', target: 'other.js', fn: 'h' }
     ]
   };
-  assert.equal(context.shouldSeedOpenedCodeCards(false, false, ['hub.js']), false);
-  assert.equal(context.shouldSeedOpenedCodeCards(true, false, ['hub.js']), true);
-  assert.equal(context.shouldSeedOpenedCodeCards(true, true, ['hub.js']), false);
-  assert.equal(context.shouldSeedOpenedCodeCards(true, true, []), true);
   const reenter = context.ensureCodeViewOpenedPaths(['hub.js'], 'leaf.js', data, 'src');
   assert.deepEqual(J(reenter.paths), ['hub.js', 'leaf.js']);
   assert.equal(reenter.seed, 'leaf.js');
@@ -451,10 +390,10 @@ test('returning to Code opens the current selection without dropping old cards',
   const replaced = context.ensureCodeViewOpenedPaths(capped, 'leaf.js', data, 'src');
   assert.equal(replaced.opened, true);
   assert.equal(replaced.inserted, true);
-  assert.equal(replaced.paths.length, context.CODE_CARD_MAX);
+  assert.equal(replaced.paths.length, context.CODE_CARD_MAX + 1);
   assert.equal(replaced.paths[replaced.paths.length - 1], 'leaf.js');
-  assert.equal(replaced.paths.indexOf('f0.js'), -1);
-  assert.equal(replaced.paths.indexOf('f1.js'), 0);
+  assert.equal(replaced.paths.indexOf('f0.js'), 0);
+  assert.equal(replaced.paths.indexOf('f1.js'), 1);
 });
 
 test('high-degree neighborhoods stay within the card cap', () => {
@@ -1814,7 +1753,6 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /currentHydrationId/);
   assert.match(htmlSource, /hydratedSourceIsCurrent/);
   assert.match(htmlSource, /codeCardDragDelta/);
-  assert.match(htmlSource, /openCodeFileRef\.current\(seed,true\)/);
   assert.match(htmlSource, /codeCardPillViewTop/);
   assert.match(htmlSource, /readCodeCardBodyScroll/);
   assert.match(htmlSource, /readCodeCardBodyScroll\(codeCardsLayerRef\.current/);
@@ -1831,7 +1769,6 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /code-line-pill/);
   assert.match(htmlSource, /defaultCodeViewSeed/);
   assert.match(htmlSource, /codeViewSeedPath/);
-  assert.match(htmlSource, /codeViewSeedPath\(selected&&selected\.path/);
   assert.match(htmlSource, /codeFileNavOpensCard/);
   assert.match(htmlSource, /graphSvgExportEnabled/);
   assert.match(htmlSource, /if\(!graphSvgExportEnabled\(graphConfig\.vizType\)\)/);
@@ -1843,9 +1780,7 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /className:'blast-file',onClick:function\(\)\{goToFile\(path\);\}/);
   assert.match(htmlSource, /className:'conn-goto',onClick:function\(\)\{goToFile\(conn\.file\);\}/);
   assert.match(htmlSource, /currentHydrationId,/);
-  assert.match(htmlSource, /shouldSeedOpenedCodeCards/);
   assert.match(htmlSource, /ensureCodeViewOpenedPaths/);
-  assert.match(htmlSource, /codeViewSessionRef/);
   assert.match(htmlSource, /x2<x1/);
   assert.match(htmlSource, /shouldFitCodeCamera/);
   assert.match(htmlSource, /codeViewCameraReadyRef/);
@@ -1948,24 +1883,8 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /setCodeViewWrap\(!codeViewWrap\)/);
   assert.match(htmlSource, /'aria-pressed':codeViewExpand/);
   assert.match(htmlSource, /'aria-pressed':codeViewWrap/);
-  assert.match(htmlSource, /CODE_VIEW_ROOT_GATE_DEFAULT/);
-  assert.match(htmlSource, /CODE_VIEW_ROOT_GATE_STEPS/);
-  assert.match(htmlSource, /function countCodeViewRootFiles\(/);
-  assert.match(htmlSource, /function codeViewRootGateActive\(/);
-  assert.match(htmlSource, /function codeViewRootGateMessage\(/);
-  assert.match(htmlSource, /function persistCodeViewRootGate\(/);
-  assert.match(htmlSource, /className:'code-root-gate'/);
   assert.match(htmlSource, /className:'code-view-prefs-row'/);
-  assert.match(htmlSource, /Load Files/);
-  assert.match(htmlSource, /persistCodeViewRootGate\(n\)/);
-  assert.doesNotMatch(htmlSource, /className:'code-view-gate-select'/);
   assert.doesNotMatch(htmlSource, /code-view-prefs[\s\S]{0,400}createElement\('select'/);
-  assert.match(htmlSource, /Pick a folder or file/);
-  assert.match(htmlSource, /codeRootGateActive/);
-  assert.match(htmlSource, /shouldSeedOpenedCodeCards\(true,codeViewSessionRef\.current,openedCodePaths,codeRootGateActive\)/);
-  assert.match(htmlSource, /if\(!data\|\|codeRootGateActive\)return\[\]/);
-  assert.match(htmlSource, /useState\(readUiPrefs\(\)\.codeViewRootGate\)/);
-  assert.match(htmlSource, /persistUiPrefs\(\{codeViewRootGate:value\}\)/);
   assert.match(htmlSource, /normalizeCodeCardPrefs/);
   assert.match(htmlSource, /codeCardWrapColumns/);
   assert.match(htmlSource, /codeCardVisualLineEndIndex/);
@@ -2403,29 +2322,20 @@ test('reduced-motion changes reapply Code particles; Graph keeps static accent',
 test('UI prefs persist line thickness in localStorage', () => {
   const storage = memoryStorage();
   assert.equal(context.readUiPrefs(storage).lineThickness, 1);
-  assert.equal(context.readUiPrefs(storage).codeViewRootGate, 50);
   assert.equal(context.readUiPrefs(null).lineThickness, 1);
   const written = context.writeUiPrefs(storage, { lineThickness: 5 });
   assert.equal(written.lineThickness, 5);
-  assert.equal(written.codeViewRootGate, 50);
   assert.equal(context.readUiPrefs(storage).lineThickness, 5);
   assert.equal(context.writeUiPrefs(storage, { lineThickness: 99 }).lineThickness, 6);
-  const gated = context.writeUiPrefs(storage, { codeViewRootGate: 75 });
-  assert.equal(gated.codeViewRootGate, 75);
-  assert.equal(context.writeUiPrefs(storage, { codeViewRootGate: 40 }).codeViewRootGate, 50);
   storage.setItem(context.UI_PREFS_STORAGE_KEY, '{not-json');
   assert.equal(context.readUiPrefs(storage).lineThickness, 1);
-  assert.equal(context.readUiPrefs(storage).codeViewRootGate, 50);
   const other = memoryStorage({ [context.UI_PREFS_STORAGE_KEY]: JSON.stringify({ lineThickness: 2, extra: true }) });
   const merged = context.writeUiPrefs(other, { lineThickness: 3 });
   assert.equal(merged.lineThickness, 3);
-  assert.equal(merged.codeViewRootGate, 50);
   context.window = { localStorage: storage };
   try {
     assert.equal(context.persistUiPrefs({ lineThickness: 4 }).lineThickness, 4);
     assert.equal(context.readUiPrefs().lineThickness, 4);
-    assert.equal(context.persistUiPrefs({ codeViewRootGate: 25 }).codeViewRootGate, 25);
-    assert.equal(context.readUiPrefs().codeViewRootGate, 25);
   } finally {
     delete context.window;
   }
@@ -2459,7 +2369,7 @@ test('UI prefs keep the default when localStorage access throws', () => {
 });
 
 test('explicit source navigation opens a thirteenth card without dropping the investigation', () => {
-  const start=htmlSource.indexOf('    function openCodeFile(path,replace){');
+  const start=htmlSource.indexOf('    function openCodeFile(');
   const end=htmlSource.indexOf('    function closeCodeCard(',start);
   const paths=Array.from({length:13},(_,i)=>`lib/source${i}.ex`);
   const sandbox={...context,
