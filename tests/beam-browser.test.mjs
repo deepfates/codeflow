@@ -361,6 +361,35 @@ test('3D graph mounts the native renderer and returns to the same file graph', {
   await page.waitForFunction(z=>Math.abs(window.__graph3dTest.cameraPosition().z)<Math.abs(z),beforeZoom);
   assert.equal(await canvas.evaluate(el=>el===document.querySelector('.graph3d-container canvas')),true,'toolbar camera changes retain the WebGL canvas');
   assert.ok(await page.locator('.graph3d-container canvas').evaluate(canvas=>canvas.width>0&&canvas.height>0));
+  await page.waitForFunction(()=>window.__graph3dTest.graphData().nodes.every(n=>Number.isFinite(n.x)&&Number.isFinite(n.y)&&Number.isFinite(n.z)));
+  async function pointFor(path){
+    await page.evaluate(async()=>{const g=window.__graph3dTest;g.cooldownTicks(0);g.zoomToFit(0);await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));});
+    const point=await page.evaluate(path=>{const g=window.__graph3dTest,n=g.graphData().nodes.find(n=>n.id===path);return g.graph2ScreenCoords(n.x,n.y,n.z);},path);
+    const bounds=await page.locator('.graph3d-container canvas').boundingBox();
+    return {x:bounds.x+point.x,y:bounds.y+point.y};
+  }
+  const point=await pointFor('consumer.js');
+  await page.mouse.move(point.x,point.y);
+  await page.waitForFunction(()=>document.querySelector('.graph3d-container')?.textContent.includes('consumer.js'));
+  await page.mouse.click(point.x,point.y);
+  await page.locator('.tree-file.active').filter({hasText:'consumer.js'}).waitFor();
+  assert.deepEqual(errors,[],'native node pointerup finishes cleanly');
+  // Let the documented 1200ms focus animation finish before testing drag.
+  await page.waitForTimeout(1250);
+  const dragPoint=await pointFor('consumer.js');
+  const nodeBefore=await page.evaluate(()=>{const n=window.__graph3dTest.graphData().nodes.find(n=>n.id==='consumer.js');return {x:n.x,y:n.y,z:n.z};});
+  await page.mouse.move(dragPoint.x,dragPoint.y);
+  await page.waitForFunction(()=>document.querySelector('.graph3d-container')?.textContent.includes('consumer.js'));
+  await page.mouse.down();await page.mouse.move(dragPoint.x+70,dragPoint.y+25,{steps:12});await page.mouse.up();
+  const nodeAfter=await page.evaluate(()=>{const n=window.__graph3dTest.graphData().nodes.find(n=>n.id==='consumer.js');return {x:n.x,y:n.y,z:n.z};});
+  assert.notDeepEqual(nodeAfter,nodeBefore,'native node dragging remains enabled');
+  const orbitBefore=await page.evaluate(()=>window.__graph3dTest.cameraPosition());
+  const bounds=await page.locator('.graph3d-container canvas').boundingBox();
+  await page.mouse.move(bounds.x+30,bounds.y+200);await page.mouse.down();await page.mouse.move(bounds.x+130,bounds.y+230,{steps:12});await page.mouse.up();
+  const orbitAfter=await page.evaluate(()=>window.__graph3dTest.cameraPosition());
+  assert.notDeepEqual(orbitAfter,orbitBefore,'orbit controls remain usable after node dragging');
+  assert.deepEqual(errors,[],'native drag and orbit pointerup finish cleanly');
+
   await mode.selectOption('graph');
   await page.waitForFunction(()=>document.querySelectorAll('.canvas-area svg circle.nc').length===2&&[...document.querySelectorAll('.canvas-area svg path')].some(el=>el.__data__?.source?.id==='provider.js'&&el.__data__?.target?.id==='consumer.js'));
   assert.deepEqual(await page.locator('.canvas-area svg circle.nc').evaluateAll(nodes=>nodes.map(node=>node.__data__.id).sort()),before);

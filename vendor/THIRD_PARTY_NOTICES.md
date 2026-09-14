@@ -20,4 +20,6 @@ The exact source URL and SHA-256 digest for every distributed asset are recorded
 | `tree-sitter-wasms` | `0.1.13` | MIT | [`licenses/tree-sitter-wasms-LICENSE.txt`](./licenses/tree-sitter-wasms-LICENSE.txt) |
 | `@fontsource/jetbrains-mono` | `5.3.0` | OFL-1.1 | [`licenses/fontsource-jetbrains-mono-LICENSE.txt`](./licenses/fontsource-jetbrains-mono-LICENSE.txt) |
 
+3d-force-graph 1.80.0 carries a narrow pointerup correction in [`scripts/patch-3d-force-graph.mjs`](../scripts/patch-3d-force-graph.mjs). The manifest records both upstream and distributed hashes; the vendoring command reapplies the correction.
+
 Regenerate the checked-in files with `node scripts/vendor-browser-deps.mjs`.

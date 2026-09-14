@@ -6,7 +6,9 @@
       "version": "1.80.0",
       "file": "3d-force-graph/3d-force-graph.min.js",
       "source": "https://unpkg.com/3d-force-graph@1.80.0/dist/3d-force-graph.min.js",
-      "sha256": "d96e738edcca580edd524730c1c6b05ed2efce028c23ca95db1bf43033a72e42"
+      "sha256": "93e1bc29c5c81b4010ca36e588d3ab1880f453b8aa067013208b01510064b185",
+      "upstreamSha256": "d96e738edcca580edd524730c1c6b05ed2efce028c23ca95db1bf43033a72e42",
+      "patch": "../scripts/patch-3d-force-graph.mjs"
     },
     {
       "package": "acorn",

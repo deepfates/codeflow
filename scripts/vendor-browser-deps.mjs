@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto';
+import {patch3dForceGraph,forceGraphUpstreamSha256} from './patch-3d-force-graph.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -90,7 +91,8 @@ for (const dependency of packages) {
 const manifestAssets = [];
 for (const [packageName, source, relativePath] of assets) {
   const dependency = packageByName(packageName);
-  const bytes = await download(source);
+  const upstream = await download(source);
+  const bytes = packageName === '3d-force-graph' ? patch3dForceGraph(upstream) : upstream;
   const target = join(vendorRoot, relativePath);
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, bytes);
@@ -100,6 +102,7 @@ for (const [packageName, source, relativePath] of assets) {
     file: relativePath,
     source,
     sha256: sha256(bytes),
+    ...(packageName === '3d-force-graph' ? {upstreamSha256:forceGraphUpstreamSha256,patch:'../scripts/patch-3d-force-graph.mjs'} : {}),
   });
 }
 
@@ -124,7 +127,7 @@ for (const dependency of packages) {
       ' | [`' + licenseFiles.get(dependency.name) + '`](./' + licenseFiles.get(dependency.name) + ') |'
   );
 }
-noticeLines.push('', 'Regenerate the checked-in files with `node scripts/vendor-browser-deps.mjs`.', '');
+noticeLines.push('', '3d-force-graph 1.80.0 carries a narrow pointerup correction in [`scripts/patch-3d-force-graph.mjs`](../scripts/patch-3d-force-graph.mjs). The manifest records both upstream and distributed hashes; the vendoring command reapplies the correction.', '', 'Regenerate the checked-in files with `node scripts/vendor-browser-deps.mjs`.', '');
 await writeFile(join(vendorRoot, 'THIRD_PARTY_NOTICES.md'), noticeLines.join('\n'));
 
 process.stdout.write('Vendored ' + manifestAssets.length + ' browser assets from ' + packages.length + ' packages.\n');
