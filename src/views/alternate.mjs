@@ -107,56 +107,83 @@ export function createAlternateViews({React,d3,colors:COLORS}){
             container.selectAll('*').remove();
             var w=size.width,h=size.height;
             var svg=container.append('svg').attr('width',w).attr('height',h);
-            var g=svg.append('g').attr('transform','translate(100,80)');
-            var zoom=d3.zoom().scaleExtent([0.5,3]).on('zoom',function(e){g.attr('transform','translate('+(100+e.transform.x)+','+(80+e.transform.y)+') scale('+e.transform.k+')');});
-            svg.call(zoom);
-            function cleanup(){cameraRef.current=d3.zoomTransform(svg.node());paintRef.current=null;svg.interrupt();svg.selectAll('*').interrupt();svg.on('.zoom',null);container.selectAll('*').remove();}
-            svg.call(zoom.transform,cameraRef.current);
-            var filteredFiles=folderFilter?sourceFiles.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}):sourceFiles;
-            var files=filteredFiles.slice(0,40);
+            var left=100,top=80;
+            var g=svg.append('g');
+            var colAxis=svg.append('g'),rowAxis=svg.append('g');
+            var files=folderFilter?sourceFiles.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}):sourceFiles;
             var n=files.length;
-            var cellSize=Math.min(18,Math.max(10,(Math.min(w-120,h-100))/n));
-            var matrix=[];var fileIdx={};
-            files.forEach(function(f,i){fileIdx[f.path]=i;matrix[i]=[];for(var j=0;j<n;j++)matrix[i][j]=0;});
+            var cellSize=Math.min(18,Math.max(10,(Math.min(w-120,h-100))/Math.max(1,n)));
+            var fileIdx=new Map(files.map(function(f,i){return[f.path,i];}));
+            // Store observed edges, not an n-by-n array. Zero cells are materialized
+            // alongside connected cells only when their grid coordinates are visible.
+            var weights=new Map(),maxVal=1;
             connections.forEach(function(c){
                 var src=typeof c.source==='object'?c.source.id:c.source;
                 var tgt=typeof c.target==='object'?c.target.id:c.target;
-                if(fileIdx[src]!==undefined&&fileIdx[tgt]!==undefined)matrix[fileIdx[src]][fileIdx[tgt]]+=c.count||1;
+                if(!fileIdx.has(src)||!fileIdx.has(tgt))return;
+                var key=fileIdx.get(src)*n+fileIdx.get(tgt);
+                var value=(weights.get(key)||0)+(c.count||1);
+                weights.set(key,value);maxVal=Math.max(maxVal,value);
             });
-            var maxVal=1;matrix.forEach(function(row){row.forEach(function(v){if(v>maxVal)maxVal=v;});});
-            var colLabels=g.selectAll('text.col-label').data(files).join('text').attr('class','col-label')
-                .attr('x',function(d,i){return i*cellSize+cellSize/2;}).attr('y',-8).attr('text-anchor','start').attr('transform',function(d,i){return'rotate(-45,'+(i*cellSize+cellSize/2)+','+-8+')';})
-                .attr('fill','var(--t2)').attr('font-size','9px').text(function(d){var n=d.name.replace(/\.[^.]+$/,'');return n.length>10?n.slice(0,8)+'…':n;}).style('cursor','pointer')
-                .on('click',function(e,d){if(stateRef.current.onSelect)stateRef.current.onSelect(d.path);});
-            var rowLabels=g.selectAll('text.row-label').data(files).join('text').attr('class','row-label')
-                .attr('x',-8).attr('y',function(d,i){return i*cellSize+cellSize/2+3;}).attr('text-anchor','end')
-                .attr('fill','var(--t2)').attr('font-size','9px').text(function(d){var n=d.name.replace(/\.[^.]+$/,'');return n.length>10?n.slice(0,8)+'…':n;}).style('cursor','pointer')
-                .on('click',function(e,d){if(stateRef.current.onSelect)stateRef.current.onSelect(d.path);});
-            var cellData=[];
-            files.forEach(function(f,i){files.forEach(function(g,j){cellData.push({row:i,col:j,value:matrix[i][j],source:f,target:g});});});
             var tooltip=container.append('div').attr('class','treemap-tooltip').style('display','none').style('position','absolute');
-            var cells=g.selectAll('rect.matrix-cell-rect').data(cellData).join('rect').attr('class','matrix-cell-rect')
-                .attr('x',function(d){return d.col*cellSize;}).attr('y',function(d){return d.row*cellSize;})
-                .attr('width',cellSize-1).attr('height',cellSize-1).attr('rx',2)
-                .attr('fill',function(d){return d.value>0?'rgba(0,255,157,'+Math.max(0.15,d.value/maxVal)+')':'var(--bg2)';})
-                .attr('stroke','var(--bg0)').attr('stroke-width',0.5).style('cursor','pointer');
-            cells.on('mouseenter',function(e,d){
-                tooltip.html(renderTooltipHtml(d.source.name+' → '+d.target.name,[
-                    {label:'Connections',value:d.value}
-                ]))
-                    .style('display','block').style('left',(e.offsetX+15)+'px').style('top',(e.offsetY+15)+'px');
-                g.selectAll('rect.matrix-cell-rect').attr('opacity',function(c){return c.row===d.row||c.col===d.col?1:0.3;});
-                colLabels.attr('fill',function(f,i){return i===d.col?'var(--acc)':'var(--t2)';}).attr('font-weight',function(f,i){return i===d.col?'600':'400';});
-                rowLabels.attr('fill',function(f,i){return i===d.row?'var(--acc)':'var(--t2)';}).attr('font-weight',function(f,i){return i===d.row?'600':'400';});
-                d3.select(this).attr('stroke','var(--acc)').attr('stroke-width',2);
-            }).on('mousemove',function(e){tooltip.style('left',(e.offsetX+15)+'px').style('top',(e.offsetY+15)+'px');})
-            .on('mouseleave',function(){
+            var cells=g.selectAll('rect.matrix-cell-rect'),colLabels=colAxis.selectAll('text'),rowLabels=rowAxis.selectAll('text');
+            var frame=null,transform=cameraRef.current;
+            function clearHover(){
                 tooltip.style('display','none');
-                cells.attr('opacity',1);
+                cells.attr('opacity',1).attr('stroke','var(--bg0)').attr('stroke-width',0.5);
                 colLabels.attr('fill','var(--t2)').attr('font-weight','400');
                 rowLabels.attr('fill','var(--t2)').attr('font-weight','400');
-                d3.select(this).attr('stroke','var(--bg0)').attr('stroke-width',0.5);
-            }).on('click',function(e,d){e.stopPropagation();if(stateRef.current.onSelect)stateRef.current.onSelect(d.source.path);});
+            }
+            function label(f){var name=f.name.replace(/\.[^.]+$/,'');return name.length>10?name.slice(0,8)+'…':name;}
+            function tooltipPosition(e){var r=containerRef.current.getBoundingClientRect();tooltip.style('left',(e.clientX-r.left+15)+'px').style('top',(e.clientY-r.top+15)+'px');}
+            function drawViewport(){
+                frame=null;
+                var k=transform.k,x=left+transform.x,y=top+transform.y;
+                var firstCol=Math.max(0,Math.floor((left-x)/(k*cellSize)));
+                var lastCol=Math.min(n,Math.ceil((w-x)/(k*cellSize)));
+                var firstRow=Math.max(0,Math.floor((top-y)/(k*cellSize)));
+                var lastRow=Math.min(n,Math.ceil((h-y)/(k*cellSize)));
+                var cellData=[],rows=[],cols=[];
+                for(var i=firstRow;i<lastRow;i++){
+                    rows.push(files[i]);
+                    for(var j=firstCol;j<lastCol;j++)cellData.push({row:i,col:j,value:weights.get(i*n+j)||0,source:files[i],target:files[j]});
+                }
+                for(var j=firstCol;j<lastCol;j++)cols.push(files[j]);
+                cells=g.selectAll('rect.matrix-cell-rect').data(cellData,function(d){return d.row*n+d.col;}).join('rect').attr('class','matrix-cell-rect')
+                    .attr('x',function(d){return d.col*cellSize;}).attr('y',function(d){return d.row*cellSize;})
+                    .attr('width',cellSize-1).attr('height',cellSize-1).attr('rx',2)
+                    .attr('fill',function(d){return d.value>0?'rgba(0,255,157,'+Math.max(0.15,d.value/maxVal)+')':'var(--bg2)';})
+                    .attr('stroke','var(--bg0)').attr('stroke-width',0.5).style('cursor','pointer');
+                colLabels=colAxis.selectAll('text.col-label').data(cols,function(d){return d.path;}).join('text').attr('class','col-label')
+                    .attr('transform',function(d){return 'translate('+(x+(fileIdx.get(d.path)+0.5)*cellSize*k)+','+(top-8)+') rotate(-45)';})
+                    .attr('text-anchor','start').attr('fill','var(--t2)').attr('font-size','9px').text(function(d){return label(d);}).style('cursor','pointer')
+                    .on('click',function(e,d){stateRef.current.onSelect?.(d.path);});
+                rowLabels=rowAxis.selectAll('text.row-label').data(rows,function(d){return d.path;}).join('text').attr('class','row-label')
+                    .attr('x',left-8).attr('y',function(d){return y+(fileIdx.get(d.path)+0.5)*cellSize*k+3;})
+                    .attr('text-anchor','end').attr('fill','var(--t2)').attr('font-size','9px').text(function(d){return label(d);}).style('cursor','pointer')
+                    .on('click',function(e,d){stateRef.current.onSelect?.(d.path);});
+                cells.on('mouseenter',function(e,d){
+                    tooltip.html(renderTooltipHtml(d.source.name+' → '+d.target.name,[{label:'Connections',value:d.value}])).style('display','block');tooltipPosition(e);
+                    cells.attr('opacity',function(c){return c.row===d.row||c.col===d.col?1:0.3;});
+                    colLabels.attr('fill',function(c){return fileIdx.get(c.path)===d.col?'var(--acc)':'var(--t2)';}).attr('font-weight',function(c){return fileIdx.get(c.path)===d.col?'600':'400';});
+                    rowLabels.attr('fill',function(c){return fileIdx.get(c.path)===d.row?'var(--acc)':'var(--t2)';}).attr('font-weight',function(c){return fileIdx.get(c.path)===d.row?'600':'400';});
+                    d3.select(this).attr('stroke','var(--acc)').attr('stroke-width',2);
+                }).on('mousemove',tooltipPosition).on('mouseleave',clearHover)
+                    .on('click',function(e,d){e.stopPropagation();stateRef.current.onSelect?.(d.source.path);});
+            }
+            // Axes remain beside the visible rows and columns while the grid pans.
+            // Clip cells at the headers so partially visible cells cannot cover labels.
+            var clipId='matrix-viewport-'+Math.random().toString(36).slice(2);
+            svg.append('defs').append('clipPath').attr('id',clipId).append('rect').attr('x',left).attr('y',top).attr('width',Math.max(0,w-left)).attr('height',Math.max(0,h-top));
+            var viewport=svg.insert('g',function(){return g.node();}).attr('clip-path','url(#'+clipId+')');
+            viewport.node().appendChild(g.node());
+            var zoom=d3.zoom().scaleExtent([0.5,3]).on('zoom',function(e){
+                transform=e.transform;cameraRef.current=transform;
+                g.attr('transform','translate('+(left+transform.x)+','+(top+transform.y)+') scale('+transform.k+')');
+                clearHover();if(frame===null)frame=requestAnimationFrame(drawViewport);
+            });
+            svg.call(zoom).call(zoom.transform,transform);
+            function cleanup(){if(frame!==null)cancelAnimationFrame(frame);cameraRef.current=d3.zoomTransform(svg.node());paintRef.current=null;svg.interrupt();svg.selectAll('*').interrupt();svg.on('.zoom',null);container.selectAll('*').remove();}
             var legend=container.append('div').attr('class','heatmap-legend').style('position','absolute').style('bottom','60px').style('right','20px');
             legend.html('<div style="font-size:9px;color:var(--t2)">Connection Strength</div><div class="heatmap-gradient"></div><div style="display:flex;justify-content:space-between;font-size:8px;color:var(--t3)"><span>0</span><span>'+maxVal+'</span></div>');
             paintRef.current?.();

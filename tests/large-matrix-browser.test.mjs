@@ -1,0 +1,53 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,writeFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {createCodeflowServer} from '../cli/codeflow.mjs';
+
+test('Matrix retains thousands of files and reveals connected and zero cells through native pan and zoom',{
+ skip:!process.env.CODEFLOW_TEST_BROWSER,timeout:90000
+},async t=>{
+ const root=await mkdtemp(join(tmpdir(),'codeflow-large-matrix-'));
+ const name=i=>'file'+String(i).padStart(4,'0')+'.js';
+ for(let start=0;start<3253;start+=100)await Promise.all(Array.from({length:Math.min(100,3253-start)},(_,j)=>{const i=start+j;return writeFile(join(root,name(i)),i===3200?"import {item3201} from './file3201.js'; item3201();":i===3201?'export function item3201() { return 3201; }':'export const item'+i+' = '+i+';');}));
+ const app=createCodeflowServer({watchRoot:root,uiRoot:new URL('../',import.meta.url).pathname});
+ let browser;t.after(async()=>{await browser?.close();await app.close();await rm(root,{recursive:true,force:true});});
+ await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+ const {chromium}=await import('playwright');browser=await chromium.launch({headless:true,channel:process.env.CODEFLOW_BROWSER_CHANNEL||'chrome'});
+ const page=await browser.newPage({viewport:{width:1500,height:1000}});page.setDefaultTimeout(20000);
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('http://127.0.0.1:'+app.server.address().port+'/?cli=1');
+ const view=page.getByRole('combobox',{name:'Visualization type'});await view.waitFor();await view.selectOption('matrix');
+ const svg=page.locator('.matrix-container svg');await page.locator('.matrix-cell-rect').first().waitFor();
+ const before=await page.locator('.matrix-cell-rect').count();assert.ok(before<40000,'visible DOM is bounded by viewport, not file count squared');
+ const box=await svg.boundingBox();
+ await page.mouse.move(box.x+250,box.y+250);await page.mouse.down();
+ await page.mouse.move(box.x+250-32000,box.y+250-32000,{steps:3});await page.mouse.up();
+ await page.waitForFunction(()=>[...document.querySelectorAll('.matrix-cell-rect')].some(n=>n.__data__.source.path==='file3201.js'&&n.__data__.target.path==='file3200.js'));
+ const values=await page.locator('.matrix-cell-rect').evaluateAll(ns=>ns.map(n=>({source:n.__data__.source.path,target:n.__data__.target.path,value:n.__data__.value})));
+ assert.ok(values.some(d=>d.value>0),'late-index connection is retained');
+ assert.ok(values.some(d=>d.value===0),'zero cells remain inspectable');
+ assert.ok(values.length<40000);
+ const connectedIndex=values.findIndex(d=>d.source==='file3201.js'&&d.target==='file3200.js');
+ const connected=page.locator('.matrix-cell-rect').nth(connectedIndex);
+ await connected.hover();
+ assert.match(await page.locator('.matrix-container .treemap-tooltip').innerText(),/file3201.js → file3200.js/);
+ await connected.click();await page.locator('.panel-title').filter({hasText:'file3201.js'}).waitFor();
+ const zeroIndex=await page.locator('.matrix-cell-rect').evaluateAll(ns=>ns.findIndex(n=>n.__data__.source.path==='file3202.js'&&n.__data__.target.path==='file3202.js'));
+ const zero=page.locator('.matrix-cell-rect').nth(zeroIndex);await zero.hover();
+ assert.match(await page.locator('.matrix-container .treemap-tooltip').innerText(),/Connections:?\s*0/);
+ await zero.click();await page.locator('.panel-title').filter({hasText:'file3202.js'}).waitFor();
+ const colIndex=await page.locator('.matrix-container .col-label').evaluateAll(ns=>ns.findIndex(n=>n.__data__.path==='file3204.js'));
+ await page.locator('.matrix-container .col-label').nth(colIndex).click();
+ await page.locator('.panel-title').filter({hasText:'file3204.js'}).waitFor();
+ await page.mouse.move(box.x+300,box.y+300);await page.mouse.wheel(0,-300);await page.waitForTimeout(250);
+ assert.ok(await page.locator('.matrix-cell-rect').count()<40000,'zoom also renders only visible cells');
+ assert.ok(await svg.evaluate(el=>el.__zoom.k)>1,'native wheel zoom still works');
+ const camera=await svg.evaluate(el=>({...el.__zoom}));
+ await page.setViewportSize({width:1400,height:950});await page.waitForTimeout(250);
+ assert.deepEqual(await svg.evaluate(el=>({...el.__zoom})),camera,'resizing Matrix preserves camera');
+ assert.ok(await page.locator('.matrix-cell-rect').count()<40000);
+ console.log(JSON.stringify({files:3253,initialCells:before,lateCells:values.length,lateConnected:values.filter(d=>d.value>0).length}));
+ assert.deepEqual(errors,[]);
+});
