@@ -23,6 +23,18 @@ export function createInspectionPanels(React){
                 tool.reason&&React.createElement('pre',{style:{whiteSpace:'pre-wrap'}},tool.reason));
         });
     }
+    function SourceFindings({summary,onOpen}){
+        if(!summary?.count)return null;
+        return React.createElement('div',{className:'card','aria-label':'File findings'},
+            React.createElement('div',{className:'card-header'},'Findings (',summary.count,')'),
+            React.createElement('div',{className:'card-body'},summary.entries.map((entry,i)=>{
+                const issue=entry.issue,location=entry.sourceLocation;
+                const line=location.range?location.range.start.line+1:location.line;
+                return React.createElement('button',{key:i,className:'top-btn',style:{display:'block',width:'100%',textAlign:'left',whiteSpace:'normal',marginBottom:6},onClick:()=>onOpen(location)},
+                    React.createElement('div',null,entry.kind==='issue'&&!issue.sourceLocation?(issue.desc||issue.title):(issue.title||issue.message||issue.type)),
+                    React.createElement('div',{style:{fontSize:10,color:'var(--t3)'}},issue.evidence||issue.provider||(entry.kind==='security'?'Security':'Source analysis'),line?' · L'+line:''));
+            })));
+    }
     function SourceProcesses({index,path,onSelect}){
         const processes=index.processesBySource.get(path)||[];
         return processes.length>0&&React.createElement('div',{className:'card'},
@@ -61,5 +73,5 @@ export function createInspectionPanels(React){
                 React.createElement('details',{open:index.roots.some(p=>focusAncestors.has(p.id))},React.createElement('summary',{style:{padding:'8px 0'}},'Other processes'),index.roots.map(function(p){return processTree(p.id,new Set());})),
                 (snapshot.warnings||[]).map(function(warning,i){return React.createElement('p',{key:i,role:'status'},warning);})));
     }
-    return {SourceNavigation,AnalysisTools,SourceProcesses,RuntimePanel};
+    return {SourceNavigation,AnalysisTools,SourceProcesses,SourceFindings,RuntimePanel};
 }

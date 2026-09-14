@@ -1,4 +1,4 @@
-import {graph3dLinkWidth} from './graph-style.mjs';
+import {graph3dLinkWidth,FINDING_COLORS} from './graph-style.mjs';
 
 // Own the native WebGL renderer and camera for this mounted view. The project
 // and selected file remain application state; updates do not recreate WebGL.
@@ -91,6 +91,7 @@ export function createGraph3DView({React,getRuntime,colors:COLORS,layerColors:LA
         function getBaseColor(d){
             if(colorMode==='folder')return colorMap[d.folder]||COLORS[0];
             if(colorMode==='layer')return LAYER_COLORS[d.layer]||LAYER_COLORS['utils'];
+            if(colorMode==='findings')return colorMap[d.id]||FINDING_COLORS.none;
             if(colorMode==='churn')return colorMap[d.id]||'#22c55e';
             return COLORS[0];
         }
@@ -109,6 +110,7 @@ export function createGraph3DView({React,getRuntime,colors:COLORS,layerColors:LA
         function getC(d){
             var baseColor=getBaseColor(d);
             if(selectedPath){
+                if(colorMode==='findings')return hexToRgba(baseColor,d.id===selectedPath||blastRadius&&(blastRadius.affected.includes(d.id)||blastRadius.dependencies.includes(d.id))?0.95:0.15);
                 if(d.id===selectedPath)return hexToRgba('var(--acc)',0.95);
                 if(blastRadius&&blastRadius.affected.indexOf(d.id)>=0)return hexToRgba('var(--purple)',0.95);
                 if(blastRadius&&blastRadius.dependencies.indexOf(d.id)>=0)return hexToRgba('var(--orange)',0.95);

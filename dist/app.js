@@ -131,198 +131,42 @@
     }
   });
 
-  // src/project/runtime-index.mjs
-  function indexRuntime(snapshot, files = []) {
-    const processesById = /* @__PURE__ */ new Map(), processesBySource = /* @__PURE__ */ new Map();
-    if (snapshot?.status !== "ready") return { processesById, processesBySource, applications: [], roots: [] };
-    const paths = new Set(files.map((file) => file.path));
-    const processes = snapshot.processes || [];
-    for (const process of processes) {
-      processesById.set(process.id, process);
-      if (!process.sourcePath || !paths.has(process.sourcePath)) continue;
-      if (!processesBySource.has(process.sourcePath)) processesBySource.set(process.sourcePath, []);
-      processesBySource.get(process.sourcePath).push(process);
+  // src/project/source-findings.mjs
+  var severityRank = { critical: 3, high: 3, warning: 2, medium: 2, low: 1, info: 0 };
+  function indexSourceFindings(data) {
+    const index = new Map((data?.files || []).map((file) => [file.path, { entries: [], count: 0, maxSeverity: null }]));
+    function add(kind, issue, item, location, severity) {
+      const file = index.get(location?.path);
+      if (!file) return;
+      file.entries.push({ kind, issue, item, sourceLocation: location, severity });
+      file.count++;
+      if (severity in severityRank && (file.maxSeverity === null || severityRank[severity] > severityRank[file.maxSeverity])) file.maxSeverity = severity;
     }
-    const local = (application) => {
-      const process = processesById.get(application.rootId);
-      return process && paths.has(process.sourcePath) ? 1 : 0;
-    };
-    const applications = (snapshot.applications || []).slice().sort((a, b) => local(b) - local(a) || a.name.localeCompare(b.name));
-    return { processesById, processesBySource, applications, roots: processes.filter((process) => !process.parentId && !process.application) };
-  }
-  function runtimeAncestors(index, id) {
-    const ancestors = /* @__PURE__ */ new Set();
-    while (id && !ancestors.has(id)) {
-      const process = index.processesById.get(id);
-      if (!process) break;
-      ancestors.add(id);
-      id = process.parentId;
-    }
-    return ancestors;
-  }
-
-  // src/views/inspection.mjs
-  function createInspectionPanels(React2) {
-    const { useRef: useRef2, useEffect: useEffect2 } = React2;
-    function Symbols({ items, path, onOpen, onReferences }) {
-      return items.map(function(symbol, i) {
-        return React2.createElement(
-          "div",
-          { key: i, style: { paddingLeft: 8 } },
-          React2.createElement(
-            "div",
-            { style: { display: "flex", gap: 6, marginBottom: 4 } },
-            React2.createElement("button", { className: "top-btn", style: { flex: 1, textAlign: "left", overflowWrap: "anywhere" }, onClick: function() {
-              onOpen({ path, range: symbol.selectionRange || symbol.range });
-            } }, symbol.name),
-            React2.createElement("button", { className: "top-btn", title: "Find references", onClick: function() {
-              onReferences(path, (symbol.selectionRange || symbol.range).start);
-            } }, "Refs")
-          ),
-          symbol.children && React2.createElement(Symbols, { items: symbol.children, path, onOpen, onReferences })
-        );
-      });
-    }
-    function SourceNavigation2({ path, symbols, locations, error, onOpen, onReferences }) {
-      return React2.createElement(
-        React2.Fragment,
-        null,
-        error && React2.createElement("p", { role: "status" }, error),
-        symbols.length > 0 && React2.createElement("div", { className: "card" }, React2.createElement("div", { className: "card-header" }, "Outline"), React2.createElement("div", { className: "card-body" }, React2.createElement(Symbols, { items: symbols, path, onOpen, onReferences }))),
-        locations && React2.createElement("div", { className: "card" }, React2.createElement("div", { className: "card-header" }, locations.title), React2.createElement(
-          "div",
-          { className: "card-body" },
-          locations.items.length === 0 ? "No locations found." : locations.items.map(function(location, i) {
-            return React2.createElement("button", { key: i, className: "top-btn", style: { display: "block", width: "100%", textAlign: "left", marginBottom: 5 }, onClick: function() {
-              onOpen(location);
-            } }, (location.path || location.uri) + ":" + (location.range.start.line + 1));
-          })
-        ))
-      );
-    }
-    function AnalysisTools2({ assessments }) {
-      return Object.keys(assessments || {}).map(function(id) {
-        var tool = assessments[id];
-        return React2.createElement(
-          "details",
-          { key: id, style: { marginBottom: 8 } },
-          React2.createElement("summary", null, tool.name + " \xB7 " + tool.status),
-          tool.reason && React2.createElement("pre", { style: { whiteSpace: "pre-wrap" } }, tool.reason)
-        );
-      });
-    }
-    function SourceProcesses2({ index, path, onSelect }) {
-      const processes = index.processesBySource.get(path) || [];
-      return processes.length > 0 && React2.createElement(
-        "div",
-        { className: "card" },
-        React2.createElement("div", { className: "card-header" }, "Running processes"),
-        React2.createElement("div", { className: "card-body" }, processes.map(function(process) {
-          return React2.createElement("button", { key: process.id, className: "top-btn", onClick: function() {
-            onSelect(process.id);
-          } }, process.label || process.module, " ", process.pid);
-        }))
-      );
-    }
-    function RuntimePanel2({ index, inspection, onOpen }) {
-      const { snapshot, node, busy, focus } = inspection;
-      const processes = index.processesById, focusAncestors = runtimeAncestors(index, focus);
-      const panel = useRef2(null);
-      useEffect2(() => {
-        if (!focus) return;
-        const frame = requestAnimationFrame(() => {
-          const row = Array.from(panel.current?.querySelectorAll("[data-process-id]") || []).find((el) => el.dataset.processId === focus);
-          row?.scrollIntoView({ block: "center" });
-        });
-        return () => cancelAnimationFrame(frame);
-      }, [focus, index]);
-      function processTree(id, seen) {
-        var process = processes.get(id);
-        if (!process || seen.has(id)) return null;
-        var next = new Set(seen);
-        next.add(id);
-        return React2.createElement(
-          "details",
-          { key: id, "data-process-id": id, open: process.type === "supervisor" || focusAncestors.has(id), style: { margin: "8px 0 8px 10px", outline: id === focus ? "1px solid var(--acc)" : void 0 } },
-          React2.createElement("summary", null, process.label || process.module || process.pid),
-          React2.createElement("div", { style: { color: "var(--t3)", margin: "6px 0" } }, process.pid, " \xB7 ", process.metrics && process.metrics.status, " \xB7 queue ", process.metrics && process.metrics.messageQueueLength, " \xB7 ", process.metrics && process.metrics.memory, " B \xB7 ", process.metrics && process.metrics.reductions, " reductions"),
-          index.processesBySource.has(process.sourcePath) && React2.createElement("button", { className: "top-btn", onClick: function() {
-            onOpen({ path: process.sourcePath });
-          } }, "Source"),
-          (process.children || []).map(function(child) {
-            return processTree(child, next);
-          })
-        );
+    for (const issue of data?.issues || []) {
+      if (issue.sourceLocation) {
+        add("issue", issue, issue.items?.[0] || null, issue.sourceLocation, issue.type);
+        continue;
       }
-      return React2.createElement(
-        "div",
-        { ref: panel },
-        React2.createElement(
-          "form",
-          { onSubmit: function(event) {
-            event.preventDefault();
-            inspection.connect();
-          }, style: { display: "flex", gap: 6, marginBottom: 12 } },
-          React2.createElement("input", { value: node, onChange: function(e) {
-            inspection.setNode(e.target.value);
-          }, placeholder: "name@hostname", "aria-label": "BEAM node", style: { minWidth: 0, flex: 1 } }),
-          React2.createElement("button", { className: "top-btn", disabled: busy || !node.trim(), type: "submit" }, busy ? "Connecting\u2026" : snapshot && snapshot.status === "ready" ? "Refresh" : "Connect")
-        ),
-        snapshot && snapshot.status !== "ready" && React2.createElement("p", { role: "status" }, snapshot.reason || snapshot.error || (snapshot.warnings || []).join(" ") || "Runtime unavailable"),
-        snapshot && snapshot.status === "ready" && React2.createElement(
-          React2.Fragment,
-          null,
-          React2.createElement("div", { style: { color: "var(--t3)" } }, "Snapshot \xB7 " + new Date(snapshot.collectedAt).toLocaleTimeString()),
-          index.applications.map(function(app) {
-            return React2.createElement("details", { key: app.name, open: focusAncestors.has(app.rootId) }, React2.createElement("summary", { style: { padding: "8px 0" } }, app.name), processTree(app.rootId, /* @__PURE__ */ new Set()));
-          }),
-          React2.createElement("details", { open: index.roots.some((p) => focusAncestors.has(p.id)) }, React2.createElement("summary", { style: { padding: "8px 0" } }, "Other processes"), index.roots.map(function(p) {
-            return processTree(p.id, /* @__PURE__ */ new Set());
-          })),
-          (snapshot.warnings || []).map(function(warning, i) {
-            return React2.createElement("p", { key: i, role: "status" }, warning);
-          })
-        )
-      );
-    }
-    return { SourceNavigation: SourceNavigation2, AnalysisTools: AnalysisTools2, SourceProcesses: SourceProcesses2, RuntimePanel: RuntimePanel2 };
-  }
-
-  // src/browser/runtime-inspection.mjs
-  function createRuntimeInspectionHook(React2) {
-    const { useState: useState2, useRef: useRef2, useEffect: useEffect2 } = React2;
-    return function useRuntimeInspection2(connection, defaultNode = "") {
-      const [node, setNode] = useState2(defaultNode);
-      const [result, setResult] = useState2({ connection, snapshot: null, busy: false, focus: null });
-      const current = useRef2(connection);
-      current.current = connection;
-      useEffect2(() => {
-        current.current = connection;
-        setResult({ connection, snapshot: null, busy: false, focus: null });
-        return () => {
-          if (current.current === connection) current.current = null;
-        };
-      }, [connection]);
-      useEffect2(() => setNode(defaultNode), [connection, defaultNode]);
-      const state = result.connection === connection ? result : { snapshot: null, busy: false, focus: null };
-      async function connect() {
-        if (!connection) {
-          setResult({ connection, snapshot: { status: "unavailable", reason: "Open this checkout with the CLI to inspect its runtime." }, busy: false, focus: null });
-          return;
+      for (const item of issue.items || []) {
+        const locations = [];
+        if (item.file) locations.push({ path: item.file, line: item.line ?? null });
+        if (item.toFile) locations.push({ path: item.toFile, line: null });
+        for (const reference of item.files || []) {
+          locations.push(typeof reference === "string" ? { path: reference, line: null } : { path: reference.file, line: reference.line ?? null });
         }
-        setResult((previous) => ({ ...previous, connection, busy: true }));
-        try {
-          const snapshot = await connection.runtime(node);
-          if (current.current === connection) setResult((previous) => ({ ...previous, connection, snapshot, busy: false }));
-        } catch (error) {
-          if (current.current === connection && error.name !== "AbortError") setResult((previous) => ({ ...previous, connection, snapshot: { status: "unavailable", reason: error.message }, busy: false }));
+        const seen = /* @__PURE__ */ new Set();
+        for (const location of locations) {
+          const key = JSON.stringify([location.path, location.line]);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          add("issue", issue, item, location, issue.type);
         }
       }
-      function setFocus(focus) {
-        setResult((previous) => ({ ...previous, connection, focus }));
-      }
-      return { ...state, node, setNode, connect, setFocus };
-    };
+    }
+    for (const issue of data?.securityIssues || []) {
+      add("security", issue, null, { path: issue.path, line: issue.line ?? null }, issue.severity);
+    }
+    return index;
   }
 
   // src/investigation/preferences.mjs
@@ -619,6 +463,3959 @@
     if (kind === "class") return "#e5c07b";
     return "#61afef";
   }
+  var FINDING_COLORS = { critical: "#ff5f5f", warning: "#ff9f43", info: "#4d9fff", none: "#8b9099" };
+  function sourceFindingColor(summary) {
+    if (!summary?.count) return FINDING_COLORS.none;
+    if (["critical", "high"].includes(summary.maxSeverity)) return FINDING_COLORS.critical;
+    if (["warning", "medium"].includes(summary.maxSeverity)) return FINDING_COLORS.warning;
+    return FINDING_COLORS.info;
+  }
+
+  // src/views/highlight.mjs
+  function highlightSyntax(code, filename) {
+    if (!code) return [""];
+    var ext = (filename || "").split(".").pop().toLowerCase();
+    var isJS = ["js", "jsx", "ts", "tsx", "mjs", "cjs"].includes(ext);
+    var isPy = ["py", "pyw", "pyi"].indexOf(ext) >= 0;
+    var isJava = ["java", "kt", "scala", "cs", "go"].includes(ext);
+    var isHTML2 = ["html", "htm", "vue", "svelte"].includes(ext);
+    var isCSS2 = ["css", "scss", "sass", "less"].includes(ext);
+    var isJSON2 = ["json", "yaml", "yml", "toml"].includes(ext);
+    var isRuby = ["rb", "rake"].includes(ext);
+    var isPHP = ext === "php";
+    var isVBA2 = ["vba", "bas", "cls", "xlsm", "xlam", "xlsb", "xla", "xlw"].includes(ext);
+    function esc(s) {
+      return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+    function highlight(text, pattern, replacement) {
+      return text.split(/(<[^>]*>)/g).map(function(part, i) {
+        return i % 2 ? part : part.replace(pattern, replacement);
+      }).join("");
+    }
+    var result = code.split("\n").map(function(line) {
+      var escaped = esc(line);
+      if (isJS || isJava || isPHP || isCSS2) escaped = highlight(escaped, /(\/\/.*$)/gm, '<span class="syn-com">$1</span>');
+      if (isPy || isRuby) escaped = highlight(escaped, /(#.*$)/gm, '<span class="syn-com">$1</span>');
+      if (isHTML2) escaped = highlight(escaped, /(&lt;!--[\s\S]*?--&gt;)/g, '<span class="syn-com">$1</span>');
+      escaped = highlight(escaped, /(&quot;[^&]*&quot;|'[^']*'|`[^`]*`)/g, '<span class="syn-str">$1</span>');
+      escaped = highlight(escaped, /\b(\d+\.?\d*)\b/g, '<span class="syn-num">$1</span>');
+      if (isJS) escaped = highlight(escaped, /\b(const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|try|catch|finally|throw|new|class|extends|import|export|from|default|async|await|yield|typeof|instanceof|in|of|this|super|null|undefined|true|false|void|static|get|set)\b/g, '<span class="syn-kw">$1</span>');
+      if (isPy) {
+        escaped = highlight(escaped, /\b(async|await|def|class|return|if|elif|else|for|while|try|except|finally|raise|import|from|as|with|pass|break|continue|lambda|yield|global|nonlocal|assert|True|False|None|and|or|not|in|is|del|match|case|type)\b/g, '<span class="syn-kw">$1</span>');
+        escaped = highlight(escaped, /(@\w+)/g, '<span class="syn-fn">$1</span>');
+        escaped = highlight(escaped, /\b(self|cls)\b/g, '<span class="syn-kw" style="opacity:0.7">$1</span>');
+      }
+      if (isJava) escaped = highlight(escaped, /\b(public|private|protected|static|final|void|class|interface|extends|implements|return|if|else|for|while|do|switch|case|break|continue|try|catch|finally|throw|new|import|package|this|super|null|true|false)\b/g, '<span class="syn-kw">$1</span>');
+      if (isRuby) escaped = highlight(escaped, /\b(def|class|module|end|return|if|elsif|else|unless|case|when|for|while|until|do|begin|rescue|ensure|raise|require|include|extend|attr_accessor|attr_reader|attr_writer|true|false|nil|self)\b/g, '<span class="syn-kw">$1</span>');
+      if (isPHP) escaped = highlight(escaped, /\b(function|class|return|if|else|elseif|for|foreach|while|do|switch|case|break|continue|try|catch|finally|throw|new|public|private|protected|static|const|use|namespace|extends|implements|true|false|null)\b/g, '<span class="syn-kw">$1</span>');
+      if (isVBA2) escaped = highlight(escaped, /\b(Public|Private|Friend|Static|Dim|Set|Let|Get|Call|Function|Sub|End Sub|End Function|Exit Sub|Exit Function|If|Then|Else|ElseIf|End If|For|To|Step|Next|Do|Loop|While|Wend|Select|Case|End Select|With|End With|On Error|Resume|GoTo|ByVal|ByRef|Optional|ParamArray|As|Type|Enum|Const|True|False|Nothing|Empty|Null|Me|Application|ThisWorkbook|Worksheets|Cells|Range|MsgBox|InputBox|Debug\.Print)\b/gi, '<span class="syn-kw">$1</span>');
+      if (isCSS2) escaped = highlight(escaped, /(@media|@import|@keyframes|@font-face|!important)/g, '<span class="syn-kw">$1</span>');
+      if (isHTML2) {
+        escaped = highlight(escaped, /(&lt;\/?)([\w-]+)/g, '$1<span class="syn-tag">$2</span>');
+        escaped = highlight(escaped, /([\w-]+)(=)/g, '<span class="syn-attr">$1</span>$2');
+      }
+      escaped = highlight(escaped, /\b([a-zA-Z_]\w*)(\s*)\(/g, '<span class="syn-fn">$1</span>$2(');
+      if (isJS || isJava) escaped = highlight(escaped, /(:\s*)([A-Z]\w*)/g, '$1<span class="syn-type">$2</span>');
+      return escaped;
+    });
+    return result;
+  }
+
+  // src/project/identity.mjs
+  function newLocalSelectionId() {
+    return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+  }
+  function localFolderCacheMeta(options) {
+    options = options || {};
+    var title = String(options.title || "").trim();
+    var paths = (options.paths || []).map(function(p) {
+      return String(p || "").replace(/\\/g, "/");
+    }).filter(Boolean).slice().sort();
+    if (!title) {
+      var raw = String(options.rootPrefix || "").replace(/\\/g, "/");
+      title = (raw.split("/").filter(Boolean)[0] || "").trim();
+    }
+    if (!title) title = "Local Folder";
+    var selectionId = String(options.selectionId || "").trim() || newLocalSelectionId();
+    return { sourceKey: title + "|sel:" + selectionId, title, selectionId };
+  }
+  function cliWatchCacheMeta(status) {
+    status = status || {};
+    var root = String(status.root || "").replace(/\\/g, "/");
+    var title = String(status.name || "").trim();
+    if (!title && root) title = (root.split("/").filter(Boolean).pop() || "").trim();
+    if (!title) title = "Local watch";
+    return { sourceKey: root || "cli", title };
+  }
+  function zipArchiveCacheMeta(options) {
+    options = options || {};
+    var title = String(options.name || options.title || "").trim() || "ZIP Archive";
+    var size = Number(options.size);
+    if (!isFinite(size) || size < 0) size = 0;
+    var modified = Number(options.lastModified);
+    if (!isFinite(modified) || modified < 0) modified = 0;
+    var paths = (options.paths || []).map(function(p) {
+      return String(p || "").replace(/\\/g, "/");
+    }).filter(Boolean).slice().sort();
+    return { sourceKey: title + "|" + size + "|" + modified + "|" + paths.length + "|" + paths.slice(0, 12).join("|"), title };
+  }
+  function retainedFolderMatchesRecord(record, retained) {
+    if (!record || !record.sourceKey) return true;
+    retained = retained || {};
+    return String(retained.sourceKey || "") === String(record.sourceKey);
+  }
+  function normalizeCliRoot(root) {
+    return String(root || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  }
+  function cliRecordMatchesStatus(record, status) {
+    if (!record || !record.sourceKey) return true;
+    if (!status || !status.ok) return false;
+    return normalizeCliRoot(status.root) === normalizeCliRoot(record.sourceKey);
+  }
+  function zipFileIdentity(zipFile) {
+    if (!zipFile) return "";
+    var title = String(zipFile.name || "").trim() || "ZIP Archive";
+    var size = Number(zipFile.size);
+    if (!isFinite(size) || size < 0) size = 0;
+    var modified = Number(zipFile.lastModified);
+    if (!isFinite(modified) || modified < 0) modified = 0;
+    return title + "|" + size + "|" + modified;
+  }
+  function retainedZipMatchesRecord(record, retained) {
+    if (!record || !record.sourceKey) return true;
+    retained = retained || {};
+    if (retained.sourceKey && String(retained.sourceKey) === String(record.sourceKey)) return true;
+    var identity = String(retained.identity || "");
+    return !!identity && String(record.sourceKey).indexOf(identity + "|") === 0;
+  }
+  function normalizeExcludeKey(patterns) {
+    var list = [];
+    (patterns || []).forEach(function(p) {
+      var raw = typeof p === "string" ? p : p && p.raw;
+      raw = String(raw || "").trim();
+      if (raw && list.indexOf(raw) < 0) list.push(raw);
+    });
+    list.sort();
+    return list.join("\n");
+  }
+  function githubCacheSourceKey(owner, repo, patterns) {
+    var base = String(owner || "") + "/" + String(repo || "");
+    var excl = normalizeExcludeKey(patterns);
+    return excl ? base + "|excl:" + excl : base;
+  }
+  function githubSourceKeyForLoadedAnalysis(owner, repo, data, pendingPatterns) {
+    var patterns = data && data.excludePatterns != null ? data.excludePatterns : pendingPatterns;
+    return githubCacheSourceKey(owner, repo, patterns);
+  }
+  function cachedAnalysisMatchesExcludes(record, patterns) {
+    if (!record) return false;
+    var wanted = normalizeExcludeKey(patterns);
+    var key = String(record.sourceKey || "");
+    var marker = key.indexOf("|excl:");
+    if (marker >= 0) return key.slice(marker + 6) === wanted;
+    return normalizeExcludeKey(record.data && record.data.excludePatterns) === wanted;
+  }
+  function githubZipDownloadUrl(owner, repo) {
+    return "https://github.com/" + encodeURIComponent(owner) + "/" + encodeURIComponent(repo) + "/archive/HEAD.zip";
+  }
+  function analysisCacheKey(sourceType, sourceKey) {
+    return String(sourceType || "unknown") + ":" + String(sourceKey || "").replace(/\\/g, "/");
+  }
+  function connectionIdentity(connection) {
+    var src = connection && (typeof connection.source === "object" ? connection.source.id : connection.source);
+    var tgt = connection && (typeof connection.target === "object" ? connection.target.id : connection.target);
+    var count = connection && connection.count != null ? connection.count : 1;
+    return String(src || "") + "	" + String(tgt || "") + "	" + String(connection && connection.fn || "") + "	" + String(count);
+  }
+  function fileGraphIdentity(file) {
+    if (!file) return "";
+    var fnCount = file.functions && file.functions.length ? file.functions.length : 0;
+    return [file.path || "", file.name || "", file.folder || "", file.layer || "", file.churn || 0, fnCount].join("	");
+  }
+  function analysisGraphKey(data) {
+    if (!data || !data.files) return "";
+    var files = data.files.map(fileGraphIdentity).join("\n");
+    var connections = (data.connections || []).map(connectionIdentity).sort().join("\n");
+    return files + "\n" + connections;
+  }
+  function graphStructureKey(data, folderFilter) {
+    var graph = analysisGraphKey(data);
+    if (!graph) return "";
+    return String(folderFilter || "") + "\n" + graph;
+  }
+  function codeViewSceneKey(data, folderFilter, vizType, source) {
+    return analysisHydrationId(source, data) + "|" + String(folderFilter || "") + "|" + String(vizType || "");
+  }
+  function analysisHydrationIdFromParts(source, graphKey) {
+    source = source || {};
+    return [source.sourceType || "", source.sourceKey || "", graphKey || ""].join("\0");
+  }
+  function analysisHydrationId(source, data) {
+    return analysisHydrationIdFromParts(source, analysisGraphKey(data));
+  }
+  function loadedAnalysisSourceIdentity(options) {
+    options = options || {};
+    if (options.localSourceKind === "folder") return { sourceType: "folder", sourceKey: options.folderKey || "local-folder" };
+    if (options.localSourceKind === "zip") return { sourceType: "zip", sourceKey: options.zipKey || "zip" };
+    if (options.localSourceKind === "cli") return { sourceType: "cli", sourceKey: options.cliRoot || "cli" };
+    if (options.githubOwner && options.githubRepo) return { sourceType: "github", sourceKey: options.githubKey || options.githubOwner + "/" + options.githubRepo };
+    if (options.cliOk) return { sourceType: "cli", sourceKey: options.cliRoot || "cli" };
+    return null;
+  }
+  function hydrationRequestIsCurrent(hydrationId, currentId) {
+    if (hydrationId == null || currentId == null) return true;
+    return hydrationId === currentId;
+  }
+  function hydratedSourceIsCurrent(update, currentId) {
+    if (!update || !update.path || typeof update.content !== "string") return false;
+    return hydrationRequestIsCurrent(update.hydrationId, currentId);
+  }
+
+  // src/project/source.mjs
+  function asCodeLines(lines) {
+    if (Array.isArray(lines)) return lines.length ? lines : [""];
+    return [String(lines || "")];
+  }
+  function pathIsFlagged(map, path) {
+    if (!path || !map) return false;
+    if (typeof map.has === "function") return map.has(path);
+    return !!map[path];
+  }
+  function nextCodeSourceReads(neededPaths, inFlight, failed) {
+    inFlight = inFlight || /* @__PURE__ */ Object.create(null);
+    return (neededPaths || []).filter(function(path) {
+      return !!path && !inFlight[path] && !pathIsFlagged(failed, path);
+    });
+  }
+  function fileHasLoadedSource(file) {
+    return !!(file && Object.prototype.hasOwnProperty.call(file, "content") && typeof file.content === "string");
+  }
+  function analysisFileNeedsSource(file) {
+    return !!(file && !file.analysisSkipped && !fileHasLoadedSource(file));
+  }
+  function recordCodeSourceFailure(prev, path) {
+    var next = Object.assign(/* @__PURE__ */ Object.create(null), prev || {});
+    if (path) next[path] = true;
+    return next;
+  }
+  function clearCodeSourceFailure(prev, path) {
+    var next = Object.assign(/* @__PURE__ */ Object.create(null), prev || {});
+    if (path) delete next[path];
+    return next;
+  }
+  function recordCodeSourceFailureIfCurrent(prev, path, hydrationId, currentId) {
+    if (!hydrationRequestIsCurrent(hydrationId, currentId)) return prev || /* @__PURE__ */ Object.create(null);
+    return recordCodeSourceFailure(prev, path);
+  }
+  function clearCodeSourceFailureIfCurrent(prev, path, hydrationId, currentId) {
+    if (!hydrationRequestIsCurrent(hydrationId, currentId)) return prev || /* @__PURE__ */ Object.create(null);
+    return clearCodeSourceFailure(prev, path);
+  }
+  function fileSourceDisplayState(file, canFetch, failed) {
+    if (!file) return "empty";
+    if (file.analysisSkipped) return "skipped";
+    if (fileHasLoadedSource(file)) return "ready";
+    if (canFetch && pathIsFlagged(failed, file.path)) return "failed";
+    return canFetch ? "loading" : "unavailable";
+  }
+  function filesNeedingSource(files) {
+    return (files || []).filter(analysisFileNeedsSource);
+  }
+  function mergeHydratedFileSources(data, updates, currentId) {
+    if (!data || !data.files || !updates || !updates.length) return data;
+    var byPath = /* @__PURE__ */ Object.create(null);
+    updates.forEach(function(update) {
+      if (!hydratedSourceIsCurrent(update, currentId)) return;
+      byPath[update.path] = update.content;
+    });
+    var changed = false;
+    var files = data.files.map(function(file) {
+      if (byPath[file.path] == null || fileHasLoadedSource(file)) return file;
+      changed = true;
+      return Object.assign({}, file, { content: byPath[file.path] });
+    });
+    return changed ? Object.assign({}, data, { files }) : data;
+  }
+
+  // src/project/changes.mjs
+  var CLI_WATCH_DIFF_MS = 200;
+  var CODE_DIFF_LCS_LIMIT = 16e4;
+  function normalizeCliWatchPath(path) {
+    return String(path || "").replace(/\\/g, "/").replace(/^\/+/, "");
+  }
+  function noteCliWatchPath(prev, path) {
+    var next = normalizeCliWatchPath(path);
+    if (!next) return prev || [];
+    var list = prev || [];
+    if (list.indexOf(next) >= 0) return list;
+    return list.concat([next]);
+  }
+  function cliWatchEventRev(value) {
+    var n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  function normalizeCliWatchDuringEvent(item) {
+    if (typeof item === "string") return { path: normalizeCliWatchPath(item), rev: null };
+    var path = normalizeCliWatchPath(item && item.path);
+    if (!path) return null;
+    return { path, rev: cliWatchEventRev(item.rev) };
+  }
+  function noteCliWatchDuringEvent(prev, path, rev) {
+    var ev = normalizeCliWatchDuringEvent({ path, rev });
+    if (!ev) return prev || [];
+    var list = (prev || []).slice();
+    var idx = -1;
+    for (var i = 0; i < list.length; i++) {
+      var cur = normalizeCliWatchDuringEvent(list[i]);
+      if (cur && cur.path === ev.path) {
+        idx = i;
+        break;
+      }
+    }
+    if (idx >= 0) list[idx] = ev;
+    else list.push(ev);
+    return list;
+  }
+  function cliWatchEventIsAfterSnapshot(eventRev, snapRev) {
+    if (eventRev == null || snapRev == null) return true;
+    return Number(eventRev) > Number(snapRev);
+  }
+  function cliWatchSnapRevFromResponse(res) {
+    if (!res || !res.headers || typeof res.headers.get !== "function") return null;
+    return cliWatchEventRev(res.headers.get("x-codeflow-rev"));
+  }
+  function forgetCliWatchPath(prev, path) {
+    var next = normalizeCliWatchPath(path);
+    if (!next) return prev || [];
+    return (prev || []).filter(function(item) {
+      return item !== next;
+    });
+  }
+  function analyzedFileForCliWatchPath(files, path) {
+    var next = normalizeCliWatchPath(path);
+    if (!next || !files) return null;
+    for (var i = 0; i < files.length; i++) {
+      var file = files[i];
+      if (file && normalizeCliWatchPath(file.path) === next) return file;
+    }
+    return null;
+  }
+  function cliWatchLiveMatchesBaseline(file, liveContent) {
+    return !!(fileHasAnalyzedSourceForDiff(file) && typeof liveContent === "string" && liveContent === file.content);
+  }
+  function cliWatchLiveClearsDirty(file, liveContent, kind) {
+    return kind === "ok" && cliWatchLiveMatchesBaseline(file, liveContent);
+  }
+  function mergeCliLiveContents(prev, updates) {
+    var next = Object.assign(/* @__PURE__ */ Object.create(null), prev || {});
+    (updates || []).forEach(function(update) {
+      if (!update || !update.path) return;
+      var path = normalizeCliWatchPath(update.path);
+      if (!path) return;
+      if (typeof update.content !== "string") {
+        delete next[path];
+        return;
+      }
+      next[path] = update.content;
+    });
+    return next;
+  }
+  function fileHasAnalyzedSourceForDiff(file) {
+    return !!(file && !file.analysisSkipped && typeof file.content === "string");
+  }
+  function cliWatchDiffPaths(files, paths) {
+    var known = /* @__PURE__ */ Object.create(null);
+    (files || []).forEach(function(file) {
+      if (file && file.path && fileHasAnalyzedSourceForDiff(file)) known[file.path] = true;
+    });
+    var out = [];
+    (paths || []).forEach(function(path) {
+      var next = normalizeCliWatchPath(path);
+      if (next && known[next] && out.indexOf(next) < 0) out.push(next);
+    });
+    return out;
+  }
+  function splitCodeLines(text) {
+    return String(text == null ? "" : text).split("\n");
+  }
+  function codeCardDiffClass(row) {
+    if (!row || row.type === "same") return "";
+    if (row.type === "add") return " diff-add";
+    if (row.type === "del") return " diff-del";
+    return "";
+  }
+  function codeCardDiffLineNo(row) {
+    if (!row) return "";
+    if (row.type === "del") return row.oldLine || "";
+    return row.newLine || row.oldLine || "";
+  }
+  function codeCardHasDiff(rows) {
+    if (!rows || !rows.length) return false;
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i] && rows[i].type && rows[i].type !== "same") return true;
+    }
+    return false;
+  }
+  function lcsDiffRows(oldLines, newLines, oldOff, newOff) {
+    var a = oldLines || [];
+    var b = newLines || [];
+    var n = a.length, m = b.length;
+    var dp = new Array(n + 1);
+    var i, j;
+    for (i = 0; i <= n; i++) {
+      dp[i] = new Array(m + 1);
+      dp[i][0] = 0;
+    }
+    for (j = 1; j <= m; j++) dp[0][j] = 0;
+    for (i = 1; i <= n; i++) {
+      for (j = 1; j <= m; j++) {
+        dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+    var out = [];
+    i = n;
+    j = m;
+    while (i > 0 && j > 0) {
+      if (a[i - 1] === b[j - 1]) {
+        out.push({ type: "same", text: a[i - 1], oldLine: oldOff + i, newLine: newOff + j });
+        i--;
+        j--;
+      } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+        out.push({ type: "del", text: a[i - 1], oldLine: oldOff + i, newLine: null });
+        i--;
+      } else {
+        out.push({ type: "add", text: b[j - 1], oldLine: null, newLine: newOff + j });
+        j--;
+      }
+    }
+    while (i > 0) {
+      out.push({ type: "del", text: a[i - 1], oldLine: oldOff + i, newLine: null });
+      i--;
+    }
+    while (j > 0) {
+      out.push({ type: "add", text: b[j - 1], oldLine: null, newLine: newOff + j });
+      j--;
+    }
+    out.reverse();
+    return out;
+  }
+  function replaceDiffRows(oldLines, newLines, oldOff, newOff) {
+    var out = [];
+    var i;
+    for (i = 0; i < (oldLines || []).length; i++) {
+      out.push({ type: "del", text: oldLines[i], oldLine: oldOff + i + 1, newLine: null });
+    }
+    for (i = 0; i < (newLines || []).length; i++) {
+      out.push({ type: "add", text: newLines[i], oldLine: null, newLine: newOff + i + 1 });
+    }
+    return out;
+  }
+  function diffCodeLines(before, after) {
+    var a = splitCodeLines(before);
+    var b = splitCodeLines(after);
+    var rows = [];
+    var i = 0, j = 0;
+    while (i < a.length && j < b.length && a[i] === b[j]) {
+      rows.push({ type: "same", text: a[i], oldLine: i + 1, newLine: j + 1 });
+      i++;
+      j++;
+    }
+    var aEnd = a.length, bEnd = b.length;
+    while (aEnd > i && bEnd > j && a[aEnd - 1] === b[bEnd - 1]) {
+      aEnd--;
+      bEnd--;
+    }
+    var midA = a.slice(i, aEnd);
+    var midB = b.slice(j, bEnd);
+    var mid = midA.length * midB.length <= CODE_DIFF_LCS_LIMIT ? lcsDiffRows(midA, midB, i, j) : replaceDiffRows(midA, midB, i, j);
+    for (var k = 0; k < mid.length; k++) rows.push(mid[k]);
+    for (k = 0; k < a.length - aEnd; k++) {
+      rows.push({ type: "same", text: a[aEnd + k], oldLine: aEnd + k + 1, newLine: bEnd + k + 1 });
+    }
+    return rows;
+  }
+  function codeCardDiffRows(file, liveContent) {
+    if (!file || typeof file.content !== "string" || typeof liveContent !== "string") return null;
+    if (file.content === liveContent) return null;
+    if (liveContent === "") {
+      return splitCodeLines(file.content).map(function(text, i) {
+        return { type: "del", text, oldLine: i + 1, newLine: null };
+      });
+    }
+    var rows = diffCodeLines(file.content, liveContent);
+    return codeCardHasDiff(rows) ? rows : null;
+  }
+  function fileForCodeCardDiff(file, diffRows) {
+    if (!file || !diffRows || !diffRows.length) return file;
+    return Object.assign({}, file, { content: diffRows.map(function(row) {
+      return row.text;
+    }).join("\n") });
+  }
+  function codeCardDiffLineIndex(diffRows, analyzedLine) {
+    var n = Math.max(1, Number(analyzedLine) || 1);
+    if (!diffRows || !diffRows.length) return n;
+    var found = -1;
+    for (var i = 0; i < diffRows.length; i++) {
+      if (diffRows[i] && diffRows[i].oldLine === n) {
+        found = i + 1;
+        if (diffRows[i].type === "same") return found;
+      }
+    }
+    return found > 0 ? found : n;
+  }
+  function startedCliWatchDiffPaths(pending, gen) {
+    var out = [];
+    (pending || []).forEach(function(path) {
+      var next = normalizeCliWatchPath(path);
+      if (next && out.indexOf(next) < 0) out.push(next);
+    });
+    Object.keys(gen || {}).forEach(function(path) {
+      var next = normalizeCliWatchPath(path);
+      if (next && out.indexOf(next) < 0) out.push(next);
+    });
+    return out;
+  }
+  function bumpCliWatchDiffEpoch(epoch) {
+    return (Number(epoch) || 0) + 1;
+  }
+  function cliWatchDiffRequestIsCurrent(epoch, capturedEpoch, genByPath, path, capturedGen) {
+    if ((Number(epoch) || 0) !== (Number(capturedEpoch) || 0)) return false;
+    return !!(genByPath && genByPath[path] === capturedGen);
+  }
+  function retainCliWatchPathsAfterAnalysis(receivedDuring, readByPath, snapRevByPath) {
+    var read = readByPath || /* @__PURE__ */ Object.create(null);
+    var snaps = snapRevByPath || /* @__PURE__ */ Object.create(null);
+    var out = [];
+    (receivedDuring || []).forEach(function(item) {
+      var ev = normalizeCliWatchDuringEvent(item);
+      if (!ev || !read[ev.path] || out.indexOf(ev.path) >= 0) return;
+      if (!cliWatchEventIsAfterSnapshot(ev.rev, Object.prototype.hasOwnProperty.call(snaps, ev.path) ? snaps[ev.path] : null)) return;
+      out.push(ev.path);
+    });
+    return out;
+  }
+  var CLI_WATCH_MAX_BYTES = 2 * 1024 * 1024;
+  function cliWatchLiveRejectsOversized(size) {
+    var n = Number(size);
+    return Number.isFinite(n) && n > CLI_WATCH_MAX_BYTES;
+  }
+  function cliWatchLiveFromResponse(status, body, ok, contentLength) {
+    if (cliWatchLiveRejectsOversized(contentLength)) return { kind: "error" };
+    if (ok) {
+      var content = typeof body === "string" ? body : "";
+      if (cliWatchLiveRejectsOversized(content.length)) return { kind: "error" };
+      return { kind: "ok", content };
+    }
+    if (Number(status) === 404) return { kind: "missing", content: "" };
+    return { kind: "error" };
+  }
+  function shouldApplyCliWatchLive(result) {
+    return !!(result && (result.kind === "ok" || result.kind === "missing"));
+  }
+  function pendingCliWatchDiffPaths(dirty, live, inflight) {
+    var have = live || /* @__PURE__ */ Object.create(null);
+    var wait = inflight || [];
+    return (dirty || []).filter(function(path) {
+      if (!path) return false;
+      if (Object.prototype.hasOwnProperty.call(have, path)) return false;
+      if (wait.indexOf(path) >= 0) return false;
+      return true;
+    });
+  }
+  function cliWatchAppliesToAnalysis(localSourceKind, cliStatus, analysisSource) {
+    if (!cliStatus || !cliStatus.ok) return false;
+    if (localSourceKind === "folder" || localSourceKind === "zip") return false;
+    if (analysisSource && analysisSource.sourceType && analysisSource.sourceType !== "cli") return false;
+    if (localSourceKind && localSourceKind !== "cli") return false;
+    if (analysisSource && analysisSource.sourceType === "cli") return cliRecordMatchesStatus(analysisSource, cliStatus);
+    return localSourceKind === "cli";
+  }
+
+  // src/views/card-size.mjs
+  function codeCardSizeForDiff(file, prefs, diffRows) {
+    prefs = normalizeCodeCardPrefs(prefs);
+    var base = codeCardSize(file, prefs);
+    if (!diffRows || !diffRows.length) return base;
+    var painted = codeCardSize(fileForCodeCardDiff(file, diffRows), prefs);
+    if (prefs.expand) return painted;
+    return Object.assign({}, base, {
+      naturalHeight: Math.max(base.naturalHeight || 0, painted.naturalHeight || 0),
+      naturalWidth: Math.max(base.naturalWidth || 0, painted.naturalWidth || 0),
+      clipped: !!(base.clipped || painted.naturalHeight > base.height || painted.naturalWidth > base.width)
+    });
+  }
+  var CODE_CARD_MIN_WIDTH = 320;
+  var CODE_CARD_MIN_HEIGHT = 160;
+  var CODE_CARD_MAX_HEIGHT = 1840;
+  var CODE_CARD_LINE_HEIGHT = 19;
+  var CODE_CARD_CHAR_WIDTH = 7;
+  var CODE_CARD_HEAD_HEIGHT = 42;
+  var CODE_CARD_BODY_PAD = 16;
+  var CODE_CARD_GUTTER = 72;
+  function codeCardContentMetrics(file) {
+    var content = file && typeof file.content === "string" ? file.content : "";
+    var lines = content ? content.split("\n") : [""];
+    var maxLineChars = 0;
+    var lineChars = [];
+    for (var i = 0; i < lines.length; i++) {
+      var n = String(lines[i]).length;
+      lineChars.push(n);
+      if (n > maxLineChars) maxLineChars = n;
+    }
+    return { lines: Math.max(1, lines.length), maxLineChars, lineChars };
+  }
+  var CODE_CARD_WIDTH = 440;
+  function normalizeCodeCardPrefs(prefs) {
+    prefs = prefs || {};
+    return { expand: !!prefs.expand, wrap: !!prefs.wrap };
+  }
+  function codeCardWrapColumns() {
+    return Math.max(1, Math.floor((CODE_CARD_WIDTH - CODE_CARD_GUTTER - CODE_CARD_BODY_PAD) / CODE_CARD_CHAR_WIDTH));
+  }
+  function codeCardWrappedLineCount(metrics, prefs) {
+    metrics = metrics || codeCardContentMetrics(null);
+    prefs = normalizeCodeCardPrefs(prefs);
+    if (!prefs.wrap) return Math.max(1, metrics.lines || 1);
+    var cols = codeCardWrapColumns();
+    var chars = metrics.lineChars || [];
+    var count = 0;
+    if (!chars.length) return Math.max(1, metrics.lines || 1);
+    for (var i = 0; i < chars.length; i++) {
+      count += Math.max(1, Math.ceil((chars[i] || 0) / cols) || 1);
+    }
+    return Math.max(1, count);
+  }
+  function codeCardVisualLineIndex(file, line, prefs) {
+    var n = Math.max(1, Number(line) || 1);
+    prefs = normalizeCodeCardPrefs(prefs);
+    if (!prefs.wrap) return n;
+    var metrics = codeCardContentMetrics(file);
+    var cols = codeCardWrapColumns();
+    var chars = metrics.lineChars || [];
+    var visual = 0;
+    var lim = Math.min(chars.length, n - 1);
+    for (var i = 0; i < lim; i++) {
+      visual += Math.max(1, Math.ceil((chars[i] || 0) / cols) || 1);
+    }
+    return visual + 1;
+  }
+  function codeCardVisualLineEndIndex(file, line, prefs) {
+    var n = Math.max(1, Number(line) || 1);
+    prefs = normalizeCodeCardPrefs(prefs);
+    if (!prefs.wrap) return n;
+    var metrics = codeCardContentMetrics(file);
+    var total = codeCardWrappedLineCount(metrics, prefs);
+    if (n >= Math.max(1, metrics.lines || 1)) return total;
+    return Math.max(n, codeCardVisualLineIndex(file, n + 1, prefs) - 1);
+  }
+  function codeCardNaturalWidth(metrics) {
+    metrics = metrics || { maxLineChars: 0 };
+    return CODE_CARD_GUTTER + CODE_CARD_BODY_PAD + (metrics.maxLineChars || 0) * CODE_CARD_CHAR_WIDTH;
+  }
+  function codeCardSize(file, prefs) {
+    prefs = normalizeCodeCardPrefs(prefs);
+    var metrics = codeCardContentMetrics(file);
+    var width = CODE_CARD_WIDTH;
+    var naturalWidth = codeCardNaturalWidth(metrics);
+    var visualLines = codeCardWrappedLineCount(metrics, prefs);
+    var naturalHeight = CODE_CARD_HEAD_HEIGHT + CODE_CARD_BODY_PAD + visualLines * CODE_CARD_LINE_HEIGHT;
+    var height = Math.max(CODE_CARD_MIN_HEIGHT, prefs.expand ? naturalHeight : Math.min(CODE_CARD_MAX_HEIGHT, naturalHeight));
+    var heightClipped = !prefs.expand && naturalHeight > CODE_CARD_MAX_HEIGHT;
+    var widthClipped = !prefs.wrap && naturalWidth > width;
+    return { width, height, clipped: heightClipped || widthClipped, expand: prefs.expand, wrap: prefs.wrap, naturalHeight, naturalWidth };
+  }
+  var CODE_CARD_RESIZE_MAX_WIDTH = 1200;
+  function clampCodeCardResize(width, height, prefs) {
+    prefs = normalizeCodeCardPrefs(prefs);
+    var w = Math.max(CODE_CARD_MIN_WIDTH, Math.min(CODE_CARD_RESIZE_MAX_WIDTH, Number(width) || CODE_CARD_WIDTH));
+    var h = Math.max(CODE_CARD_MIN_HEIGHT, Number(height) || CODE_CARD_MIN_HEIGHT);
+    if (!prefs.expand) h = Math.min(CODE_CARD_MAX_HEIGHT, h);
+    return { width: w, height: h };
+  }
+  function applyCodeCardUserSize(base, override) {
+    base = base || codeCardSize(null);
+    if (!override) return base;
+    var next = clampCodeCardResize(override.width != null ? override.width : base.width, override.height != null ? override.height : base.height, base);
+    var heightClipped = (base.naturalHeight || 0) > next.height;
+    var widthClipped = !base.wrap && (base.naturalWidth || 0) > next.width;
+    return Object.assign({}, base, { width: next.width, height: next.height, clipped: heightClipped || widthClipped });
+  }
+
+  // src/views/canvas-layout.mjs
+  function nodeReplacedByCard(path, cardPaths) {
+    return !!(cardPaths && cardPaths.has(path));
+  }
+  function unburyNodesFromCards(nodes, cardPaths, sizesByPath, pad, boxesByPath) {
+    pad = pad == null ? 36 : pad;
+    var list = nodes || [];
+    var cards = [];
+    list.forEach(function(node) {
+      if (!node || !cardPaths || !cardPaths.has(node.id)) return;
+      var box = cardWorldBox(node, sizesByPath, boxesByPath);
+      if (!box) return;
+      cards.push({ node, box });
+    });
+    if (!cards.length) return list;
+    var pass;
+    for (pass = 0; pass < 4; pass++) {
+      var moved = false;
+      list.forEach(function(node) {
+        if (!node || cardPaths && cardPaths.has(node.id)) return;
+        var xy = liveGraphNodeXY(node);
+        if (!xy) return;
+        cards.forEach(function(card) {
+          var box = card.box;
+          var left = box.x - pad, top = box.y - pad, right = box.x + box.width + pad, bottom = box.y + box.height + pad;
+          if (xy.x < left || xy.x > right || xy.y < top || xy.y > bottom) return;
+          var dLeft = xy.x - left, dRight = right - xy.x, dTop = xy.y - top, dBottom = bottom - xy.y;
+          var min = Math.min(dLeft, dRight, dTop, dBottom);
+          if (min === dLeft) xy.x = left;
+          else if (min === dRight) xy.x = right;
+          else if (min === dTop) xy.y = top;
+          else xy.y = bottom;
+          node.x = xy.x;
+          node.y = xy.y;
+          if (node.fx != null) node.fx = node.x;
+          if (node.fy != null) node.fy = node.y;
+          moved = true;
+        });
+      });
+      if (!moved) break;
+    }
+    return list;
+  }
+  function graphFolderCenters(folders, width, height, options) {
+    options = options || {};
+    var list = [];
+    (folders || []).forEach(function(f) {
+      if (f != null && list.indexOf(f) < 0) list.push(f);
+    });
+    var out = /* @__PURE__ */ Object.create(null);
+    if (!list.length) return out;
+    var cols = Math.max(2, Math.ceil(Math.sqrt(list.length)));
+    var rows = Math.max(1, Math.ceil(list.length / cols));
+    var minW = options.minCellW == null ? 0 : Number(options.minCellW) || 0;
+    var minH = options.minCellH == null ? 0 : Number(options.minCellH) || 0;
+    var cw = Math.max(minW, (Number(width) || 800) / (cols + 1));
+    var ch = Math.max(minH, (Number(height) || 600) / (rows + 1));
+    list.forEach(function(f, i) {
+      out[f] = { x: (i % cols + 1) * cw, y: (Math.floor(i / cols) + 1) * ch };
+    });
+    return out;
+  }
+  function leftoverCodeNodeGrid(count, spacing) {
+    spacing = spacing == null ? 56 : Number(spacing) || 56;
+    count = Math.max(0, Math.floor(Number(count) || 0));
+    var out = [];
+    if (count <= 0) return out;
+    var cols = Math.max(1, Math.ceil(Math.sqrt(count)));
+    var rows = Math.max(1, Math.ceil(count / cols));
+    var i;
+    for (i = 0; i < count; i++) {
+      var col = i % cols;
+      var row = Math.floor(i / cols);
+      out.push({
+        x: (col - (cols - 1) / 2) * spacing,
+        y: (row - (rows - 1) / 2) * spacing
+      });
+    }
+    return out;
+  }
+  function parkLeftoverCodeNodes(nodes, cardPaths, centers, options) {
+    options = options || {};
+    var spacing = options.spacing == null ? 56 : options.spacing;
+    var pin = options.pin !== false;
+    var groups = /* @__PURE__ */ Object.create(null);
+    var order = [];
+    (nodes || []).forEach(function(node) {
+      if (!node) return;
+      if (cardPaths && cardPaths.has(node.id)) return;
+      if (node.fx != null && isFinite(Number(node.fx))) return;
+      var folder = node.folder || "root";
+      if (!groups[folder]) {
+        groups[folder] = [];
+        order.push(folder);
+      }
+      groups[folder].push(node);
+    });
+    order.forEach(function(folder) {
+      var group = groups[folder];
+      var c = centers && centers[folder];
+      if (!c || !isFinite(c.x) || !isFinite(c.y)) return;
+      var offs = leftoverCodeNodeGrid(group.length, spacing);
+      group.forEach(function(node, i) {
+        node.x = c.x + offs[i].x;
+        node.y = c.y + offs[i].y;
+        if (pin) {
+          node.fx = node.x;
+          node.fy = node.y;
+        }
+      });
+    });
+    return nodes;
+  }
+  function codeViewSiblingNodes(nodes, dragged, cardPaths) {
+    if (!dragged) return [];
+    var folder = dragged.folder || "root";
+    var out = [];
+    (nodes || []).forEach(function(node) {
+      if (!node || node === dragged || node.id === dragged.id) return;
+      if (cardPaths && cardPaths.has(node.id)) return;
+      if ((node.folder || "root") !== folder) return;
+      out.push(node);
+    });
+    return out;
+  }
+  function translateCodeViewSiblings(nodes, dragged, dx, dy, cardPaths) {
+    dx = Number(dx) || 0;
+    dy = Number(dy) || 0;
+    if (!dx && !dy) return [];
+    var siblings = codeViewSiblingNodes(nodes, dragged, cardPaths);
+    siblings.forEach(function(node) {
+      if (isFinite(node.x)) node.x += dx;
+      if (isFinite(node.y)) node.y += dy;
+      if (node.fx != null && isFinite(Number(node.fx))) node.fx = node.x;
+      if (node.fy != null && isFinite(Number(node.fy))) node.fy = node.y;
+    });
+    return siblings;
+  }
+  function nodeWorldBox(node, size) {
+    if (!node || !size) return null;
+    var xy = liveGraphNodeXY(node);
+    if (!xy) return null;
+    var width = Number(size.width) || 0;
+    var height = Number(size.height) || 0;
+    if (width <= 0 || height <= 0) return null;
+    return { x: xy.x - width / 2, y: xy.y - height / 2, width, height };
+  }
+  function cardWorldBox(node, sizesByPath, boxesByPath) {
+    if (!node) return null;
+    var size = sizesByPath && sizesByPath[node.id] || codeCardSize(null);
+    var live = nodeWorldBox(node, size);
+    var snap = boxesByPath && boxesByPath[node.id];
+    if (!snap) return live;
+    if (!live) return snap;
+    var liveCx = live.x + live.width / 2, liveCy = live.y + live.height / 2;
+    var snapCx = snap.x + snap.width / 2, snapCy = snap.y + snap.height / 2;
+    if (Math.abs(liveCx - snapCx) > 0.5 || Math.abs(liveCy - snapCy) > 0.5) {
+      return { x: liveCx - snap.width / 2, y: liveCy - snap.height / 2, width: snap.width, height: snap.height };
+    }
+    return snap;
+  }
+  function resolveBoxOverlap(box, obstacles, gap) {
+    if (!box) return null;
+    gap = gap == null ? 24 : Number(gap) || 0;
+    var next = { x: box.x, y: box.y, width: box.width, height: box.height };
+    var pass;
+    for (pass = 0; pass < 8; pass++) {
+      var hit = null;
+      (obstacles || []).forEach(function(obs) {
+        if (!hit && boxesOverlap(next, obs, gap)) hit = obs;
+      });
+      if (!hit) break;
+      var slack = gap + 1;
+      var right = hit.x + hit.width + slack - next.x;
+      var left = next.x + next.width + slack - hit.x;
+      var down = hit.y + hit.height + slack - next.y;
+      var up = next.y + next.height + slack - hit.y;
+      if (right <= left && right <= down && right <= up) next.x += right;
+      else if (left <= down && left <= up) next.x -= left;
+      else if (down <= up) next.y += down;
+      else next.y -= up;
+    }
+    return next;
+  }
+  function bumpOverlappingCodeCards(nodes, droppedId, cardPaths, sizesByPath, gap) {
+    if (!droppedId) return null;
+    var dropped = null;
+    var obstacles = [];
+    (nodes || []).forEach(function(node) {
+      if (!node || !cardPaths || !cardPaths.has(node.id)) return;
+      var size = sizesByPath && sizesByPath[node.id] || codeCardSize(null);
+      var box = nodeWorldBox(node, size);
+      if (!box) return;
+      if (node.id === droppedId) dropped = { node, size, box };
+      else obstacles.push(box);
+    });
+    if (!dropped) return null;
+    var next = resolveBoxOverlap(dropped.box, obstacles, gap);
+    if (!next) return dropped.node;
+    dropped.node.x = dropped.node.fx = next.x + next.width / 2;
+    dropped.node.y = dropped.node.fy = next.y + next.height / 2;
+    return dropped.node;
+  }
+  function leftoverGroupBox(nodes, pad) {
+    var boxes = [];
+    (nodes || []).forEach(function(node) {
+      var xy = liveGraphNodeXY(node);
+      if (!xy) return;
+      boxes.push({ x: xy.x - 22, y: xy.y - 22, width: 44, height: 44 });
+    });
+    return unionPaddedBoxes(boxes, pad == null ? 16 : pad, 0);
+  }
+  function leftoverHullObstacles(nodes, cardPaths) {
+    var leftoversByFolder = /* @__PURE__ */ Object.create(null);
+    (nodes || []).forEach(function(node) {
+      if (!node || cardPaths && cardPaths.has(node.id)) return;
+      var folder = node.folder || "root";
+      if (!leftoversByFolder[folder]) leftoversByFolder[folder] = [];
+      leftoversByFolder[folder].push(node);
+    });
+    var hulls = [];
+    Object.keys(leftoversByFolder).forEach(function(folder) {
+      var hull = leftoverGroupBox(leftoversByFolder[folder], 16);
+      if (hull) hulls.push(hull);
+    });
+    return hulls;
+  }
+  function nudgeLeftoverGroupsFromCards(nodes, cardPaths, sizesByPath, pad, boxesByPath) {
+    pad = pad == null ? 40 : pad;
+    var cards = [];
+    var leftoversByFolder = /* @__PURE__ */ Object.create(null);
+    (nodes || []).forEach(function(node) {
+      if (!node) return;
+      if (cardPaths && cardPaths.has(node.id)) {
+        var box = cardWorldBox(node, sizesByPath, boxesByPath);
+        if (box) cards.push(box);
+        return;
+      }
+      var folder = node.folder || "root";
+      if (!leftoversByFolder[folder]) leftoversByFolder[folder] = [];
+      leftoversByFolder[folder].push(node);
+    });
+    Object.keys(leftoversByFolder).forEach(function(folder) {
+      var group = leftoversByFolder[folder];
+      var hull = leftoverGroupBox(group, 16);
+      if (!hull) return;
+      var next = resolveBoxOverlap(hull, cards, pad);
+      if (!next) return;
+      var dx = next.x - hull.x;
+      var dy = next.y - hull.y;
+      if (!dx && !dy) return;
+      group.forEach(function(node) {
+        if (isFinite(node.x)) node.x += dx;
+        if (isFinite(node.y)) node.y += dy;
+        if (node.fx != null) node.fx = node.x;
+        if (node.fy != null) node.fy = node.y;
+      });
+    });
+    return nodes;
+  }
+  function leftoverSpatialCellKey(x, y, cell) {
+    var size = Number(cell);
+    if (!isFinite(size) || size <= 0) size = 36;
+    return Math.floor((Number(x) || 0) / size) + "	" + Math.floor((Number(y) || 0) / size);
+  }
+  function leftoverSeparationNeighbors(a, b, gap) {
+    if (!a || !b || a === b) return false;
+    var dx = b.x - a.x, dy = b.y - a.y;
+    var dist = Math.hypot(dx, dy);
+    if (dist >= gap) return false;
+    var push = (gap - (dist || 0.01)) / 2;
+    var nx = dist < 1e-6 ? 1 : dx / dist;
+    var ny = dist < 1e-6 ? 0 : dy / dist;
+    a.x -= nx * push;
+    a.y -= ny * push;
+    b.x += nx * push;
+    b.y += ny * push;
+    if (a.fx != null) a.fx = a.x;
+    if (a.fy != null) a.fy = a.y;
+    if (b.fx != null) b.fx = b.x;
+    if (b.fy != null) b.fy = b.y;
+    return true;
+  }
+  function leftoverSeparationBuckets(leftovers, cell) {
+    var buckets = /* @__PURE__ */ Object.create(null);
+    (leftovers || []).forEach(function(node, i) {
+      var key = leftoverSpatialCellKey(node.x, node.y, cell);
+      if (!buckets[key]) buckets[key] = [];
+      buckets[key].push(i);
+    });
+    return buckets;
+  }
+  function separateLeftoverCodeNodes(nodes, cardPaths, gap) {
+    gap = gap == null ? 36 : Number(gap) || 36;
+    var leftovers = [];
+    (nodes || []).forEach(function(node) {
+      if (!node || cardPaths && cardPaths.has(node.id)) return;
+      if (!isFinite(node.x) || !isFinite(node.y)) return;
+      leftovers.push(node);
+    });
+    if (leftovers.length < 2) return nodes;
+    var cell = Math.max(gap, 1);
+    var pass, i, ox, oy;
+    for (pass = 0; pass < 6; pass++) {
+      var buckets = leftoverSeparationBuckets(leftovers, cell);
+      var moved = false;
+      for (i = 0; i < leftovers.length; i++) {
+        var a = leftovers[i];
+        var cx = Math.floor(a.x / cell);
+        var cy = Math.floor(a.y / cell);
+        for (ox = -1; ox <= 1; ox++) {
+          for (oy = -1; oy <= 1; oy++) {
+            var group = buckets[cx + ox + "	" + (cy + oy)];
+            if (!group) continue;
+            group.forEach(function(j) {
+              if (j <= i) return;
+              if (leftoverSeparationNeighbors(a, leftovers[j], gap)) moved = true;
+            });
+          }
+        }
+      }
+      if (!moved) break;
+    }
+    return nodes;
+  }
+  function settleCodeViewAfterDrag(nodes, cardPaths, sizesByPath, droppedId, options) {
+    options = options || {};
+    var boxesByPath = options.boxesByPath || null;
+    var dropped = null;
+    if (droppedId) {
+      (nodes || []).some(function(node) {
+        if (node && node.id === droppedId) {
+          dropped = node;
+          return true;
+        }
+        return false;
+      });
+    }
+    function applyDroppedDelta(before2) {
+      if (!dropped || !before2) return;
+      var dx = dropped.x - before2.x, dy = dropped.y - before2.y;
+      if (dx || dy) translateCodeViewSiblings(nodes, dropped, dx, dy, cardPaths);
+    }
+    var before = dropped ? liveGraphNodeXY(dropped) : null;
+    if (dropped && cardPaths && cardPaths.has(dropped.id)) {
+      bumpOverlappingCodeCards(nodes, dropped.id, cardPaths, sizesByPath, options.cardGap == null ? 24 : options.cardGap);
+      applyDroppedDelta(before);
+      before = liveGraphNodeXY(dropped);
+    }
+    var pass;
+    for (pass = 0; pass < 3; pass++) {
+      nudgeLeftoverGroupsFromCards(nodes, cardPaths, sizesByPath, options.hullPad == null ? 40 : options.hullPad, boxesByPath);
+    }
+    unburyNodesFromCards(nodes, cardPaths, sizesByPath, options.nodePad == null ? 48 : options.nodePad, boxesByPath);
+    if (dropped && cardPaths && cardPaths.has(dropped.id)) {
+      before = liveGraphNodeXY(dropped);
+      var hulls = leftoverHullObstacles(nodes, cardPaths);
+      var box = cardWorldBox(dropped, sizesByPath, boxesByPath);
+      if (box && hulls.length) {
+        var next = resolveBoxOverlap(box, hulls, options.hullPad == null ? 40 : options.hullPad);
+        if (next && (next.x !== box.x || next.y !== box.y)) {
+          dropped.x = dropped.fx = next.x + next.width / 2;
+          dropped.y = dropped.fy = next.y + next.height / 2;
+          applyDroppedDelta(before);
+        }
+      }
+    }
+    separateLeftoverCodeNodes(nodes, cardPaths, options.nodeGap == null ? 40 : options.nodeGap);
+    return nodes;
+  }
+  function boxesOverlap(a, b, gap) {
+    if (!a || !b) return false;
+    gap = gap == null ? 0 : Number(gap) || 0;
+    return !(a.x > b.x + b.width + gap || a.x + a.width < b.x - gap || a.y > b.y + b.height + gap || a.y + a.height < b.y - gap);
+  }
+  function codeCardCollisionRadius(size) {
+    size = size || codeCardSize(null);
+    return Math.round(Math.hypot(size.width, size.height) / 2) + 18;
+  }
+  function liveCodeCollideRadius(node, size) {
+    if (size) return codeCardCollisionRadius(size);
+    return Math.max(8, Math.min(24, 5 + (node && node.fnCount || 0) * 0.8)) + 12;
+  }
+  function appendCodeCardPlacement(placements, file, size, options) {
+    options = options || {};
+    var gapX = options.gapX == null ? 88 : options.gapX;
+    var gapY = options.gapY == null ? 36 : options.gapY;
+    var originX = options.originX == null ? 80 : options.originX;
+    var originY = options.originY == null ? 72 : options.originY;
+    var next = Object.assign(/* @__PURE__ */ Object.create(null), placements || {});
+    if (!file || !file.path) return next;
+    size = size || codeCardSize(file);
+    var folder = file.folder || "root";
+    var prev = next[file.path];
+    if (prev) {
+      next[file.path] = {
+        left: prev.left,
+        top: prev.top,
+        x: prev.left + size.width / 2,
+        y: prev.top + size.height / 2,
+        width: size.width,
+        height: size.height,
+        folder: prev.folder || folder
+      };
+      return reflowUnpinnedCodeCards(next, options.pinnedPaths, options);
+    }
+    var same = [];
+    var folderLeft = null;
+    Object.keys(next).forEach(function(id) {
+      var item = next[id];
+      if (!item || item.folder !== folder) return;
+      same.push(item);
+      folderLeft = folderLeft == null ? item.left : Math.min(folderLeft, item.left);
+    });
+    var left, top;
+    if (!same.length) {
+      var center = options.centers && options.centers[folder];
+      if (center && isFinite(center.x) && isFinite(center.y)) {
+        left = center.x - size.width / 2;
+        top = center.y - size.height / 2;
+      } else {
+        var maxRight = originX;
+        Object.keys(next).forEach(function(id) {
+          var item = next[id];
+          if (!item) return;
+          maxRight = Math.max(maxRight, item.left + item.width + gapX);
+        });
+        left = Object.keys(next).length ? maxRight : originX;
+        top = originY;
+      }
+    } else {
+      left = folderLeft;
+      var maxBottom = originY;
+      same.forEach(function(item) {
+        maxBottom = Math.max(maxBottom, item.top + item.height + gapY);
+      });
+      top = maxBottom;
+    }
+    next[file.path] = {
+      left,
+      top,
+      x: left + size.width / 2,
+      y: top + size.height / 2,
+      width: size.width,
+      height: size.height,
+      folder
+    };
+    return reflowUnpinnedCodeCards(next, options.pinnedPaths, options);
+  }
+  function codePathIsPinned(pinnedPaths, path) {
+    if (!path || !pinnedPaths) return false;
+    if (typeof pinnedPaths.has === "function") return pinnedPaths.has(path);
+    return !!pinnedPaths[path];
+  }
+  function reflowUnpinnedCodeCards(placements, pinnedPaths, options) {
+    options = options || {};
+    var gapY = options.gapY == null ? 36 : options.gapY;
+    var originY = options.originY == null ? 72 : options.originY;
+    var next = placements || /* @__PURE__ */ Object.create(null);
+    var byFolder = /* @__PURE__ */ Object.create(null);
+    Object.keys(next).forEach(function(path) {
+      var item = next[path];
+      if (!item) return;
+      var folder = item.folder || "root";
+      if (!byFolder[folder]) byFolder[folder] = [];
+      byFolder[folder].push(path);
+    });
+    Object.keys(byFolder).forEach(function(folder) {
+      var paths = byFolder[folder];
+      paths.sort(function(a, b) {
+        var dy = (next[a].top || 0) - (next[b].top || 0);
+        if (dy) return dy;
+        return a < b ? -1 : a > b ? 1 : 0;
+      });
+      var center = options.centers && options.centers[folder];
+      var startY = originY;
+      if (center && isFinite(center.y)) {
+        var firstH = next[paths[0]] && next[paths[0]].height;
+        startY = center.y - (firstH || CODE_CARD_MIN_HEIGHT) / 2;
+      }
+      var cursor = startY;
+      paths.forEach(function(path) {
+        var item = Object.assign({}, next[path]);
+        next[path] = item;
+        if (codePathIsPinned(pinnedPaths, path)) {
+          item.x = item.left + item.width / 2;
+          item.y = item.top + item.height / 2;
+          cursor = Math.max(cursor, item.top + item.height + gapY);
+          return;
+        }
+        item.top = cursor;
+        item.x = item.left + item.width / 2;
+        item.y = item.top + item.height / 2;
+        cursor = item.top + item.height + gapY;
+      });
+    });
+    return next;
+  }
+  function liveGraphNodeXY(node) {
+    if (!node) return null;
+    var x = node.fx != null && isFinite(Number(node.fx)) ? Number(node.fx) : Number(node.x);
+    var y = node.fy != null && isFinite(Number(node.fy)) ? Number(node.fy) : Number(node.y);
+    if (!isFinite(x) || !isFinite(y)) return null;
+    return { x, y };
+  }
+  function readCodeCardWorldBox(card) {
+    if (!card || !card.style) return null;
+    var x = parseFloat(card.style.left);
+    var y = parseFloat(card.style.top);
+    var width = parseFloat(card.style.width);
+    var height = parseFloat(card.style.height);
+    if (!isFinite(x) || !isFinite(y) || !isFinite(width) || !isFinite(height) || width <= 0 || height <= 0) return null;
+    return { x, y, width, height };
+  }
+  function readCodeCardWorldBoxes(layer) {
+    var out = /* @__PURE__ */ Object.create(null);
+    if (!layer || !layer.querySelectorAll) return out;
+    var cards = layer.querySelectorAll("[data-code-card]");
+    Array.prototype.forEach.call(cards, function(card) {
+      var path = card.getAttribute("data-code-card");
+      var box = readCodeCardWorldBox(card);
+      if (path && box) out[path] = box;
+    });
+    return out;
+  }
+  function codeFolderMemberBox(node, sizesByPath, boxesByPath, fallbackR) {
+    if (!node) return null;
+    if (boxesByPath && boxesByPath[node.id]) return boxesByPath[node.id];
+    var xy = liveGraphNodeXY(node);
+    if (!xy) return null;
+    var size = sizesByPath && sizesByPath[node.id];
+    if (size && isFinite(size.width) && isFinite(size.height)) {
+      return { x: xy.x - size.width / 2, y: xy.y - size.height / 2, width: size.width, height: size.height };
+    }
+    if (fallbackR) {
+      return { x: xy.x - fallbackR, y: xy.y - fallbackR, width: fallbackR * 2, height: fallbackR * 2 };
+    }
+    size = codeCardSize(null);
+    return { x: xy.x - size.width / 2, y: xy.y - size.height / 2, width: size.width, height: size.height };
+  }
+  function unionPaddedBoxes(boxes, pad, labelExtra) {
+    pad = pad == null ? 24 : pad;
+    labelExtra = labelExtra == null ? 22 : labelExtra;
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    (boxes || []).forEach(function(box) {
+      if (!box || !isFinite(box.x) || !isFinite(box.y) || !isFinite(box.width) || !isFinite(box.height)) return;
+      minX = Math.min(minX, box.x);
+      minY = Math.min(minY, box.y);
+      maxX = Math.max(maxX, box.x + box.width);
+      maxY = Math.max(maxY, box.y + box.height);
+    });
+    if (!isFinite(minX)) return null;
+    return { x: minX - pad, y: minY - pad - labelExtra, width: maxX - minX + pad * 2, height: maxY - minY + pad * 2 + labelExtra };
+  }
+  function codeFolderHullBounds(cardNodes, leftoverNodes, sizesByPath, pad, boxesByPath) {
+    var boxes = [];
+    (cardNodes || []).forEach(function(node) {
+      var box = codeFolderMemberBox(node, sizesByPath, boxesByPath, 0);
+      if (box) boxes.push(box);
+    });
+    var cardUnion = unionPaddedBoxes(boxes, 0, 0);
+    (leftoverNodes || []).forEach(function(node) {
+      var box = codeFolderMemberBox(node, sizesByPath, null, 30);
+      if (!box) return;
+      if (cardUnion && !boxesOverlap(box, cardUnion, 240)) return;
+      boxes.push(box);
+    });
+    return unionPaddedBoxes(boxes, pad == null ? 40 : pad, 22);
+  }
+  function preserveGraphNodeState(nodes, prevById) {
+    (nodes || []).forEach(function(node) {
+      var prev = prevById && prevById[node.id];
+      if (!prev) return;
+      if (isFinite(prev.x)) node.x = prev.x;
+      if (isFinite(prev.y)) node.y = prev.y;
+      if (isFinite(prev.vx)) node.vx = prev.vx;
+      if (isFinite(prev.vy)) node.vy = prev.vy;
+      if (prev.fx != null && isFinite(prev.fx)) node.fx = prev.fx;
+      if (prev.fy != null && isFinite(prev.fy)) node.fy = prev.fy;
+    });
+    return nodes;
+  }
+
+  // src/investigation/navigation.mjs
+  function searchProject(data, query) {
+    var normalize = function(value) {
+      return String(value || "").toLowerCase().replace(/[._/\\-]+/g, " ");
+    };
+    var terms = normalize(query).trim().split(/\s+/).filter(Boolean);
+    if (!terms.length) return [];
+    var results = [];
+    function add(item, text) {
+      var haystack = normalize(text);
+      if (!terms.every(function(term) {
+        return haystack.includes(term);
+      })) return;
+      var title = normalize(item.label), needle = terms.join(" ");
+      item.rank = title === needle ? 0 : title.startsWith(needle) ? 1 : 2;
+      results.push(item);
+    }
+    (data.files || []).forEach(function(file) {
+      add({ kind: "file", path: file.path, label: file.name, line: 1 }, file.path);
+      (file.functions || []).forEach(function(fn) {
+        add({ kind: "symbol", path: file.path, label: fn.name, line: fn.line || 1 }, fn.name + " " + file.path);
+      });
+      (file.elixir && file.elixir.modules || []).forEach(function(module) {
+        var name = typeof module === "string" ? module : module.name;
+        add({ kind: "module", path: file.path, label: name, line: module.line || 1 }, name);
+      });
+    });
+    return results.sort(function(a, b) {
+      return a.rank - b.rank || (a.kind === "file" ? -1 : 1) - (b.kind === "file" ? -1 : 1) || a.label.localeCompare(b.label) || a.path.localeCompare(b.path);
+    });
+  }
+  function navigationWithCamera(history, camera) {
+    if (history.index < 0 || !camera) return history;
+    var entries = history.entries.slice();
+    entries[history.index] = Object.assign({}, entries[history.index], { camera });
+    return { entries, index: history.index };
+  }
+  function recordNavigation(history, location, camera) {
+    var entries = navigationWithCamera(history, camera).entries.slice(0, history.index + 1), previous = entries[entries.length - 1];
+    if (previous && previous.path === location.path && previous.scope === location.scope && previous.view === location.view && JSON.stringify(previous.range || null) === JSON.stringify(location.range || null)) {
+      entries[entries.length - 1] = location;
+    } else entries.push(location);
+    return { entries, index: entries.length - 1 };
+  }
+  function stepNavigation(history, delta, camera) {
+    var index = history.index + delta;
+    if (index < 0 || index >= history.entries.length) return null;
+    return { entries: navigationWithCamera(history, camera).entries, index };
+  }
+  var CODE_CARD_MAX = 12;
+  function defaultCodeViewSeed(data, folderFilter) {
+    if (!data || !data.files || !data.files.length) return null;
+    var filtered = folderFilter ? data.files.filter(function(f) {
+      return f.folder === folderFilter || f.folder.startsWith(folderFilter + "/");
+    }) : data.files;
+    if (!filtered.length) return null;
+    var byPath = /* @__PURE__ */ Object.create(null);
+    filtered.forEach(function(f) {
+      byPath[f.path] = f;
+    });
+    var counts = /* @__PURE__ */ Object.create(null);
+    (data.connections || []).forEach(function(c) {
+      var src = typeof c.source === "object" ? c.source.id : c.source;
+      var tgt = typeof c.target === "object" ? c.target.id : c.target;
+      if (byPath[src]) counts[src] = (counts[src] || 0) + 1;
+      if (byPath[tgt]) counts[tgt] = (counts[tgt] || 0) + 1;
+    });
+    var best = filtered[0];
+    var bestN = counts[best.path] || 0;
+    filtered.forEach(function(file) {
+      var n = counts[file.path] || 0;
+      if (n > bestN) {
+        best = file;
+        bestN = n;
+      }
+    });
+    return best.path;
+  }
+  function fileMatchesFolderFilter(file, folderFilter) {
+    if (!folderFilter) return true;
+    if (!file) return false;
+    return file.folder === folderFilter || !!file.folder && file.folder.startsWith(folderFilter + "/");
+  }
+  function pathMatchesFolderFilter(path, data, folderFilter) {
+    if (!folderFilter) return true;
+    if (!data || !data.files || !path) return false;
+    for (var i = 0; i < data.files.length; i++) {
+      if (data.files[i].path === path) return fileMatchesFolderFilter(data.files[i], folderFilter);
+    }
+    return false;
+  }
+  function folderFilterAfterCodeNav(path, data, folderFilter) {
+    if (pathMatchesFolderFilter(path, data, folderFilter)) return folderFilter || null;
+    return null;
+  }
+  function codeViewSeedPath(selectedPath, data, folderFilter) {
+    if (!data || !data.files || !data.files.length) return null;
+    if (selectedPath) {
+      var selected = null;
+      for (var i = 0; i < data.files.length; i++) {
+        if (data.files[i].path === selectedPath) {
+          selected = data.files[i];
+          break;
+        }
+      }
+      if (selected && fileMatchesFolderFilter(selected, folderFilter)) return selectedPath;
+    }
+    return defaultCodeViewSeed(data, folderFilter);
+  }
+  function hiddenOpenedCodePaths(paths, data, folderFilter) {
+    var hidden = /* @__PURE__ */ Object.create(null);
+    if (!folderFilter) return hidden;
+    var visible = /* @__PURE__ */ Object.create(null);
+    filesForOpenedCodePaths(paths, data, folderFilter).forEach(function(file) {
+      if (file && file.path) visible[file.path] = true;
+    });
+    (paths || []).forEach(function(path) {
+      if (path && !visible[path]) hidden[path] = true;
+    });
+    return hidden;
+  }
+  function codeCardPlacementKeepSet(openedPaths, visibleFiles) {
+    var keep = /* @__PURE__ */ Object.create(null);
+    (openedPaths || []).forEach(function(path) {
+      if (path) keep[path] = true;
+    });
+    (visibleFiles || []).forEach(function(file) {
+      if (file && file.path) keep[file.path] = true;
+    });
+    return keep;
+  }
+  function pruneCodeCardPlacements(placements, keep) {
+    var departed = /* @__PURE__ */ Object.create(null);
+    Object.keys(placements || {}).forEach(function(path) {
+      if (keep && keep[path]) return;
+      departed[path] = true;
+      delete placements[path];
+    });
+    return departed;
+  }
+  function evictHiddenCodeCards(list, hidden, count) {
+    var need = Number(count);
+    if (!isFinite(need) || need <= 0) return (list || []).slice();
+    var removed = 0;
+    return (list || []).filter(function(path) {
+      if (removed >= need) return true;
+      if (pathIsFlagged(hidden, path)) {
+        removed++;
+        return false;
+      }
+      return true;
+    });
+  }
+  function openCodeCardPaths(prev, path, limit, replace, hidden) {
+    var list = (prev || []).slice();
+    if (!path) return list;
+    if (list.indexOf(path) >= 0) return list;
+    var max = limit == null ? CODE_CARD_MAX : Number(limit);
+    if (isFinite(max) && list.length >= max) {
+      var need = list.length - max + 1;
+      if (hidden) list = evictHiddenCodeCards(list, hidden, need);
+      if (list.length >= max) {
+        if (!replace) return list;
+        list = list.slice(Math.max(0, list.length - max + 1));
+      }
+    }
+    list.push(path);
+    return list;
+  }
+  function resolveOpenCodeCard(prev, path, limit, replace, hidden) {
+    var before = prev || [];
+    var next = openCodeCardPaths(before, path, limit, replace, hidden);
+    var already = !!(path && before.indexOf(path) >= 0);
+    var inserted = !!(path && !already && next.indexOf(path) >= 0);
+    return { paths: next, already, inserted, opened: already || inserted };
+  }
+  function ensureCodeViewOpenedPaths(openedPaths, selectedPath, data, folderFilter) {
+    var seed = codeViewSeedPath(selectedPath, data, folderFilter);
+    if (!seed) return { paths: openedPaths || [], seed: null, opened: false, inserted: false };
+    var resolved = resolveOpenCodeCard(openedPaths, seed, Infinity, false, hiddenOpenedCodePaths(openedPaths, data, folderFilter));
+    return { paths: resolved.paths, seed, opened: resolved.opened, inserted: resolved.inserted };
+  }
+  function filesForOpenedCodePaths(paths, data, folderFilter) {
+    if (!data || !data.files) return [];
+    var filtered = folderFilter ? data.files.filter(function(f) {
+      return f.folder === folderFilter || f.folder.startsWith(folderFilter + "/");
+    }) : data.files;
+    var byPath = /* @__PURE__ */ Object.create(null);
+    filtered.forEach(function(file) {
+      byPath[file.path] = file;
+    });
+    return (paths || []).map(function(path) {
+      return byPath[path];
+    }).filter(Boolean);
+  }
+
+  // src/views/card-interaction.mjs
+  function noteCodeCardPointerEnd(moved) {
+    return { select: !moved, ignoreNextClick: !!moved };
+  }
+  function consumeCodeCardClick(ignoreNextClick) {
+    return { ignore: !!ignoreNextClick, ignoreNextClick: false };
+  }
+  function codeCardDragDelta(clientX, clientY, startX, startY, scale, threshold) {
+    var screenX = (Number(clientX) || 0) - (Number(startX) || 0);
+    var screenY = (Number(clientY) || 0) - (Number(startY) || 0);
+    var k = Number(scale);
+    if (!isFinite(k) || k <= 0) k = 1;
+    var limit = threshold == null ? 3 : Number(threshold);
+    if (!isFinite(limit)) limit = 3;
+    return {
+      x: screenX / k,
+      y: screenY / k,
+      screenX,
+      screenY,
+      moved: Math.abs(screenX) + Math.abs(screenY) > limit
+    };
+  }
+  function codeCardResizeDelta(clientX, clientY, startX, startY, startW, startH, scale, edge) {
+    var k = Number(scale);
+    if (!isFinite(k) || k <= 0) k = 1;
+    var dx = ((Number(clientX) || 0) - (Number(startX) || 0)) / k;
+    var dy = ((Number(clientY) || 0) - (Number(startY) || 0)) / k;
+    var width = Number(startW) || CODE_CARD_WIDTH;
+    var height = Number(startH) || CODE_CARD_MIN_HEIGHT;
+    if (edge === "e" || edge === "se") width += dx;
+    if (edge === "s" || edge === "se") height += dy;
+    return { width, height, dx, dy };
+  }
+  function codeViewDragRefresh(phase) {
+    return phase === "release";
+  }
+  function raiseCodeCardStack(order, path) {
+    var next = [];
+    (order || []).forEach(function(id) {
+      if (id && id !== path) next.push(id);
+    });
+    if (path) next.push(path);
+    return next;
+  }
+  function codeCardZIndex(order, path) {
+    var i = (order || []).indexOf(path);
+    return i < 0 ? 1 : i + 2;
+  }
+  function applyCodeCardStackOrder(layer, order) {
+    if (!layer || !layer.querySelectorAll) return 0;
+    var cards = layer.querySelectorAll("[data-code-card]");
+    var n = 0;
+    Array.prototype.forEach.call(cards, function(card) {
+      var path = card.getAttribute("data-code-card");
+      card.style.zIndex = String(codeCardZIndex(order, path));
+      n++;
+    });
+    return n;
+  }
+  function findCodeCardElement(layer, path) {
+    if (!layer || !layer.querySelectorAll || !path) return null;
+    var cards = layer.querySelectorAll("[data-code-card]");
+    var i;
+    for (i = 0; i < cards.length; i++) {
+      if (cards[i].getAttribute("data-code-card") === path) return cards[i];
+    }
+    return null;
+  }
+  function applyCodeCardDragFrame(layer, path, node, size) {
+    var card = findCodeCardElement(layer, path);
+    if (!card) return false;
+    var style = codeCardAnchorStyle(node, size);
+    card.style.visibility = style.visibility;
+    card.style.left = style.left;
+    card.style.top = style.top;
+    return style.visibility === "visible";
+  }
+  function applyCodeCardResizeFrame(card, size) {
+    if (!card || !size) return false;
+    card.style.width = size.width + "px";
+    card.style.height = size.height + "px";
+    if (card.classList) {
+      if (size.clipped && card.classList.add) card.classList.add("clipped");
+      else if (card.classList.remove) card.classList.remove("clipped");
+    }
+    return true;
+  }
+  function codeViewWheelAction(event) {
+    if (event && (event.ctrlKey || event.metaKey)) return "zoom";
+    return "pan";
+  }
+  function codeViewWheelPanDelta(deltaX, deltaY, scale) {
+    var k = Number(scale);
+    if (!isFinite(k) || k <= 0) k = 1;
+    return { x: -(Number(deltaX) || 0) / k, y: -(Number(deltaY) || 0) / k };
+  }
+  function codeCanvasTransformStyle(transform) {
+    var t = transform || {};
+    var k = Number(t.k);
+    if (!isFinite(k) || k <= 0) k = 1;
+    var x = Number(t.x);
+    if (!isFinite(x)) x = 0;
+    var y = Number(t.y);
+    if (!isFinite(y)) y = 0;
+    return "translate(" + x + "px," + y + "px) scale(" + k + ")";
+  }
+  function codeCardAnchorStyle(node, size) {
+    size = size || codeCardSize(null);
+    var xy = liveGraphNodeXY(node);
+    if (!xy) return { visibility: "hidden", left: "0px", top: "0px" };
+    return {
+      visibility: "visible",
+      left: xy.x - size.width / 2 + "px",
+      top: xy.y - size.height / 2 + "px"
+    };
+  }
+  function applyCodeCardLayout(layer, nodesById, transform, sizesByPath, stackOrder) {
+    if (!layer) return { placed: 0, titleScale: 1 };
+    layer.style.transform = codeCanvasTransformStyle(transform);
+    var k = transform && isFinite(Number(transform.k)) ? Number(transform.k) : 1;
+    var titleScale = readableLabelScale(k);
+    var cards = layer.querySelectorAll ? layer.querySelectorAll("[data-code-card]") : [];
+    var placed = 0;
+    Array.prototype.forEach.call(cards, function(card) {
+      var path = card.getAttribute("data-code-card");
+      var size = sizesByPath && sizesByPath[path] || codeCardSize(null);
+      var style = codeCardAnchorStyle(nodesById && nodesById[path], size);
+      card.style.visibility = style.visibility;
+      card.style.left = style.left;
+      card.style.top = style.top;
+      card.style.width = size.width + "px";
+      card.style.height = size.height + "px";
+      if (stackOrder) card.style.zIndex = String(codeCardZIndex(stackOrder, path));
+      if (card.classList) {
+        if (size.clipped && card.classList.add) card.classList.add("clipped");
+        else if (card.classList.remove) card.classList.remove("clipped");
+        if (size.expand && card.classList.add) card.classList.add("expand");
+        else if (card.classList.remove) card.classList.remove("expand");
+        if (size.wrap && card.classList.add) card.classList.add("wrap");
+        else if (card.classList.remove) card.classList.remove("wrap");
+      }
+      var title = card.querySelector ? card.querySelector(".code-card-name") : null;
+      if (title) title.style.transform = "scale(" + titleScale + ")";
+      if (card.classList) {
+        if (zoomHidesCodeText(k) && card.classList.add) card.classList.add("code-far");
+        else if (card.classList.remove) card.classList.remove("code-far");
+        if (zoomShowsColorBlocks(k) && card.classList.add) card.classList.add("code-blocks");
+        else if (card.classList.remove) card.classList.remove("code-blocks");
+      }
+      if (style.visibility === "visible") placed++;
+    });
+    return { placed, titleScale, colorBlocks: zoomShowsColorBlocks(k), codeFar: zoomHidesCodeText(k) };
+  }
+  function readCodeCardBodyScroll(layer, path) {
+    if (!layer || !path) return 0;
+    var cards = layer.querySelectorAll ? layer.querySelectorAll("[data-code-card]") : [];
+    for (var i = 0; i < cards.length; i++) {
+      if (cards[i].getAttribute("data-code-card") !== path) continue;
+      var body = cards[i].querySelector ? cards[i].querySelector(".code-card-body") : null;
+      var top = body ? Number(body.scrollTop) : 0;
+      return isFinite(top) ? top : 0;
+    }
+    return 0;
+  }
+  function isCodeCanvasDeselectTarget(target, svg) {
+    if (!target || !svg) return false;
+    if (target === svg) return true;
+    if (target.getAttribute && target.getAttribute("data-code-bg") === "1") return true;
+    return !!(target.closest && target.closest('[data-code-bg="1"]'));
+  }
+  function isCodeCanvasNativeScrollTarget(target) {
+    if (!target || !target.closest) return false;
+    if (target.closest(".code-sym-list")) return true;
+    if (!target.closest(".code-card.clipped .code-card-body")) return false;
+    return !target.closest(".code-card.code-far");
+  }
+  function codeViewWheelUsesNativeScroll(event, target) {
+    if (codeViewWheelAction(event) === "zoom") return false;
+    return isCodeCanvasNativeScrollTarget(target);
+  }
+
+  // src/views/card-links.mjs
+  function codeCardSymbolLine(file, name) {
+    if (!file || !name) return null;
+    var fns = file.functions || [];
+    var i;
+    for (i = 0; i < fns.length; i++) {
+      if (fns[i] && fns[i].name === name && fns[i].line) return fns[i].line;
+    }
+    var content = String(file.content || "");
+    if (!content) return null;
+    var escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    var re = new RegExp("(?:^|[^A-Za-z0-9_$])" + escaped + "(?:[^A-Za-z0-9_$]|$)");
+    var lines = content.split("\n");
+    for (i = 0; i < lines.length; i++) {
+      if (re.test(lines[i])) return i + 1;
+    }
+    return null;
+  }
+  function codeCardLineY(size, line, file, prefs) {
+    var n = Math.max(1, Number(line) || 1);
+    var visual = file ? codeCardVisualLineIndex(file, n, prefs) : n;
+    return CODE_CARD_HEAD_HEIGHT + 8 + (visual - 0.5) * CODE_CARD_LINE_HEIGHT;
+  }
+  function codeLinkPrefersVertical(src, tgt) {
+    if (!src || !tgt || !isFinite(src.x) || !isFinite(tgt.x)) return false;
+    return Math.abs(src.x - tgt.x) < 1;
+  }
+  function codeEdgeBezier(x1, y1, x2, y2) {
+    var dxAbs = Math.abs(x2 - x1);
+    var dyAbs = Math.abs(y2 - y1);
+    if (dxAbs < 1 && dyAbs > 0) {
+      var vspan = Math.max(80, dyAbs * 0.45);
+      var dy = (y2 < y1 ? -1 : 1) * vspan;
+      return "M" + x1 + "," + y1 + "C" + x1 + "," + (y1 + dy) + " " + x2 + "," + (y2 - dy) + " " + x2 + "," + y2;
+    }
+    var span = Math.max(80, dxAbs * 0.45);
+    var dx = (x2 < x1 ? -1 : 1) * span;
+    return "M" + x1 + "," + y1 + "C" + (x1 + dx) + "," + y1 + " " + (x2 - dx) + "," + y2 + " " + x2 + "," + y2;
+  }
+  function codeCardAnchorY(node, size, line) {
+    size = size || codeCardSize(null);
+    var y = line ? codeCardLineY(size, line) : CODE_CARD_HEAD_HEIGHT + (size.height - CODE_CARD_HEAD_HEIGHT) / 2;
+    if (!isFinite(y)) y = size.height / 2;
+    y = Math.max(CODE_CARD_HEAD_HEIGHT + 6, Math.min(size.height - 8, y));
+    return (node && isFinite(node.y) ? node.y : 0) - size.height / 2 + y;
+  }
+  function codeCardLinkEndpoint(node, size, file, other, fn, isCard, vertical) {
+    if (!isCard) return { x: node.x, y: node.y };
+    size = size || codeCardSize(file);
+    if (vertical) {
+      var top = node.y - size.height / 2;
+      var bottom = node.y + size.height / 2;
+      var towardY = other && isFinite(other.y) ? other.y : bottom + 1;
+      return { x: node.x, y: towardY < node.y ? top : bottom };
+    }
+    var line = fn ? codeCardSymbolLine(file, fn) : null;
+    var y = codeCardAnchorY(node, size, line);
+    var left = node.x - size.width / 2;
+    var right = node.x + size.width / 2;
+    var toward = other && isFinite(other.x) ? other.x : right + 1;
+    return { x: toward < node.x ? left : right, y };
+  }
+  function codeCardLinkPath(link, sizesByPath, filesByPath, cardPaths) {
+    var src = link && link.source;
+    var tgt = link && link.target;
+    if (!src || !tgt || typeof src !== "object" || typeof tgt !== "object") return null;
+    var srcIsCard = !!(cardPaths && cardPaths.has(src.id));
+    var tgtIsCard = !!(cardPaths && cardPaths.has(tgt.id));
+    if (!srcIsCard && !tgtIsCard) return null;
+    if (!isFinite(src.x) || !isFinite(src.y) || !isFinite(tgt.x) || !isFinite(tgt.y)) return null;
+    var srcFile = filesByPath && filesByPath[src.id];
+    var tgtFile = filesByPath && filesByPath[tgt.id];
+    var srcSize = sizesByPath && sizesByPath[src.id] || codeCardSize(srcFile);
+    var tgtSize = sizesByPath && sizesByPath[tgt.id] || codeCardSize(tgtFile);
+    var fn = link.fn;
+    var vertical = codeLinkPrefersVertical(src, tgt);
+    var p1 = codeCardLinkEndpoint(src, srcSize, srcFile, tgt, fn, srcIsCard, vertical);
+    var p2 = codeCardLinkEndpoint(tgt, tgtSize, tgtFile, src, fn, tgtIsCard, vertical);
+    return codeEdgeBezier(p1.x, p1.y, p2.x, p2.y);
+  }
+
+  // src/views/camera.mjs
+  var CODE_VIEW_MIN_FIT_SCALE = 0.4;
+  var CODE_VIEW_MAX_FIT_SCALE = 1.15;
+  function snapshotZoomTransform(transform) {
+    var t = transform || {};
+    var k = Number(t.k);
+    if (!isFinite(k) || k <= 0) k = 1;
+    var x = Number(t.x);
+    if (!isFinite(x)) x = 0;
+    var y = Number(t.y);
+    if (!isFinite(y)) y = 0;
+    return { k, x, y };
+  }
+  function shouldFitCodeCamera(cameraReady, vizType) {
+    return vizType === "code" && !cameraReady;
+  }
+  function clampCodeViewFitScale(scale) {
+    var value = Number(scale);
+    if (!isFinite(value) || value <= 0) return CODE_VIEW_MIN_FIT_SCALE;
+    if (value < CODE_VIEW_MIN_FIT_SCALE) return CODE_VIEW_MIN_FIT_SCALE;
+    if (value > CODE_VIEW_MAX_FIT_SCALE) return CODE_VIEW_MAX_FIT_SCALE;
+    return value;
+  }
+  function codeCardFitBounds(nodes, sizesByPath, cardPaths) {
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    (nodes || []).forEach(function(node) {
+      if (!node || !cardPaths || !cardPaths.has(node.id) || !isFinite(node.x) || !isFinite(node.y)) return;
+      var size = sizesByPath && sizesByPath[node.id] || codeCardSize(null);
+      minX = Math.min(minX, node.x - size.width / 2);
+      minY = Math.min(minY, node.y - size.height / 2);
+      maxX = Math.max(maxX, node.x + size.width / 2);
+      maxY = Math.max(maxY, node.y + size.height / 2);
+    });
+    if (!isFinite(minX)) return null;
+    return { minX, minY, maxX, maxY, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
+  }
+
+  // src/views/minimap.mjs
+  function minimapWorldFromBoxes(boxes, pad) {
+    var union = unionPaddedBoxes(boxes, pad == null ? 48 : pad, 0);
+    if (!union) return null;
+    return {
+      minX: union.x,
+      minY: union.y,
+      maxX: union.x + union.width,
+      maxY: union.y + union.height,
+      width: union.width,
+      height: union.height
+    };
+  }
+  function minimapCardInputs(vizType, sizesByPath, cardPaths) {
+    if (vizType !== "code") return { sizesByPath: null, cardPaths: null };
+    return { sizesByPath: sizesByPath || null, cardPaths: cardPaths || null };
+  }
+  function collectMinimapContent(nodes, sizesByPath, cardPaths, colorOf, pad) {
+    var marks = [];
+    var boxes = [];
+    var folders = /* @__PURE__ */ Object.create(null);
+    (nodes || []).forEach(function(node) {
+      var xy = liveGraphNodeXY(node);
+      if (!xy) return;
+      var folder = node.folder || "root";
+      var color = typeof colorOf === "function" ? colorOf(node) : null;
+      var isCard = !!(cardPaths && cardPaths.has && cardPaths.has(node.id) && sizesByPath && sizesByPath[node.id]);
+      var box;
+      if (isCard) {
+        var size = sizesByPath[node.id];
+        box = { x: xy.x - size.width / 2, y: xy.y - size.height / 2, width: size.width, height: size.height };
+        marks.push({ kind: "card", x: box.x, y: box.y, width: box.width, height: box.height, color, folder });
+      } else {
+        box = { x: xy.x - 16, y: xy.y - 16, width: 32, height: 32 };
+        marks.push({ kind: "node", x: xy.x, y: xy.y, color, folder });
+      }
+      if (!folders[folder]) folders[folder] = { boxes: [], color };
+      folders[folder].boxes.push(box);
+      boxes.push(box);
+      if (color) folders[folder].color = color;
+    });
+    var hulls = [];
+    Object.keys(folders).forEach(function(folder) {
+      var union = unionPaddedBoxes(folders[folder].boxes, 18, 0);
+      if (union) hulls.push({ folder, color: folders[folder].color, x: union.x, y: union.y, width: union.width, height: union.height });
+    });
+    return { marks, hulls, world: minimapWorldFromBoxes(boxes, pad) };
+  }
+  function viewportWorldRect(transform, viewW, viewH) {
+    var t = snapshotZoomTransform(transform);
+    var w = Number(viewW);
+    var h = Number(viewH);
+    if (!isFinite(w) || w <= 0) w = 800;
+    if (!isFinite(h) || h <= 0) h = 600;
+    return { x: -t.x / t.k, y: -t.y / t.k, width: w / t.k, height: h / t.k };
+  }
+  function minimapFitRect(world, mapW, mapH, pad) {
+    mapW = Number(mapW);
+    mapH = Number(mapH);
+    if (!world || !isFinite(world.width) || !isFinite(world.height) || world.width <= 0 || world.height <= 0) return null;
+    if (!isFinite(mapW) || !isFinite(mapH) || mapW <= 0 || mapH <= 0) return null;
+    pad = pad == null ? 8 : Number(pad);
+    if (!isFinite(pad) || pad < 0) pad = 0;
+    var innerW = Math.max(1, mapW - pad * 2);
+    var innerH = Math.max(1, mapH - pad * 2);
+    var scale = Math.min(innerW / world.width, innerH / world.height);
+    if (!isFinite(scale) || scale <= 0) scale = 1;
+    var usedW = world.width * scale;
+    var usedH = world.height * scale;
+    return { scale, ox: pad + (innerW - usedW) / 2, oy: pad + (innerH - usedH) / 2 };
+  }
+  function worldToMinimap(x, y, world, fit) {
+    if (!world || !fit) return { x: 0, y: 0 };
+    return { x: (Number(x) - world.minX) * fit.scale + fit.ox, y: (Number(y) - world.minY) * fit.scale + fit.oy };
+  }
+  function clampMinimapPoint(mx, my, world, fit) {
+    mx = Number(mx);
+    my = Number(my);
+    if (!world || !fit || !isFinite(Number(fit.scale)) || !fit.scale) {
+      return { x: isFinite(mx) ? mx : 0, y: isFinite(my) ? my : 0 };
+    }
+    var minX = Number(fit.ox) || 0;
+    var minY = Number(fit.oy) || 0;
+    var maxX = minX + Number(world.width) * Number(fit.scale);
+    var maxY = minY + Number(world.height) * Number(fit.scale);
+    if (!isFinite(maxX) || maxX < minX) maxX = minX;
+    if (!isFinite(maxY) || maxY < minY) maxY = minY;
+    if (!isFinite(mx)) mx = minX;
+    if (!isFinite(my)) my = minY;
+    if (mx < minX) mx = minX;
+    else if (mx > maxX) mx = maxX;
+    if (my < minY) my = minY;
+    else if (my > maxY) my = maxY;
+    return { x: mx, y: my };
+  }
+  function minimapToWorld(mx, my, world, fit) {
+    if (!world || !fit || !fit.scale) return { x: 0, y: 0 };
+    var p = clampMinimapPoint(mx, my, world, fit);
+    return { x: (p.x - fit.ox) / fit.scale + world.minX, y: (p.y - fit.oy) / fit.scale + world.minY };
+  }
+  function zoomTransformToCenterWorld(worldX, worldY, scale, viewW, viewH) {
+    var k = Number(scale);
+    if (!isFinite(k) || k <= 0) k = 1;
+    var w = Number(viewW);
+    var h = Number(viewH);
+    if (!isFinite(w) || w <= 0) w = 800;
+    if (!isFinite(h) || h <= 0) h = 600;
+    return { k, x: w / 2 - Number(worldX) * k, y: h / 2 - Number(worldY) * k };
+  }
+  function zoomTransformFromMinimapPoint(mx, my, world, fit, transform, viewW, viewH) {
+    var pt = minimapToWorld(mx, my, world, fit);
+    var t = snapshotZoomTransform(transform);
+    return zoomTransformToCenterWorld(pt.x, pt.y, t.k, viewW, viewH);
+  }
+  function zoomTransformNudgeWorld(transform, dxWorld, dyWorld) {
+    var t = snapshotZoomTransform(transform);
+    var dx = Number(dxWorld);
+    var dy = Number(dyWorld);
+    if (!isFinite(dx)) dx = 0;
+    if (!isFinite(dy)) dy = 0;
+    return { k: t.k, x: t.x - dx * t.k, y: t.y - dy * t.k };
+  }
+  function panTransformByViewportFraction(transform, dxFrac, dyFrac, viewW, viewH) {
+    var view = viewportWorldRect(transform, viewW, viewH);
+    var fx = Number(dxFrac);
+    var fy = Number(dyFrac);
+    if (!isFinite(fx)) fx = 0;
+    if (!isFinite(fy)) fy = 0;
+    return zoomTransformNudgeWorld(transform, view.width * fx, view.height * fy);
+  }
+  function panTransformToWorldMidpoint(transform, world, viewW, viewH) {
+    var t = snapshotZoomTransform(transform);
+    if (!world) return t;
+    var midX = (Number(world.minX) + Number(world.maxX)) / 2;
+    var midY = (Number(world.minY) + Number(world.maxY)) / 2;
+    if (!isFinite(midX) || !isFinite(midY)) return t;
+    return zoomTransformToCenterWorld(midX, midY, t.k, viewW, viewH);
+  }
+  function minimapPointerXY(clientX, clientY, rect) {
+    rect = rect || {};
+    return { x: (Number(clientX) || 0) - (Number(rect.left) || 0), y: (Number(clientY) || 0) - (Number(rect.top) || 0) };
+  }
+  function colorWithAlpha(color, alpha) {
+    color = String(color || "");
+    var a = Number(alpha);
+    if (!isFinite(a)) a = 1;
+    if (a < 0) a = 0;
+    if (a > 1) a = 1;
+    if (color.charAt(0) === "#" && (color.length === 7 || color.length === 4)) {
+      var r, g, b;
+      if (color.length === 4) {
+        r = parseInt(color.charAt(1) + color.charAt(1), 16);
+        g = parseInt(color.charAt(2) + color.charAt(2), 16);
+        b = parseInt(color.charAt(3) + color.charAt(3), 16);
+      } else {
+        r = parseInt(color.slice(1, 3), 16);
+        g = parseInt(color.slice(3, 5), 16);
+        b = parseInt(color.slice(5, 7), 16);
+      }
+      if (isFinite(r) && isFinite(g) && isFinite(b)) return "rgba(" + r + "," + g + "," + b + "," + a + ")";
+    }
+    return color;
+  }
+  function readMinimapTheme(el) {
+    var styles = el && typeof getComputedStyle === "function" ? getComputedStyle(el) : null;
+    function css(name, fallback) {
+      var v = styles ? String(styles.getPropertyValue(name) || "").trim() : "";
+      return v || fallback;
+    }
+    return {
+      bg: css("--bg1", "#0f0f12"),
+      acc: css("--acc", "#00ff9d"),
+      muted: css("--t3", "#5c5c66")
+    };
+  }
+  function clearCanvasMinimap(canvas) {
+    if (!canvas || typeof canvas.getContext !== "function") return false;
+    var ctx = canvas.getContext("2d");
+    if (!ctx) return false;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width || 0, canvas.height || 0);
+    return true;
+  }
+  function drawCanvasMinimap(canvas, model) {
+    if (!canvas || typeof canvas.getContext !== "function" || !model || !model.fit || !model.world) return false;
+    var ctx = canvas.getContext("2d");
+    if (!ctx) return false;
+    var dpr = typeof window !== "undefined" && window.devicePixelRatio ? window.devicePixelRatio : 1;
+    if (!isFinite(dpr) || dpr <= 0) dpr = 1;
+    var w = Number(model.mapW);
+    var h = Number(model.mapH);
+    if (!isFinite(w) || w <= 0) w = 176;
+    if (!isFinite(h) || h <= 0) h = 118;
+    var pixelW = Math.max(1, Math.round(w * dpr));
+    var pixelH = Math.max(1, Math.round(h * dpr));
+    if (canvas.width !== pixelW || canvas.height !== pixelH) {
+      canvas.width = pixelW;
+      canvas.height = pixelH;
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    var theme = model.theme || {};
+    var acc = theme.acc || "#00ff9d";
+    var muted = theme.muted || "#5c5c66";
+    (model.hulls || []).forEach(function(hull) {
+      if (!hull) return;
+      var p1 = worldToMinimap(hull.x, hull.y, model.world, model.fit);
+      var p2 = worldToMinimap(hull.x + hull.width, hull.y + hull.height, model.world, model.fit);
+      var hx = p1.x, hy = p1.y, hw = Math.max(2, p2.x - p1.x), hh = Math.max(2, p2.y - p1.y);
+      ctx.beginPath();
+      ctx.fillStyle = colorWithAlpha(hull.color || muted, 0.12);
+      ctx.strokeStyle = colorWithAlpha(hull.color || muted, 0.4);
+      ctx.lineWidth = 1;
+      if (typeof ctx.roundRect === "function") ctx.roundRect(hx, hy, hw, hh, 3);
+      else ctx.rect(hx, hy, hw, hh);
+      ctx.fill();
+      ctx.stroke();
+    });
+    (model.marks || []).forEach(function(mark) {
+      if (!mark || mark.kind !== "card") return;
+      var c1 = worldToMinimap(mark.x, mark.y, model.world, model.fit);
+      var c2 = worldToMinimap(mark.x + mark.width, mark.y + mark.height, model.world, model.fit);
+      ctx.fillStyle = colorWithAlpha(mark.color || acc, 0.32);
+      ctx.fillRect(c1.x, c1.y, Math.max(2, c2.x - c1.x), Math.max(2, c2.y - c1.y));
+    });
+    (model.marks || []).forEach(function(mark) {
+      if (!mark || mark.kind !== "node") return;
+      var p = worldToMinimap(mark.x, mark.y, model.world, model.fit);
+      ctx.beginPath();
+      ctx.fillStyle = mark.color || acc;
+      ctx.arc(p.x, p.y, 1.7, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    if (model.viewport) {
+      var v = model.viewport;
+      var v1 = worldToMinimap(v.x, v.y, model.world, model.fit);
+      var v2 = worldToMinimap(v.x + v.width, v.y + v.height, model.world, model.fit);
+      ctx.fillStyle = colorWithAlpha(acc, 0.1);
+      ctx.strokeStyle = acc;
+      ctx.lineWidth = 1.25;
+      ctx.fillRect(v1.x, v1.y, v2.x - v1.x, v2.y - v1.y);
+      ctx.strokeRect(v1.x, v1.y, v2.x - v1.x, v2.y - v1.y);
+    }
+    return true;
+  }
+
+  // src/views/source-symbols.mjs
+  function escapeRegExp(value) {
+    return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  function isValidSymbolName(name) {
+    return /^[A-Za-z_$][\w$]*$/.test(String(name || ""));
+  }
+  function escapeHtmlAttr(value) {
+    return String(value || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  function safeSymbolKind(kind) {
+    return kind === "fn" || kind === "import" || kind === "export" || kind === "var" ? kind : "var";
+  }
+  function extractFileSymbols(file, connections) {
+    var symbols = [];
+    var seen = /* @__PURE__ */ Object.create(null);
+    function add(name, kind) {
+      if (!isValidSymbolName(name) || seen[name]) return;
+      seen[name] = true;
+      symbols.push({ name, kind: kind || "var" });
+    }
+    (file && file.functions || []).forEach(function(fn) {
+      add(fn.name, fn.isExported ? "export" : "fn");
+    });
+    var content = String(file && file.content || "");
+    var match;
+    var importRe = /\bimport\s+(?!\()([\s\S]*?)\s+from\s*['"`][^'"`]+['"`]/g;
+    while (match = importRe.exec(content)) {
+      var spec = match[1] || "";
+      if (/^\s*type\b/.test(spec)) continue;
+      var named = spec.match(/\{([\s\S]*?)\}/);
+      if (named) {
+        named[1].split(",").forEach(function(part) {
+          part = part.trim().replace(/^type\s+/, "").trim();
+          var alias = part.match(/^([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)$/);
+          add(alias ? alias[2] : part.replace(/[^\w$].*$/, ""), "import");
+        });
+      }
+      var ns = spec.match(/\*\s+as\s+([A-Za-z_$][\w$]*)/);
+      if (ns) add(ns[1], "import");
+      var def = spec.split("{")[0].split("*")[0].split(",")[0].trim();
+      if (isValidSymbolName(def)) add(def, "import");
+    }
+    var exportRe = /\bexport\s+(?:default\s+)?(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)/g;
+    while (match = exportRe.exec(content)) add(match[1], "export");
+    var namedExportRe = /\bexport\s+(?:default\s+)?\{([\s\S]*?)\}/g;
+    while (match = namedExportRe.exec(content)) {
+      match[1].split(",").forEach(function(part) {
+        part = part.trim();
+        var alias = part.match(/^([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)$/);
+        add(alias ? alias[1] : part.replace(/[^\w$].*$/, ""), "export");
+      });
+    }
+    var pyFromRe = /^\s*from\s+[.\w]+\s+import\s+([^\n#]+)/gm;
+    while (match = pyFromRe.exec(content)) {
+      match[1].replace(/[()]/g, "").split(",").forEach(function(part) {
+        var pieces = part.trim().split(/\s+as\s+/);
+        add((pieces[1] || pieces[0] || "").trim(), "import");
+      });
+    }
+    (connections || []).forEach(function(c) {
+      var src = typeof c.source === "object" ? c.source.id : c.source;
+      var tgt = typeof c.target === "object" ? c.target.id : c.target;
+      if (file && (src === file.path || tgt === file.path) && c.fn) add(c.fn, "fn");
+    });
+    return symbols;
+  }
+  function codeColorBlockLineCount(file) {
+    if (file && typeof file.content === "string" && file.content) return Math.max(1, file.content.split("\n").length);
+    var lines = Number(file && file.lines);
+    if (isFinite(lines) && lines > 0) return Math.max(1, lines);
+    var max = 1;
+    (file && file.functions || []).forEach(function(fn) {
+      var line = Number(fn && fn.line);
+      if (isFinite(line) && line > max) max = line;
+    });
+    return max;
+  }
+  function codeColorBlockSections(file, connections, prefs, diffRows) {
+    prefs = normalizeCodeCardPrefs(prefs);
+    var paintFile = fileForCodeCardDiff(file, diffRows);
+    var total = codeColorBlockLineCount(paintFile);
+    var byLine = /* @__PURE__ */ Object.create(null);
+    (file && file.functions || []).forEach(function(fn) {
+      if (!fn || !fn.name || !fn.line) return;
+      var kind = fn.type === "class" || fn.type === "dataclass" || fn.type === "abstract_class" ? "class" : fn.isExported ? "export" : "fn";
+      var line = codeCardDiffLineIndex(diffRows, fn.line);
+      if (!byLine[line]) byLine[line] = { name: fn.name, kind, startLine: line };
+    });
+    extractFileSymbols(file, connections).forEach(function(sym) {
+      var analyzed = codeCardSymbolLine(file, sym.name);
+      if (!analyzed) return;
+      var line = codeCardDiffLineIndex(diffRows, analyzed);
+      if (!line || byLine[line]) return;
+      byLine[line] = { name: sym.name, kind: sym.kind || "var", startLine: line };
+    });
+    var starts = Object.keys(byLine).map(Number).filter(isFinite).sort(function(a, b) {
+      return a - b;
+    });
+    var sections = [];
+    if (!starts.length) {
+      sections.push({ name: file && (file.name || file.path) || "file", kind: "file", startLine: 1, endLine: total });
+    } else {
+      if (starts[0] > 1) {
+        sections.push({ name: file && (file.name || file.path) || "file", kind: "file", startLine: 1, endLine: starts[0] - 1 });
+      }
+      starts.forEach(function(start, i) {
+        var item = byLine[start];
+        var end = i + 1 < starts.length ? starts[i + 1] - 1 : total;
+        if (end < start) end = start;
+        sections.push({ name: item.name, kind: item.kind, startLine: start, endLine: end });
+      });
+    }
+    return sections.map(function(section) {
+      var startVisual = paintFile ? codeCardVisualLineIndex(paintFile, section.startLine, prefs) : section.startLine;
+      var endVisual = paintFile ? codeCardVisualLineEndIndex(paintFile, section.endLine, prefs) : section.endLine;
+      if (endVisual < startVisual) endVisual = startVisual;
+      return Object.assign({}, section, {
+        color: codeColorBlockKindColor(section.kind),
+        top: 8 + (startVisual - 1) * CODE_CARD_LINE_HEIGHT,
+        height: Math.max(6, (endVisual - startVisual + 1) * CODE_CARD_LINE_HEIGHT)
+      });
+    });
+  }
+  function codeCardSymbolPills(file, connections, prefs, diffRows) {
+    var paintFile = fileForCodeCardDiff(file, diffRows);
+    var size = codeCardSizeForDiff(file, prefs, diffRows);
+    return extractFileSymbols(file, connections).map(function(sym) {
+      var line = codeCardSymbolLine(file, sym.name);
+      if (!line) return null;
+      var visual = codeCardDiffLineIndex(diffRows, line);
+      return { name: sym.name, kind: sym.kind, line: visual, top: codeCardLineY(size, visual, paintFile, prefs) };
+    }).filter(Boolean);
+  }
+  function codeCardPillViewTop(lineTop, scrollTop, cardHeight, headHeight) {
+    var y = Number(lineTop) - (Number(scrollTop) || 0);
+    var min = headHeight == null ? CODE_CARD_HEAD_HEIGHT : Number(headHeight);
+    var max = Number(cardHeight);
+    if (!isFinite(y) || !isFinite(min) || !isFinite(max)) return null;
+    if (y < min || y > max) return null;
+    return y;
+  }
+  function collectCrossFileSymbols(files, connections) {
+    var byName = /* @__PURE__ */ Object.create(null);
+    (files || []).forEach(function(file) {
+      extractFileSymbols(file, connections).forEach(function(sym) {
+        if (!byName[sym.name]) byName[sym.name] = { name: sym.name, kind: sym.kind, files: [] };
+        if (byName[sym.name].files.indexOf(file.path) < 0) byName[sym.name].files.push(file.path);
+        if (sym.kind === "export") byName[sym.name].kind = "export";
+        else if (sym.kind === "import" && byName[sym.name].kind !== "export") byName[sym.name].kind = "import";
+      });
+    });
+    return Object.keys(byName).map(function(name) {
+      return byName[name];
+    }).sort(function(a, b) {
+      return b.files.length - a.files.length || a.name.localeCompare(b.name);
+    });
+  }
+  function annotateHtmlWithSymbols(html, symbols, activeSymbol) {
+    var source = String(html || "");
+    if (!source || !symbols || !symbols.length) return source;
+    var names = symbols.map(function(s) {
+      return s.name;
+    }).filter(isValidSymbolName);
+    if (!names.length) return source;
+    var kindByName = /* @__PURE__ */ Object.create(null);
+    symbols.forEach(function(s) {
+      if (isValidSymbolName(s.name)) kindByName[s.name] = s.kind || "var";
+    });
+    var re = new RegExp("\\b(" + names.map(escapeRegExp).join("|") + ")\\b", "g");
+    var out = "";
+    var last = 0;
+    var match;
+    while (match = re.exec(source)) {
+      var idx = match.index;
+      var before = source.slice(0, idx);
+      var lastLt = before.lastIndexOf("<");
+      var lastGt = before.lastIndexOf(">");
+      if (lastLt > lastGt) continue;
+      out += source.slice(last, idx);
+      var kind = safeSymbolKind(kindByName[match[1]] || "var");
+      var active = activeSymbol && activeSymbol === match[1] ? " active" : "";
+      var safeName = escapeHtmlAttr(match[1]);
+      out += '<span class="sym-mark ' + kind + active + '" data-sym="' + safeName + '">' + safeName + "</span>";
+      last = idx + match[0].length;
+    }
+    return out + source.slice(last);
+  }
+
+  // src/analysis/metrics.mjs
+  function calcBlast(fileId, conns, files) {
+    var exportedTo = {};
+    var importedFrom = {};
+    var exportedFns = {};
+    conns.forEach(function(c) {
+      var src = typeof c.source === "object" ? c.source.id : c.source;
+      var tgt = typeof c.target === "object" ? c.target.id : c.target;
+      if (!exportedTo[src]) exportedTo[src] = /* @__PURE__ */ new Set();
+      exportedTo[src].add(tgt);
+      if (!importedFrom[tgt]) importedFrom[tgt] = /* @__PURE__ */ new Set();
+      importedFrom[tgt].add(src);
+      if (c.evidence === "mix xref") return;
+      if (!exportedFns[src]) exportedFns[src] = /* @__PURE__ */ new Map();
+      var fnMap = exportedFns[src];
+      fnMap.set(c.fn, (fnMap.get(c.fn) || 0) + (c.count || 1));
+    });
+    var directDeps = exportedTo[fileId] ? Array.from(exportedTo[fileId]) : [];
+    var transitive = /* @__PURE__ */ new Map();
+    var queue = directDeps.map(function(f) {
+      return { file: f, depth: 1 };
+    });
+    var visited = new Set([fileId].concat(directDeps));
+    while (queue.length > 0) {
+      var item = queue.shift();
+      if (item.depth > 3) continue;
+      transitive.set(item.file, item.depth);
+      var nextDeps = exportedTo[item.file] || /* @__PURE__ */ new Set();
+      nextDeps.forEach(function(f) {
+        if (!visited.has(f)) {
+          visited.add(f);
+          queue.push({ file: f, depth: item.depth + 1 });
+        }
+      });
+    }
+    var fnUsage = exportedFns[fileId] || /* @__PURE__ */ new Map();
+    var fnsUsed = fnUsage.size;
+    var totalCalls = 0;
+    fnUsage.forEach(function(cnt) {
+      totalCalls += cnt;
+    });
+    var dependencies = importedFrom[fileId] ? Array.from(importedFrom[fileId]) : [];
+    var impactScore = directDeps.length;
+    transitive.forEach(function(depth, f) {
+      if (depth > 1) impactScore += 1 / depth;
+    });
+    var centrality = directDeps.length + dependencies.length + fnsUsed;
+    var level = "low";
+    var connectedFiles = files.filter(function(f) {
+      return exportedTo[f.path] || importedFrom[f.path];
+    }).length;
+    var relativePct = connectedFiles > 0 ? Math.round(directDeps.length / connectedFiles * 100) : 0;
+    if (directDeps.length >= 8 || fnsUsed >= 5) level = "critical";
+    else if (directDeps.length >= 4 || fnsUsed >= 3) level = "high";
+    else if (directDeps.length >= 2 || fnsUsed >= 1) level = "medium";
+    return {
+      affected: directDeps,
+      transitive: Array.from(transitive.keys()),
+      count: directDeps.length,
+      transitiveCount: transitive.size,
+      percent: relativePct,
+      level,
+      depth: transitive.size > 0 ? Math.max.apply(null, Array.from(transitive.values())) : 0,
+      fnsUsed,
+      totalCalls,
+      dependencies,
+      impactScore: Math.round(impactScore * 10) / 10,
+      centrality
+    };
+  }
+  function calcHealth(data) {
+    if (!data) return { score: 0, grade: "F" };
+    var score = 100;
+    var assessedDead = data.deadFunctions ? data.deadFunctions.filter(function(f) {
+      return f.certainty !== "unverified";
+    }).length : data.stats.dead;
+    var deadPct = data.stats.functions > 0 ? assessedDead / data.stats.functions * 100 : 0;
+    score -= Math.min(20, deadPct);
+    var circular = data.issues.filter(function(i) {
+      return i.title.includes("Circular");
+    }).length;
+    score -= Math.min(20, circular * 5);
+    var god = data.issues.filter(function(i) {
+      return i.title.includes("Large");
+    }).length;
+    score -= Math.min(15, god * 3);
+    var avgCoup = data.stats.files > 0 ? data.stats.connections / data.stats.files : 0;
+    score -= Math.min(15, Math.max(0, avgCoup - 3) * 2);
+    var sec = data.securityIssues ? data.securityIssues.filter(function(i) {
+      return i.severity === "high";
+    }).length : 0;
+    score -= Math.min(20, sec * 5);
+    score = Math.max(0, Math.round(score));
+    var grade = "F";
+    if (score >= 90) grade = "A";
+    else if (score >= 80) grade = "B";
+    else if (score >= 70) grade = "C";
+    else if (score >= 60) grade = "D";
+    return { score, grade };
+  }
+
+  // src/views/native-canvas.mjs
+  function copyRecords(records) {
+    return Object.fromEntries(Object.entries(records).map(([path, value]) => [path, { ...value }]));
+  }
+  function createNativeCanvas({ React: React2, d3: d32, Icon: Icon2, COLORS: COLORS2, LAYER_COLORS: LAYER_COLORS2 }) {
+    const { useState: useState2, useEffect: useEffect2, useLayoutEffect: useLayoutEffect2, useMemo: useMemo2, useRef: useRef2, useImperativeHandle } = React2;
+    return React2.forwardRef(function NativeCanvas2({
+      data,
+      active,
+      projectIdentity,
+      currentHydrationId,
+      investigation,
+      graphConfig,
+      colorMap,
+      colorMode,
+      theme,
+      lineThickness,
+      codeViewExpand,
+      codeViewWrap,
+      viewport,
+      cliLiveByPath,
+      sourceFocus,
+      codeSourceFailed,
+      canReadSource,
+      activeSymbol,
+      getNodeColor,
+      onSelect,
+      onOpen,
+      onClose,
+      onRetrySource,
+      onSourceClick,
+      onActiveSymbol,
+      onTooltip,
+      restoredScene,
+      onSceneRestored
+    }, ref) {
+      const selected = data?.files.find((file) => file.path === investigation.selectedPath) || null;
+      const folderFilter = investigation.scope, openedCodePaths = investigation.openedPaths;
+      const codeViewFiles = useMemo2(() => filesForOpenedCodePaths(openedCodePaths, data, folderFilter), [openedCodePaths, data, folderFilter]);
+      const { width: viewportWidth, sidebarWidth, rightPanelWidth } = viewport;
+      const selectFile = onSelect, closeCodeCard = onClose, retryCodeSource = onRetrySource, beamSourceClick = onSourceClick, setActiveSymbol = onActiveSymbol, setTooltip = onTooltip;
+      const canReadLiveFileSource = () => canReadSource;
+      var pendingSourceFocusRef = useRef2(null);
+      var svgRef = useRef2(null);
+      var zoomRef = useRef2(null);
+      var simRef = useRef2(null);
+      var nodesRef = useRef2(null);
+      var linksRef = useRef2(null);
+      var linkParticlesRef = useRef2(null);
+      var applyForceLinkVisualsRef = useRef2(null);
+      var selectFileRef = useRef2(null);
+      var codeCardsLayerRef = useRef2(null);
+      var codeCardPathsRef = useRef2(/* @__PURE__ */ new Set());
+      var codeZoomTransformRef = useRef2({ k: 1, x: 0, y: 0 });
+      var graphNodesByIdRef = useRef2(/* @__PURE__ */ Object.create(null));
+      var selectedPathRef = useRef2(null);
+      var codeCardSizesRef = useRef2(/* @__PURE__ */ Object.create(null));
+      var codeCardUserPinnedRef = useRef2(/* @__PURE__ */ new Set());
+      var codeCardLayoutKeyRef = useRef2("");
+      var codeViewCameraReadyRef = useRef2(false);
+      var codeViewSceneRef = useRef2("");
+      var codeCardIgnoreClickRef = useRef2(false);
+      var codeCardPlacementRef = useRef2(/* @__PURE__ */ Object.create(null));
+      var workspaceRestoreRef = useRef2(null);
+      var pendingFlyToRef = useRef2(null);
+      var openCodeFileRef = useRef2(null);
+      var codeFilesByPathRef = useRef2(/* @__PURE__ */ Object.create(null));
+      var codeCanvasRef = useRef2(null);
+      var updateHullsRef = useRef2(null);
+      var drawMinimapRef = useRef2(null);
+      var minimapHostRef = useRef2(null);
+      var minimapCanvasRef = useRef2(null);
+      var minimapModelRef = useRef2(null);
+      var minimapDragRef = useRef2(null);
+      var minimapRafRef = useRef2(0);
+      var codeFolderCentersRef = useRef2(/* @__PURE__ */ Object.create(null));
+      var codeCardUserSizeRef = useRef2(/* @__PURE__ */ Object.create(null));
+      var codeCardStackRef = useRef2([]);
+      var lineThicknessRef = useRef2(lineThickness);
+      var [codePillScroll, setCodePillScroll] = useState2(0);
+      const activeGesture = useRef2(null);
+      function endCardGesture() {
+        activeGesture.current?.();
+        activeGesture.current = null;
+      }
+      function listenCardGesture(onMove, onUp) {
+        endCardGesture();
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
+        window.addEventListener("pointercancel", onUp);
+        activeGesture.current = () => {
+          window.removeEventListener("pointermove", onMove);
+          window.removeEventListener("pointerup", onUp);
+          window.removeEventListener("pointercancel", onUp);
+        };
+      }
+      useEffect2(() => endCardGesture, []);
+      const previousOpened = useRef2(openedCodePaths);
+      useLayoutEffect2(() => {
+        for (const path of previousOpened.current) if (!openedCodePaths.includes(path)) {
+          delete codeCardPlacementRef.current[path];
+          codeCardUserPinnedRef.current.delete(path);
+        }
+        previousOpened.current = openedCodePaths;
+      }, [openedCodePaths]);
+      useLayoutEffect2(() => {
+        if (!restoredScene) return;
+        codeCardPlacementRef.current = copyRecords(restoredScene.placements);
+        codeCardUserSizeRef.current = copyRecords(restoredScene.sizes);
+        codeCardUserPinnedRef.current = new Set(restoredScene.pinned);
+        workspaceRestoreRef.current = restoredScene;
+        pendingFlyToRef.current = null;
+      }, [restoredScene]);
+      useLayoutEffect2(() => {
+        pendingSourceFocusRef.current = sourceFocus;
+        if (sourceFocus && !codeCardUserSizeRef.current[sourceFocus.path]) codeCardUserSizeRef.current[sourceFocus.path] = { height: 640 };
+      }, [sourceFocus]);
+      lineThicknessRef.current = lineThickness;
+      selectFileRef.current = onSelect;
+      openCodeFileRef.current = onOpen;
+      function updateGraphHighlight(path, blast) {
+        if (!nodesRef.current || !linksRef.current) return;
+        var affectedSet = new Set(blast ? blast.affected : []);
+        var dependencySet = new Set(blast ? blast.dependencies : []);
+        nodesRef.current.selectAll(".nc,.nb").transition().duration(200).attr("opacity", function(n) {
+          if (n.id === path) return 1;
+          if (affectedSet.has(n.id) || dependencySet.has(n.id)) return 1;
+          return path ? 0.15 : 1;
+        }).attr("fill", function(n) {
+          var fill = colorMode === "findings" ? getNodeColor(n) : n.id === path ? "#ff5f5f" : affectedSet.has(n.id) ? "#ff9f43" : dependencySet.has(n.id) ? "#4d9fff" : getNodeColor(n);
+          return d32.select(this).classed("nb") ? graphColorBlockFill(fill) : fill;
+        });
+        linksRef.current.transition().duration(200).attr("stroke-opacity", function(l) {
+          var src = l.source.id || l.source;
+          var tgt = l.target.id || l.target;
+          if (src === path || tgt === path) return 0.8;
+          return path ? 0.05 : 0.4;
+        }).attr("stroke", function(l) {
+          var src = l.source.id || l.source;
+          var tgt = l.target.id || l.target;
+          if (src === path || tgt === path) return "var(--acc)";
+          return theme === "light" ? "#ccc" : "#333";
+        });
+      }
+      var graphRebuildKey = useMemo2(function() {
+        return [
+          currentHydrationId,
+          graphStructureKey(data, folderFilter),
+          colorMode,
+          theme,
+          graphConfig.vizType,
+          graphConfig.viewMode,
+          graphConfig.spacing,
+          graphConfig.linkDist,
+          graphConfig.showLabels,
+          graphConfig.curvedLinks,
+          graphConfig.vizType === "code" ? [selected && selected.path, openedCodePaths.join("|")].join(":") : ""
+        ].join("\0");
+      }, [currentHydrationId, data, folderFilter, colorMode, theme, graphConfig, selected && selected.path, openedCodePaths]);
+      useEffect2(function() {
+        var el = codeCanvasRef.current;
+        if (!el || graphConfig.vizType !== "code") return;
+        function onWheel(e) {
+          if (!zoomRef.current || !svgRef.current) return;
+          if (codeViewWheelUsesNativeScroll(e, e.target)) return;
+          var action = codeViewWheelAction(e);
+          e.preventDefault();
+          var svg = d32.select(svgRef.current);
+          if (action === "zoom") {
+            var rect = svgRef.current.getBoundingClientRect();
+            var factor = e.deltaY < 0 ? 1.08 : 1 / 1.08;
+            zoomRef.current.scaleBy(svg, factor, [e.clientX - rect.left, e.clientY - rect.top]);
+            return;
+          }
+          var pan = codeViewWheelPanDelta(e.deltaX, e.deltaY, snapshotZoomTransform(codeZoomTransformRef.current).k);
+          zoomRef.current.translateBy(svg, pan.x, pan.y);
+        }
+        el.addEventListener("wheel", onWheel, { passive: false });
+        return function() {
+          el.removeEventListener("wheel", onWheel);
+        };
+      }, [graphConfig.vizType]);
+      useLayoutEffect2(function() {
+        if (graphConfig.vizType !== "code" || !selected || !selected.path) {
+          setCodePillScroll(0);
+          return;
+        }
+        setCodePillScroll(readCodeCardBodyScroll(codeCardsLayerRef.current, selected.path));
+      }, [graphConfig.vizType, selected && selected.path]);
+      selectedPathRef.current = selected && selected.path;
+      codeCardPathsRef.current = new Set(codeViewFiles.map(function(file) {
+        return file.path;
+      }));
+      var filesByPath = /* @__PURE__ */ Object.create(null);
+      if (data && data.files) data.files.forEach(function(file) {
+        filesByPath[file.path] = file;
+      });
+      codeFilesByPathRef.current = filesByPath;
+      function currentCodeCardPrefs() {
+        return normalizeCodeCardPrefs({ expand: codeViewExpand, wrap: codeViewWrap });
+      }
+      function currentCodeCardSizes() {
+        var prefs = currentCodeCardPrefs();
+        var overrides = codeCardUserSizeRef.current;
+        var sizes = /* @__PURE__ */ Object.create(null);
+        codeViewFiles.forEach(function(file) {
+          var rows = codeCardDiffRows(file, cliLiveByPath[file.path]);
+          sizes[file.path] = applyCodeCardUserSize(codeCardSizeForDiff(file, prefs, rows), overrides[file.path]);
+        });
+        codeCardSizesRef.current = sizes;
+        return sizes;
+      }
+      function syncCodeCards() {
+        applyCodeCardLayout(codeCardsLayerRef.current, graphNodesByIdRef.current, codeZoomTransformRef.current, codeCardSizesRef.current, codeCardStackRef.current);
+      }
+      function redrawMovedGraphNodes(movedIds) {
+        if (!nodesRef.current || !movedIds || !movedIds.length) return;
+        var seen = /* @__PURE__ */ Object.create(null);
+        movedIds.forEach(function(node) {
+          if (node && node.id) seen[node.id] = true;
+        });
+        nodesRef.current.filter(function(d) {
+          return d && seen[d.id];
+        }).attr("transform", function(d) {
+          return "translate(" + d.x + "," + d.y + ")";
+        });
+      }
+      function graphLinkPath(d) {
+        if (graphConfig.vizType === "code") {
+          var cardPath = codeCardLinkPath(d, codeCardSizesRef.current, codeFilesByPathRef.current, codeCardPathsRef.current);
+          if (cardPath) return cardPath;
+        }
+        if (graphConfig.curvedLinks) {
+          var dx = d.target.x - d.source.x, dy = d.target.y - d.source.y, dr = Math.sqrt(dx * dx + dy * dy);
+          return "M" + d.source.x + "," + d.source.y + "A" + dr + "," + dr + " 0 0,1 " + d.target.x + "," + d.target.y;
+        }
+        return "M" + d.source.x + "," + d.source.y + "L" + d.target.x + "," + d.target.y;
+      }
+      function redrawActiveForceLinkParticles() {
+        if (!linkParticlesRef.current) return;
+        if (!forceLinkParticlesNeedTickUpdate(selectedPathRef.current, { reducedMotion: prefersReducedMotion(), vizType: graphConfig.vizType })) return;
+        linkParticlesRef.current.filter(".is-on").attr("d", graphLinkPath);
+      }
+      function redrawGraphLinksAndNodes() {
+        if (nodesRef.current) nodesRef.current.attr("transform", function(d) {
+          return "translate(" + d.x + "," + d.y + ")";
+        });
+        if (linksRef.current) linksRef.current.attr("d", graphLinkPath);
+        redrawActiveForceLinkParticles();
+      }
+      function applyForceLinkVisuals() {
+        if (!vizUsesForceLinkParticles(graphConfig.vizType)) return;
+        var selectedPath = selectedPathRef.current || null;
+        var opts = { theme, thickness: lineThicknessRef.current, reducedMotion: prefersReducedMotion(), vizType: graphConfig.vizType };
+        if (linksRef.current) {
+          linksRef.current.each(function(d) {
+            var v = forceLinkVisual(d, selectedPath, opts);
+            d32.select(this).attr("stroke", v.stroke).attr("stroke-opacity", v.opacity).attr("stroke-width", v.width).classed("force-link-active", v.active).classed("force-link-quiet", v.role === "quiet");
+          });
+        }
+        if (linkParticlesRef.current) {
+          linkParticlesRef.current.each(function(d) {
+            var v = forceLinkVisual(d, selectedPath, opts);
+            d32.select(this).attr("d", graphLinkPath(d)).attr("stroke", v.particleStroke || v.stroke).attr("stroke-width", v.particleWidth).attr("stroke-opacity", v.particle ? 0.95 : 0).attr("stroke-dasharray", v.particle ? v.particleDash : null).classed("is-on", !!v.particle).style("display", v.particle ? null : "none");
+          });
+        }
+      }
+      applyForceLinkVisualsRef.current = applyForceLinkVisuals;
+      function applyLinkThickness() {
+        if (vizUsesForceLinkParticles(graphConfig.vizType)) applyForceLinkVisuals();
+        else if (linksRef.current) linksRef.current.attr("stroke-width", function(d) {
+          return graphLinkStrokeWidth(d.count, lineThicknessRef.current);
+        });
+      }
+      function refreshMinimap() {
+        var canvas = minimapCanvasRef.current;
+        if (!canvas || !vizHasCanvasMinimap(graphConfig.vizType)) return;
+        var svg = svgRef.current;
+        if (!svg) {
+          minimapModelRef.current = null;
+          clearCanvasMinimap(canvas);
+          return;
+        }
+        var mapW = canvas.clientWidth || 176;
+        var mapH = canvas.clientHeight || 118;
+        var viewW = svg.clientWidth || 800;
+        var viewH = svg.clientHeight || 600;
+        var nodes = simRef.current ? simRef.current.nodes() : [];
+        var overlay = minimapCardInputs(graphConfig.vizType, codeCardSizesRef.current, codeCardPathsRef.current);
+        var content = collectMinimapContent(nodes, overlay.sizesByPath, overlay.cardPaths, getNodeColor);
+        if (!content.world || !content.world.width) {
+          minimapModelRef.current = null;
+          clearCanvasMinimap(canvas);
+          return;
+        }
+        var transform = snapshotZoomTransform(codeZoomTransformRef.current);
+        var viewport2 = viewportWorldRect(transform, viewW, viewH);
+        var fit = minimapFitRect(content.world, mapW, mapH, 8);
+        var model = {
+          mapW,
+          mapH,
+          viewW,
+          viewH,
+          transform,
+          world: content.world,
+          fit,
+          viewport: viewport2,
+          marks: content.marks,
+          hulls: content.hulls,
+          theme: readMinimapTheme(minimapHostRef.current || canvas)
+        };
+        minimapModelRef.current = model;
+        drawCanvasMinimap(canvas, model);
+      }
+      function scheduleMinimapDraw() {
+        if (minimapRafRef.current) return;
+        minimapRafRef.current = requestAnimationFrame(function() {
+          minimapRafRef.current = 0;
+          refreshMinimap();
+        });
+      }
+      drawMinimapRef.current = scheduleMinimapDraw;
+      function applyMinimapFocus(mx, my) {
+        var model = minimapModelRef.current;
+        if (!model || !model.fit || !zoomRef.current || !svgRef.current) return;
+        var next = zoomTransformFromMinimapPoint(mx, my, model.world, model.fit, codeZoomTransformRef.current, model.viewW, model.viewH);
+        d32.select(svgRef.current).call(zoomRef.current.transform, d32.zoomIdentity.translate(next.x, next.y).scale(next.k));
+      }
+      function handleMinimapPointerDown(e) {
+        if (e.button !== void 0 && e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        var canvas = minimapCanvasRef.current;
+        if (!canvas) return;
+        var xy = minimapPointerXY(e.clientX, e.clientY, canvas.getBoundingClientRect());
+        minimapDragRef.current = { pointerId: e.pointerId };
+        if (e.currentTarget && e.currentTarget.setPointerCapture) {
+          try {
+            e.currentTarget.setPointerCapture(e.pointerId);
+          } catch (err) {
+          }
+        }
+        applyMinimapFocus(xy.x, xy.y);
+      }
+      function handleMinimapPointerMove(e) {
+        if (!minimapDragRef.current) return;
+        e.preventDefault();
+        var canvas = minimapCanvasRef.current;
+        if (!canvas) return;
+        var xy = minimapPointerXY(e.clientX, e.clientY, canvas.getBoundingClientRect());
+        applyMinimapFocus(xy.x, xy.y);
+      }
+      function handleMinimapPointerUp(e) {
+        if (e && e.currentTarget && e.currentTarget.releasePointerCapture && minimapDragRef.current) {
+          try {
+            e.currentTarget.releasePointerCapture(minimapDragRef.current.pointerId);
+          } catch (err) {
+          }
+        }
+        minimapDragRef.current = null;
+      }
+      function handleMinimapKeyDown(e) {
+        if (!e || e.altKey || e.ctrlKey || e.metaKey) return;
+        var model = minimapModelRef.current;
+        if (!model || !zoomRef.current || !svgRef.current) return;
+        var transform = codeZoomTransformRef.current;
+        var next = null;
+        var frac = e.shiftKey ? 0.5 : 0.25;
+        if (e.key === "ArrowLeft") next = panTransformByViewportFraction(transform, -frac, 0, model.viewW, model.viewH);
+        else if (e.key === "ArrowRight") next = panTransformByViewportFraction(transform, frac, 0, model.viewW, model.viewH);
+        else if (e.key === "ArrowUp") next = panTransformByViewportFraction(transform, 0, -frac, model.viewW, model.viewH);
+        else if (e.key === "ArrowDown") next = panTransformByViewportFraction(transform, 0, frac, model.viewW, model.viewH);
+        else if (e.key === "Home") next = panTransformToWorldMidpoint(transform, model.world, model.viewW, model.viewH);
+        else return;
+        e.preventDefault();
+        e.stopPropagation();
+        d32.select(svgRef.current).call(zoomRef.current.transform, d32.zoomIdentity.translate(next.x, next.y).scale(next.k));
+      }
+      function flyToOpenedCodeCard(place) {
+        if (!svgRef.current || !zoomRef.current || !place || !isFinite(place.x) || !isFinite(place.y)) return;
+        var w = svgRef.current.clientWidth || 800;
+        var h = svgRef.current.clientHeight || 600;
+        var t = snapshotZoomTransform(codeZoomTransformRef.current);
+        t.k = Math.min(1, Math.max(0.8, t.k));
+        var next = d32.zoomIdentity.translate(w / 2 - place.x * t.k, h / 2 - place.y * t.k).scale(t.k);
+        d32.select(svgRef.current).transition().duration(260).call(zoomRef.current.transform, next);
+      }
+      function applyOpenedCardPlacements(opts) {
+        opts = opts || {};
+        var sim = simRef.current;
+        if (!sim || graphConfig.vizType !== "code") return;
+        var sizes = currentCodeCardSizes();
+        var placements = codeCardPlacementRef.current || /* @__PURE__ */ Object.create(null);
+        var centers = codeFolderCentersRef.current || /* @__PURE__ */ Object.create(null);
+        var placeOpts = { pinnedPaths: codeCardUserPinnedRef.current, centers, gapY: 64 };
+        codeViewFiles.forEach(function(file) {
+          if (codeCardUserPinnedRef.current.has(file.path) && placements[file.path]) {
+            var live = graphNodesByIdRef.current[file.path];
+            var size = sizes[file.path] || applyCodeCardUserSize(codeCardSize(file, currentCodeCardPrefs()), codeCardUserSizeRef.current[file.path]);
+            if (live && isFinite(live.fx) && isFinite(live.fy)) {
+              placements[file.path] = {
+                left: live.fx - size.width / 2,
+                top: live.fy - size.height / 2,
+                x: live.fx,
+                y: live.fy,
+                width: size.width,
+                height: size.height,
+                folder: file.folder || placements[file.path].folder || "root"
+              };
+              return;
+            }
+          }
+          placements = appendCodeCardPlacement(placements, file, sizes[file.path] || applyCodeCardUserSize(codeCardSize(file, currentCodeCardPrefs()), codeCardUserSizeRef.current[file.path]), placeOpts);
+        });
+        var keep = codeCardPlacementKeepSet(openedCodePaths, codeViewFiles);
+        var departed = pruneCodeCardPlacements(placements, keep);
+        placements = reflowUnpinnedCodeCards(placements, codeCardUserPinnedRef.current, placeOpts);
+        codeCardPlacementRef.current = placements;
+        sim.nodes().forEach(function(node) {
+          var pos = placements[node.id];
+          if (!pos) {
+            if (departed[node.id] && !codeCardUserPinnedRef.current.has(node.id)) {
+              node.fx = null;
+              node.fy = null;
+            }
+            return;
+          }
+          if (codeCardUserPinnedRef.current.has(node.id) && isFinite(node.fx) && isFinite(node.fy)) {
+            node.x = node.fx;
+            node.y = node.fy;
+            return;
+          }
+          node.fx = pos.x;
+          node.fy = pos.y;
+          node.x = pos.x;
+          node.y = pos.y;
+        });
+        var flyPath = pendingFlyToRef.current;
+        if (flyPath && codeViewCameraReadyRef.current && !opts.skipFly) {
+          requestAnimationFrame(function() {
+            requestAnimationFrame(function() {
+              if (pendingFlyToRef.current !== flyPath) return;
+              var current = codeCardPlacementRef.current[flyPath];
+              if (current) flyToOpenedCodeCard(current);
+              pendingFlyToRef.current = null;
+            });
+          });
+        }
+      }
+      function placeRemainingCodeNodes() {
+        var sim = simRef.current;
+        if (!sim) return;
+        parkLeftoverCodeNodes(sim.nodes(), codeCardPathsRef.current, codeFolderCentersRef.current);
+        settleCodeViewAfterDrag(sim.nodes(), codeCardPathsRef.current, codeCardSizesRef.current, null, {
+          boxesByPath: readCodeCardWorldBoxes(codeCardsLayerRef.current)
+        });
+        refreshCodeCardForces();
+        redrawGraphLinksAndNodes();
+      }
+      function refreshCodeCardForces() {
+        var sim = simRef.current;
+        if (!sim) return;
+        var collide = sim.force("collision");
+        if (collide && typeof collide.radius === "function") {
+          collide.radius(function(d) {
+            return liveCodeCollideRadius(d, codeCardPathsRef.current.has(d.id) ? codeCardSizesRef.current[d.id] : null);
+          });
+        }
+        var linkForce = sim.force("link");
+        if (linkForce && typeof linkForce.distance === "function") {
+          linkForce.distance(function(d) {
+            var src = typeof d.source === "object" ? d.source.id : d.source;
+            var tgt = typeof d.target === "object" ? d.target.id : d.target;
+            var extra = codeCardPathsRef.current.has(src) || codeCardPathsRef.current.has(tgt) ? 240 : 0;
+            return (graphConfig.linkDist || 70) + extra;
+          });
+        }
+        if (nodesRef.current) {
+          var zoomK = (codeZoomTransformRef.current || {}).k;
+          var markScale = readableLabelScale(zoomK);
+          var hideChrome = zoomShowsColorBlocks(zoomK);
+          nodesRef.current.classed("has-code-card", function(d) {
+            return nodeReplacedByCard(d.id, codeCardPathsRef.current);
+          });
+          nodesRef.current.classed("code-faded", false);
+          nodesRef.current.attr("display", function(d) {
+            return nodeReplacedByCard(d.id, codeCardPathsRef.current) ? "none" : null;
+          });
+          nodesRef.current.selectAll("circle.nc").attr("transform", function(d) {
+            return nodeReplacedByCard(d.id, codeCardPathsRef.current) || hideChrome ? "" : "scale(" + markScale + ")";
+          });
+          nodesRef.current.selectAll("text.node-label").attr("transform", function(d) {
+            return nodeReplacedByCard(d.id, codeCardPathsRef.current) || hideChrome ? "" : "scale(" + markScale + ")";
+          });
+        }
+      }
+      var codeViewSymbols = useMemo2(function() {
+        return collectCrossFileSymbols(codeViewFiles, data ? data.connections : []);
+      }, [codeViewFiles, data]);
+      useEffect2(function() {
+        if (!data || !active || !svgRef.current) return;
+        var svg = d32.select(svgRef.current);
+        svg.selectAll("*").remove();
+        try {
+          let getR = function(d) {
+            return Math.max(8, Math.min(24, 5 + d.fnCount * 0.8));
+          }, getC = function(d) {
+            if (colorMode === "folder") return colorMap[d.folder] || COLORS2[0];
+            if (colorMode === "layer") return LAYER_COLORS2[d.layer] || LAYER_COLORS2["utils"];
+            if (colorMode === "findings") return colorMap[d.id] || FINDING_COLORS.none;
+            if (colorMode === "churn") return colorMap[d.id] || "#22c55e";
+            return COLORS2[0];
+          }, collideR = function(d) {
+            return liveCodeCollideRadius(d, keepReadable && codeCardPathsRef.current.has(d.id) ? codeCardSizesRef.current[d.id] : null);
+          }, applyCanvasColorBlocks = function(k) {
+            var on = zoomShowsColorBlocks(k);
+            var s = on ? graphColorBlockScale(k) : 1;
+            if (svgRef.current && svgRef.current.classList) {
+              if (on) svgRef.current.classList.add("color-blocks");
+              else svgRef.current.classList.remove("color-blocks");
+            }
+            if (nodesRef.current) {
+              nodesRef.current.selectAll("rect.nb").attr("display", on ? null : "none").attr("transform", on ? "scale(" + s + ")" : null);
+            }
+          }, applyReadableLabels = function(k) {
+            applyCanvasColorBlocks(k);
+            if (!keepReadable) return;
+            var s = readableLabelScale(k);
+            var blocks = zoomShowsColorBlocks(k);
+            nodeLayer.selectAll("g").each(function(d) {
+              var hidden = nodeReplacedByCard(d && d.id, codeCardPathsRef.current);
+              var sel = d32.select(this);
+              sel.classed("has-code-card", hidden);
+              sel.classed("code-faded", false);
+              sel.attr("display", hidden ? "none" : null);
+              if (hidden) return;
+              if (blocks) {
+                sel.select("circle.nc").attr("transform", null);
+                sel.select("text.node-label").attr("transform", null);
+                return;
+              }
+              sel.select("circle.nc").attr("transform", "scale(" + s + ")");
+              sel.select("text.node-label").attr("transform", "scale(" + s + ")");
+            });
+            hullLayer.selectAll("text.hull-label").attr("font-size", 11 * s + "px");
+          }, liveNodesByFolder = function() {
+            var live = simRef.current && simRef.current.nodes() || nodes;
+            var grouped = /* @__PURE__ */ Object.create(null);
+            (live || []).forEach(function(n) {
+              if (!n) return;
+              var folder = n.folder || "root";
+              if (!grouped[folder]) grouped[folder] = [];
+              grouped[folder].push(n);
+            });
+            return grouped;
+          }, updateHulls = function() {
+            hullLayer.selectAll("*").remove();
+            var grouped = liveNodesByFolder();
+            var boxesByPath = keepReadable ? readCodeCardWorldBoxes(codeCardsLayerRef.current) : null;
+            Object.keys(grouped).forEach(function(f) {
+              var fn = grouped[f];
+              if (!fn || fn.length < 1) return;
+              var cardNodes = keepReadable ? fn.filter(function(n) {
+                return codeCardPathsRef.current.has(n.id);
+              }) : [];
+              var leftover = keepReadable ? fn.filter(function(n) {
+                return !codeCardPathsRef.current.has(n.id);
+              }) : fn;
+              var color = colorMap[f] || COLORS2[folders.indexOf(f) % COLORS2.length];
+              if (cardNodes.length) {
+                var bounds = codeFolderHullBounds(cardNodes, leftover, codeCardSizesRef.current, 28, boxesByPath);
+                if (bounds) {
+                  hullLayer.append("rect").attr("x", bounds.x).attr("y", bounds.y).attr("width", bounds.width).attr("height", bounds.height).attr("rx", 14).attr("fill", color).attr("fill-opacity", 0.06).attr("stroke", color).attr("stroke-width", 2).attr("stroke-opacity", 0.35);
+                  hullLayer.append("text").attr("class", "hull-label").attr("x", bounds.x + 12).attr("y", bounds.y + 16).attr("text-anchor", "start").attr("fill", color).attr("font-size", keepReadable ? "12px" : "10px").attr("font-family", "JetBrains Mono").attr("font-weight", "600").attr("opacity", 0.9).text(f || "root");
+                }
+                return;
+              }
+              var pts = [];
+              leftover.forEach(function(n) {
+                var xy = liveGraphNodeXY(n);
+                if (!xy) return;
+                pts.push([xy.x - 30, xy.y - 30], [xy.x + 30, xy.y - 30], [xy.x - 30, xy.y + 30], [xy.x + 30, xy.y + 30]);
+              });
+              if (pts.length < 3) return;
+              var hull = d32.polygonHull(pts);
+              if (hull) {
+                hullLayer.append("path").attr("d", "M" + hull.join("L") + "Z").attr("fill", color).attr("fill-opacity", 0.04).attr("stroke", color).attr("stroke-width", 2).attr("stroke-opacity", 0.25).attr("rx", 8);
+                var cx = d32.mean(leftover, function(n) {
+                  var xy = liveGraphNodeXY(n);
+                  return xy ? xy.x : null;
+                }), cy = d32.min(leftover, function(n) {
+                  var xy = liveGraphNodeXY(n);
+                  return xy ? xy.y : null;
+                }) - 38;
+                hullLayer.append("text").attr("class", "hull-label").attr("x", cx).attr("y", cy).attr("text-anchor", "middle").attr("fill", color).attr("font-size", keepReadable ? "11px" : "10px").attr("font-family", "JetBrains Mono").attr("font-weight", "600").attr("opacity", 0.85).text(f || "root");
+              }
+            });
+          };
+          var w = svgRef.current.clientWidth;
+          var h = svgRef.current.clientHeight;
+          var filteredFiles = folderFilter ? data.files.filter(function(f) {
+            return f.folder === folderFilter || f.folder.startsWith(folderFilter + "/");
+          }) : data.files;
+          var fileIds = new Set(filteredFiles.map(function(f) {
+            return f.path;
+          }));
+          var nodes = filteredFiles.map(function(f) {
+            return { id: f.path, name: f.name, folder: f.folder, fnCount: f.functions.length, layer: f.layer, churn: f.churn || 0 };
+          });
+          var linkMap = /* @__PURE__ */ new Map();
+          data.connections.forEach(function(c) {
+            if (!fileIds.has(c.source) || !fileIds.has(c.target)) return;
+            if (c.source === c.target) return;
+            var k = JSON.stringify([c.source, c.target, c.kind || ""]);
+            if (!linkMap.has(k)) linkMap.set(k, { source: c.source, target: c.target, kind: c.kind, count: 0, fn: c.fn || null });
+            linkMap.get(k).count += c.count;
+            if (!linkMap.get(k).fn && c.fn) linkMap.get(k).fn = c.fn;
+          });
+          var links = Array.from(linkMap.values());
+          var folders = [...new Set(nodes.map(function(n) {
+            return n.folder;
+          }))];
+          var cols = Math.max(2, Math.ceil(Math.sqrt(folders.length)));
+          var cw = w / (cols + 1);
+          var ch = h / (Math.ceil(folders.length / cols) + 1);
+          var centers = {};
+          folders.forEach(function(f, i) {
+            centers[f] = { x: (i % cols + 1) * cw, y: (Math.floor(i / cols) + 1) * ch };
+          });
+          var keepReadable = graphConfig.vizType === "code";
+          if (keepReadable) {
+            codeFolderCentersRef.current = graphFolderCenters(folders, w, h, { minCellW: CODE_CARD_WIDTH + 220, minCellH: 360 });
+          }
+          var sceneKey = codeViewSceneKey(data, folderFilter, graphConfig.vizType, projectIdentity);
+          if (sceneKey !== codeViewSceneRef.current) {
+            codeViewSceneRef.current = sceneKey;
+            codeViewCameraReadyRef.current = false;
+          }
+          var workspaceRestore = workspaceRestoreRef.current;
+          var restoringWorkspace = workspaceRestore && workspaceRestore.view === graphConfig.vizType && workspaceRestore.scope === (folderFilter || null);
+          if (restoringWorkspace) {
+            codeZoomTransformRef.current = workspaceRestore.camera;
+            codeViewCameraReadyRef.current = true;
+          }
+          var savedZoom = snapshotZoomTransform(codeZoomTransformRef.current);
+          var prevNodesById = /* @__PURE__ */ Object.create(null);
+          if (simRef.current) {
+            simRef.current.nodes().forEach(function(n) {
+              if (n && n.id) prevNodesById[n.id] = n;
+            });
+          }
+          if (keepReadable && codeViewCameraReadyRef.current) preserveGraphNodeState(nodes, prevNodesById);
+          if (!keepReadable && !restoringWorkspace) {
+            codeZoomTransformRef.current = { k: 1, x: 0, y: 0 };
+            codeViewCameraReadyRef.current = false;
+          }
+          graphNodesByIdRef.current = /* @__PURE__ */ Object.create(null);
+          nodes.forEach(function(n) {
+            graphNodesByIdRef.current[n.id] = n;
+          });
+          var zoom = d32.zoom().extent(function() {
+            return [[0, 0], [svgRef.current.clientWidth, svgRef.current.clientHeight]];
+          }).scaleExtent([keepReadable ? 0.08 : 0.2, 5]).filter(function(event) {
+            if (keepReadable) {
+              if (event.type === "wheel") return false;
+              return !event.button;
+            }
+            return !event.ctrlKey && !event.button;
+          }).on("zoom", function(e) {
+            container.attr("transform", e.transform);
+            codeZoomTransformRef.current = e.transform;
+            applyReadableLabels(e.transform.k);
+            if (keepReadable) syncCodeCards();
+            if (drawMinimapRef.current) drawMinimapRef.current();
+          });
+          svg.call(zoom);
+          zoomRef.current = zoom;
+          var container = svg.append("g");
+          var defs = svg.append("defs");
+          defs.append("marker").attr("id", "arr").attr("viewBox", "0 -5 10 10").attr("refX", 14).attr("markerWidth", 4).attr("markerHeight", 4).attr("orient", "auto").append("path").attr("d", "M0,-4L10,0L0,4").attr("fill", theme === "light" ? "#aaa" : "#444");
+          var hullLayer = container.append("g").attr("data-code-bg", "1").attr("pointer-events", "none");
+          var linkLayer = container.append("g");
+          var particleLayer = keepReadable ? container.append("g").attr("class", "force-link-particles").attr("pointer-events", "none") : null;
+          var nodeLayer = container.append("g");
+          var sim = d32.forceSimulation(nodes);
+          if (graphConfig.viewMode === "force") {
+            sim.force("link", d32.forceLink(links).id(function(d) {
+              return d.id;
+            }).distance(graphConfig.linkDist).strength(0.3)).force("charge", d32.forceManyBody().strength(-graphConfig.spacing).distanceMax(400)).force("collision", d32.forceCollide().radius(collideR)).force("x", d32.forceX(function(d) {
+              return centers[d.folder] ? centers[d.folder].x : w / 2;
+            }).strength(0.15)).force("y", d32.forceY(function(d) {
+              return centers[d.folder] ? centers[d.folder].y : h / 2;
+            }).strength(0.15));
+          } else if (graphConfig.viewMode === "radial") {
+            var r = Math.min(w, h) * 0.35;
+            nodes.forEach(function(n, i) {
+              n.angle = i / nodes.length * 2 * Math.PI;
+              n.targetX = w / 2 + Math.cos(n.angle) * r;
+              n.targetY = h / 2 + Math.sin(n.angle) * r;
+            });
+            sim.force("link", d32.forceLink(links).id(function(d) {
+              return d.id;
+            }).distance(graphConfig.linkDist * 0.5).strength(0.05)).force("charge", d32.forceManyBody().strength(-graphConfig.spacing * 0.3)).force("collision", d32.forceCollide().radius(collideR)).force("x", d32.forceX(function(d) {
+              return d.targetX;
+            }).strength(0.8)).force("y", d32.forceY(function(d) {
+              return d.targetY;
+            }).strength(0.8));
+          } else if (graphConfig.viewMode === "hierarchical") {
+            var layerOrder = { util: 0, model: 1, service: 2, controller: 3, view: 4, test: 5, config: 6, modules: 7, forms: 8, classes: 9 };
+            var layerGroups = {};
+            nodes.forEach(function(n) {
+              var l = n.layer || "util";
+              if (!layerGroups[l]) layerGroups[l] = [];
+              layerGroups[l].push(n);
+            });
+            var sortedLayers = Object.keys(layerGroups).sort(function(a, b) {
+              return (layerOrder[a] || 99) - (layerOrder[b] || 99);
+            });
+            sortedLayers.forEach(function(l, li) {
+              var g = layerGroups[l];
+              var colW = w / (sortedLayers.length + 1);
+              g.forEach(function(n, ni) {
+                n.targetX = (li + 1) * colW;
+                n.targetY = (ni + 1) * h / (g.length + 1);
+              });
+            });
+            sim.force("link", d32.forceLink(links).id(function(d) {
+              return d.id;
+            }).distance(graphConfig.linkDist).strength(0.1)).force("charge", d32.forceManyBody().strength(-graphConfig.spacing * 0.5).distanceMax(200)).force("collision", d32.forceCollide().radius(collideR)).force("x", d32.forceX(function(d) {
+              return d.targetX || w / 2;
+            }).strength(0.9)).force("y", d32.forceY(function(d) {
+              return d.targetY || h / 2;
+            }).strength(0.3));
+          } else if (graphConfig.viewMode === "grid") {
+            var gridCols = Math.ceil(Math.sqrt(nodes.length));
+            var cellW = w / (gridCols + 1);
+            var cellH = h / (Math.ceil(nodes.length / gridCols) + 1);
+            nodes.forEach(function(n, i) {
+              n.targetX = (i % gridCols + 1) * cellW;
+              n.targetY = (Math.floor(i / gridCols) + 1) * cellH;
+            });
+            sim.force("link", d32.forceLink(links).id(function(d) {
+              return d.id;
+            }).distance(graphConfig.linkDist * 1.5).strength(0.02)).force("collision", d32.forceCollide().radius(collideR)).force("x", d32.forceX(function(d) {
+              return d.targetX;
+            }).strength(1)).force("y", d32.forceY(function(d) {
+              return d.targetY;
+            }).strength(1));
+          } else if (graphConfig.viewMode === "metro") {
+            var metro = { lines: [], stations: {} };
+            var roots = nodes.filter(function(n) {
+              return !links.some(function(l) {
+                return (l.target.id || l.target) === n.id;
+              });
+            });
+            if (!roots.length) roots = [nodes[0]];
+            var lineY = 80, lineSpacing = Math.min(120, (h - 160) / Math.max(1, roots.length));
+            roots.forEach(function(root, li) {
+              var visited = /* @__PURE__ */ new Set(), queue = [root.id], line = [], x = 80;
+              while (queue.length) {
+                var id = queue.shift();
+                if (visited.has(id)) continue;
+                visited.add(id);
+                var node2 = nodes.find(function(n) {
+                  return n.id === id;
+                });
+                if (node2) {
+                  node2.targetX = x;
+                  node2.targetY = lineY + li * lineSpacing;
+                  node2.metroLine = li;
+                  line.push(node2);
+                  x += graphConfig.spacing * 0.8;
+                }
+                links.forEach(function(l) {
+                  var s = l.source.id || l.source, t = l.target.id || l.target;
+                  if (s === id && !visited.has(t)) queue.push(t);
+                });
+              }
+              metro.lines.push(line);
+            });
+            nodes.filter(function(n) {
+              return !n.targetX;
+            }).forEach(function(n, i) {
+              n.targetX = 80 + i * 50;
+              n.targetY = h - 80;
+              n.metroLine = roots.length;
+            });
+            sim.force("link", d32.forceLink(links).id(function(d) {
+              return d.id;
+            }).distance(graphConfig.linkDist).strength(0.05)).force("collision", d32.forceCollide().radius(collideR)).force("x", d32.forceX(function(d) {
+              return d.targetX || w / 2;
+            }).strength(0.95)).force("y", d32.forceY(function(d) {
+              return d.targetY || h / 2;
+            }).strength(0.95));
+          }
+          var isLargeGraph = nodes.length > 300;
+          var alphaDecay = isLargeGraph ? 0.08 : 0.05;
+          var velDecay = isLargeGraph ? 0.7 : 0.6;
+          sim.velocityDecay(velDecay).alphaDecay(alphaDecay);
+          simRef.current = sim;
+          var link = linkLayer.selectAll("path").data(links).join("path").attr("fill", "none").attr("stroke", theme === "light" ? "#ccc" : "#333").attr("stroke-width", function(d) {
+            return graphLinkStrokeWidth(d.count, lineThicknessRef.current);
+          }).attr("stroke-opacity", 0.4).attr("marker-end", "url(#arr)");
+          linksRef.current = link;
+          if (keepReadable && particleLayer) {
+            var particles = particleLayer.selectAll("path").data(links).join("path").attr("fill", "none").attr("class", "force-link-particle").attr("stroke-linecap", "round");
+            linkParticlesRef.current = particles;
+            applyForceLinkVisuals();
+          } else {
+            linkParticlesRef.current = null;
+          }
+          var node = nodeLayer.selectAll("g").data(nodes).join("g").style("cursor", "pointer");
+          nodesRef.current = node;
+          var codeNodeDragPrev = /* @__PURE__ */ Object.create(null);
+          node.call(d32.drag().on("start", function(e, d) {
+            d.fx = d.x;
+            d.fy = d.y;
+            if (keepReadable) {
+              codeNodeDragPrev[d.id] = { x: d.x, y: d.y };
+              return;
+            }
+            if (!e.active) sim.alphaTarget(0.1).restart();
+          }).on("drag", function(e, d) {
+            d.fx = e.x;
+            d.fy = e.y;
+            d.x = e.x;
+            d.y = e.y;
+            if (keepReadable) {
+              var prev = codeNodeDragPrev[d.id] || { x: d.x, y: d.y };
+              var dx = d.x - prev.x, dy = d.y - prev.y;
+              codeNodeDragPrev[d.id] = { x: d.x, y: d.y };
+              var siblings = translateCodeViewSiblings(sim.nodes(), d, dx, dy, codeCardPathsRef.current);
+              if (codeViewDragRefresh("move")) {
+                redrawGraphLinksAndNodes();
+                if (updateHullsRef.current) updateHullsRef.current();
+              } else {
+                redrawMovedGraphNodes([d].concat(siblings));
+              }
+              if (drawMinimapRef.current) drawMinimapRef.current();
+              return;
+            }
+          }).on("end", function(e, d) {
+            if (!keepReadable) {
+              if (!e.active) sim.alphaTarget(0);
+              d.fx = null;
+              d.fy = null;
+              return;
+            }
+            d.fx = d.x;
+            d.fy = d.y;
+            delete codeNodeDragPrev[d.id];
+            if (codeCardPathsRef.current.has(d.id)) codeCardUserPinnedRef.current.add(d.id);
+            if (codeViewDragRefresh("release")) {
+              settleCodeViewAfterDrag(sim.nodes(), codeCardPathsRef.current, codeCardSizesRef.current, d.id, {
+                boxesByPath: readCodeCardWorldBoxes(codeCardsLayerRef.current)
+              });
+              redrawGraphLinksAndNodes();
+              if (updateHullsRef.current) updateHullsRef.current();
+            }
+            if (drawMinimapRef.current) drawMinimapRef.current();
+          }));
+          node.on("click", function(e, d) {
+            e.stopPropagation();
+            if (keepReadable && openCodeFileRef.current) openCodeFileRef.current(d.id);
+            else if (selectFileRef.current) selectFileRef.current(d.id);
+          });
+          node.classed("has-code-card", function(d) {
+            return keepReadable && nodeReplacedByCard(d.id, codeCardPathsRef.current);
+          });
+          node.attr("display", function(d) {
+            return keepReadable && nodeReplacedByCard(d.id, codeCardPathsRef.current) ? "none" : null;
+          });
+          node.on("mouseenter", function(e, d) {
+            if (keepReadable && codeCardPathsRef.current.has(d.id)) return;
+            var r2 = svgRef.current.getBoundingClientRect();
+            setTooltip({ x: e.clientX - r2.left + 10, y: e.clientY - r2.top, title: d.name, content: d.fnCount + " functions\n" + d.layer + " layer\n" + d.churn + " recent commits" });
+          }).on("mouseleave", function() {
+            setTooltip(null);
+          });
+          svg.on("click", function(e) {
+            if (!isCodeCanvasDeselectTarget(e.target, svgRef.current)) return;
+            onSelect(null);
+            setActiveSymbol(null);
+            selectedPathRef.current = null;
+            if (keepReadable) {
+              applyForceLinkVisuals();
+              return;
+            }
+            link.attr("stroke", theme === "light" ? "#ccc" : "#333").attr("stroke-opacity", 0.4);
+            node.selectAll(".nc").attr("opacity", 1).attr("fill", getC);
+            node.selectAll(".nb").attr("opacity", 1).attr("fill", function(d) {
+              return graphColorBlockFill(getC(d));
+            });
+          });
+          node.append("circle").attr("class", "nc").attr("r", getR).attr("fill", getC).attr("stroke", function(d) {
+            var c = d32.color(getC(d));
+            return c ? c.brighter(0.3) : "#fff";
+          }).attr("stroke-width", 1.5);
+          node.append("rect").attr("class", "nb").attr("x", function(d) {
+            return -graphColorBlockSize(d) / 2;
+          }).attr("y", function(d) {
+            return -graphColorBlockSize(d) / 2;
+          }).attr("width", graphColorBlockSize).attr("height", graphColorBlockSize).attr("rx", 3).attr("fill", function(d) {
+            return graphColorBlockFill(getC(d));
+          }).attr("stroke", function(d) {
+            var c = d32.color(graphColorBlockFill(getC(d)));
+            return c ? c.darker(0.35) : "#000";
+          }).attr("stroke-width", 1).attr("display", "none");
+          if (keepReadable || !isLargeGraph || graphConfig.showLabels) {
+            node.append("text").attr("class", "node-label").attr("text-anchor", "middle").attr("dy", 0).attr("fill", theme === "light" ? "#333" : "#eee").attr("font-size", function(d) {
+              return (keepReadable ? Math.max(9, Math.min(12, getR(d) * 0.7)) : Math.max(6, Math.min(10, getR(d) * 0.6))) + "px";
+            }).attr("font-family", "JetBrains Mono").attr("font-weight", "600").attr("pointer-events", "none").text(function(d) {
+              var n = d.name.replace(/\.[^.]+$/, "");
+              if (keepReadable) return n.length > 18 ? n.slice(0, 17) + "\u2026" : n;
+              var maxLen = Math.max(4, Math.floor(getR(d) / 2));
+              return n.length > maxLen + 1 ? n.slice(0, maxLen) + "\u2026" : n;
+            });
+          }
+          var hullInterval = isLargeGraph ? 5 : 1;
+          var tickCount = 0;
+          sim.on("tick", function() {
+            link.attr("d", graphLinkPath);
+            redrawActiveForceLinkParticles();
+            node.attr("transform", function(d) {
+              return "translate(" + d.x + "," + d.y + ")";
+            });
+            if (keepReadable) {
+              nodes.forEach(function(n) {
+                graphNodesByIdRef.current[n.id] = n;
+              });
+              syncCodeCards();
+            }
+            tickCount++;
+            if (tickCount % hullInterval === 0) updateHulls();
+            if (drawMinimapRef.current) drawMinimapRef.current();
+          });
+          node.selectAll("text").attr("opacity", keepReadable || graphConfig.showLabels ? 1 : 0);
+          applyCanvasColorBlocks(codeZoomTransformRef.current && codeZoomTransformRef.current.k || 1);
+          if (keepReadable) {
+            applyOpenedCardPlacements({ skipFly: true });
+            placeRemainingCodeNodes();
+            syncCodeCards();
+            applyReadableLabels(codeZoomTransformRef.current && codeZoomTransformRef.current.k || 1);
+            updateHulls();
+            if (shouldFitCodeCamera(codeViewCameraReadyRef.current, graphConfig.vizType)) {
+              var fit = computeGraphFitTransform();
+              if (fit) svg.call(zoom.transform, fit);
+              codeViewCameraReadyRef.current = true;
+            } else {
+              svg.call(zoom.transform, d32.zoomIdentity.translate(savedZoom.x, savedZoom.y).scale(savedZoom.k));
+            }
+            sim.alpha(0);
+          }
+          if (restoringWorkspace) {
+            svg.call(zoom.transform, d32.zoomIdentity.translate(savedZoom.x, savedZoom.y).scale(savedZoom.k));
+            workspaceRestoreRef.current = null;
+            onSceneRestored?.();
+          }
+          updateHullsRef.current = updateHulls;
+          if (drawMinimapRef.current) drawMinimapRef.current();
+        } catch (e) {
+          console.error("Force graph error:", e);
+          svg.selectAll("*").remove();
+          svg.append("text").attr("x", 20).attr("y", 30).attr("fill", "var(--t3)").text("Graph rendering error: " + e.message);
+        }
+        return function() {
+          if (simRef.current) simRef.current.stop();
+          updateHullsRef.current = null;
+          linkParticlesRef.current = null;
+        };
+      }, [graphRebuildKey, restoredScene, active]);
+      useLayoutEffect2(function() {
+        if (!data || !active) return;
+        if (graphConfig.vizType !== "code") {
+          codeCardLayoutKeyRef.current = "";
+          codeViewCameraReadyRef.current = false;
+          return;
+        }
+        var layoutKey = codeViewFiles.map(function(file) {
+          return file.path;
+        }).join("|");
+        if (layoutKey !== codeCardLayoutKeyRef.current) codeCardLayoutKeyRef.current = layoutKey;
+        applyOpenedCardPlacements();
+        placeRemainingCodeNodes();
+        syncCodeCards();
+        if (updateHullsRef.current) updateHullsRef.current();
+        if (drawMinimapRef.current) drawMinimapRef.current();
+      }, [data, active, codeViewFiles, graphConfig.vizType, graphConfig.linkDist, codeViewExpand, codeViewWrap, cliLiveByPath]);
+      useEffect2(function() {
+        return subscribePrefersReducedMotion(function() {
+          if (applyForceLinkVisualsRef.current) applyForceLinkVisualsRef.current();
+        });
+      }, []);
+      useEffect2(function() {
+        applyLinkThickness();
+      }, [lineThickness, selected && selected.path]);
+      useEffect2(function() {
+        if (!vizHasCanvasMinimap(graphConfig.vizType)) {
+          minimapModelRef.current = null;
+          if (minimapCanvasRef.current) clearCanvasMinimap(minimapCanvasRef.current);
+          return;
+        }
+        scheduleMinimapDraw();
+      }, [graphConfig.vizType, theme, colorMode, viewportWidth, sidebarWidth, rightPanelWidth]);
+      useEffect2(function() {
+        return function() {
+          if (minimapRafRef.current) {
+            cancelAnimationFrame(minimapRafRef.current);
+            minimapRafRef.current = 0;
+          }
+        };
+      }, []);
+      function computeGraphFitTransform(paddingSlack) {
+        paddingSlack = paddingSlack == null ? 100 : paddingSlack;
+        if (!zoomRef.current || !svgRef.current || !simRef.current) return null;
+        var nodes = simRef.current.nodes();
+        if (!nodes.length) return null;
+        var w = svgRef.current.clientWidth, h = svgRef.current.clientHeight;
+        if (w < 1 || h < 1) return null;
+        if (graphConfig.vizType === "code" && codeCardPathsRef.current && codeCardPathsRef.current.size) {
+          var cardBounds = codeCardFitBounds(nodes, codeCardSizesRef.current, codeCardPathsRef.current);
+          if (cardBounds) {
+            var cardW = Math.max(1, cardBounds.maxX - cardBounds.minX + 80);
+            var cardH = Math.max(1, cardBounds.maxY - cardBounds.minY + 80);
+            var cardScale = clampCodeViewFitScale(0.88 / Math.max(cardW / w, cardH / h));
+            return d32.zoomIdentity.translate(w / 2 - cardScale * cardBounds.cx, h / 2 - cardScale * cardBounds.cy).scale(cardScale);
+          }
+        }
+        var xs = nodes.map(function(n) {
+          return n.x;
+        }), ys = nodes.map(function(n) {
+          return n.y;
+        });
+        var minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs), minY = Math.min.apply(null, ys), maxY = Math.max.apply(null, ys);
+        var scale = 0.8 / Math.max((maxX - minX + paddingSlack) / w, (maxY - minY + paddingSlack) / h);
+        return d32.zoomIdentity.translate(w / 2 - scale * (minX + maxX) / 2, h / 2 - scale * (minY + maxY) / 2).scale(Math.min(scale, 2));
+      }
+      useEffect2(function() {
+        var focus = pendingSourceFocusRef.current, layer = codeCardsLayerRef.current;
+        if (graphConfig.vizType !== "code" || !focus || !layer) return;
+        var card = Array.from(layer.querySelectorAll("[data-code-card]")).find(function(el) {
+          return el.dataset.codeCard === focus.path;
+        });
+        var line = card && card.querySelector('[data-line="' + focus.line + '"]'), body = card && card.querySelector(".code-card-body");
+        if (!line || !body) return;
+        var bodyBounds = body.getBoundingClientRect(), lineBounds = line.getBoundingClientRect();
+        var scale = bodyBounds.height / body.offsetHeight;
+        if (!Number.isFinite(scale) || scale <= 0) return;
+        pendingSourceFocusRef.current = null;
+        body.scrollTop += (lineBounds.top - bodyBounds.top) / scale - body.clientTop - body.clientHeight / 2 + line.offsetHeight / 2;
+      }, [sourceFocus, codeViewFiles, cliLiveByPath, graphConfig.vizType]);
+      function beginCodeCardDrag(e, file) {
+        if (e.pointerType === "mouse" && e.button !== 0) return;
+        e.stopPropagation();
+        var node = graphNodesByIdRef.current[file.path];
+        var transform = codeZoomTransformRef.current || { k: 1, x: 0, y: 0 };
+        var k = Number(transform.k);
+        if (!isFinite(k) || k <= 0) k = 1;
+        if (!node) {
+          selectFile(file.path);
+          return;
+        }
+        var startX = e.clientX, startY = e.clientY, originX = node.x, originY = node.y, moved = false, lastX = node.x, lastY = node.y;
+        node.fx = node.x;
+        node.fy = node.y;
+        codeCardStackRef.current = raiseCodeCardStack(codeCardStackRef.current, file.path);
+        applyCodeCardStackOrder(codeCardsLayerRef.current, codeCardStackRef.current);
+        function writePlacement() {
+          var size = codeCardSizesRef.current[file.path] || codeCardSize(file, currentCodeCardPrefs());
+          var prev = codeCardPlacementRef.current[file.path] || {};
+          codeCardPlacementRef.current[file.path] = {
+            left: node.fx - size.width / 2,
+            top: node.fy - size.height / 2,
+            x: node.fx,
+            y: node.fy,
+            width: size.width,
+            height: size.height,
+            folder: file.folder || prev.folder || "root"
+          };
+        }
+        function onMove(ev) {
+          var delta = codeCardDragDelta(ev.clientX, ev.clientY, startX, startY, k, 3);
+          if (delta.moved) {
+            moved = true;
+            codeCardUserPinnedRef.current.add(file.path);
+          }
+          var nextX = originX + delta.x, nextY = originY + delta.y;
+          var dx = nextX - lastX, dy = nextY - lastY;
+          node.x = node.fx = nextX;
+          node.y = node.fy = nextY;
+          lastX = nextX;
+          lastY = nextY;
+          var siblings = translateCodeViewSiblings(simRef.current && simRef.current.nodes() || [], node, dx, dy, codeCardPathsRef.current);
+          writePlacement();
+          if (codeViewDragRefresh("move")) {
+            syncCodeCards();
+            redrawGraphLinksAndNodes();
+            if (updateHullsRef.current) updateHullsRef.current();
+          } else {
+            applyCodeCardDragFrame(codeCardsLayerRef.current, file.path, node, codeCardSizesRef.current[file.path]);
+            redrawMovedGraphNodes([node].concat(siblings));
+          }
+          if (drawMinimapRef.current) drawMinimapRef.current();
+        }
+        function onUp() {
+          endCardGesture();
+          var end = noteCodeCardPointerEnd(moved);
+          if (end.ignoreNextClick) {
+            codeCardIgnoreClickRef.current = true;
+            setTimeout(function() {
+              codeCardIgnoreClickRef.current = false;
+            }, 400);
+          }
+          if (moved) {
+            codeCardUserPinnedRef.current.add(file.path);
+            if (codeViewDragRefresh("release")) {
+              settleCodeViewAfterDrag(simRef.current && simRef.current.nodes() || [], codeCardPathsRef.current, codeCardSizesRef.current, file.path, {
+                boxesByPath: readCodeCardWorldBoxes(codeCardsLayerRef.current)
+              });
+            }
+            node.x = node.fx;
+            node.y = node.fy;
+            writePlacement();
+            syncCodeCards();
+            redrawGraphLinksAndNodes();
+            if (updateHullsRef.current) updateHullsRef.current();
+            if (drawMinimapRef.current) drawMinimapRef.current();
+          }
+          if (end.select) selectFile(file.path);
+        }
+        listenCardGesture(onMove, onUp);
+      }
+      function beginCodeCardResize(e, file, edge) {
+        if (e.pointerType === "mouse" && e.button !== 0) return;
+        e.stopPropagation();
+        e.preventDefault();
+        var node = graphNodesByIdRef.current[file.path];
+        var size = codeCardSizesRef.current[file.path] || applyCodeCardUserSize(codeCardSizeForDiff(file, currentCodeCardPrefs(), codeCardDiffRows(file, cliLiveByPath[file.path])), codeCardUserSizeRef.current[file.path]);
+        if (!node) return;
+        var transform = codeZoomTransformRef.current || { k: 1, x: 0, y: 0 };
+        var k = Number(transform.k);
+        if (!isFinite(k) || k <= 0) k = 1;
+        var startX = e.clientX, startY = e.clientY, startW = size.width, startH = size.height;
+        var left = node.x - size.width / 2, top = node.y - size.height / 2, moved = false;
+        function writeSize(nextSize) {
+          codeCardUserSizeRef.current[file.path] = { width: nextSize.width, height: nextSize.height };
+          codeCardSizesRef.current[file.path] = applyCodeCardUserSize(codeCardSizeForDiff(file, currentCodeCardPrefs(), codeCardDiffRows(file, cliLiveByPath[file.path])), nextSize);
+          var live = codeCardSizesRef.current[file.path];
+          node.x = node.fx = left + live.width / 2;
+          node.y = node.fy = top + live.height / 2;
+          var prev = codeCardPlacementRef.current[file.path] || {};
+          codeCardPlacementRef.current[file.path] = {
+            left,
+            top,
+            x: node.fx,
+            y: node.fy,
+            width: live.width,
+            height: live.height,
+            folder: file.folder || prev.folder || "root"
+          };
+        }
+        function onMove(ev) {
+          var delta = codeCardResizeDelta(ev.clientX, ev.clientY, startX, startY, startW, startH, k, edge);
+          if (Math.abs(delta.dx) + Math.abs(delta.dy) > 2) {
+            moved = true;
+            codeCardUserPinnedRef.current.add(file.path);
+          }
+          writeSize(clampCodeCardResize(delta.width, delta.height, currentCodeCardPrefs()));
+          if (codeViewDragRefresh("move")) {
+            syncCodeCards();
+            redrawGraphLinksAndNodes();
+            if (updateHullsRef.current) updateHullsRef.current();
+          } else {
+            applyCodeCardDragFrame(codeCardsLayerRef.current, file.path, node, codeCardSizesRef.current[file.path]);
+            applyCodeCardResizeFrame(findCodeCardElement(codeCardsLayerRef.current, file.path), codeCardSizesRef.current[file.path]);
+          }
+          if (drawMinimapRef.current) drawMinimapRef.current();
+        }
+        function onUp() {
+          endCardGesture();
+          if (moved) {
+            codeCardUserPinnedRef.current.add(file.path);
+            if (codeViewDragRefresh("release")) {
+              settleCodeViewAfterDrag(simRef.current && simRef.current.nodes() || [], codeCardPathsRef.current, codeCardSizesRef.current, file.path, {
+                boxesByPath: readCodeCardWorldBoxes(codeCardsLayerRef.current)
+              });
+            }
+            syncCodeCards();
+            redrawGraphLinksAndNodes();
+            if (updateHullsRef.current) updateHullsRef.current();
+            if (drawMinimapRef.current) drawMinimapRef.current();
+          }
+        }
+        listenCardGesture(onMove, onUp);
+      }
+      function renderCodeFileCard(file, isPrimary) {
+        if (!file) return null;
+        var sourceState = fileSourceDisplayState(file, canReadLiveFileSource(), codeSourceFailed);
+        var body;
+        if (sourceState === "ready") {
+          var diffRows = codeCardDiffRows(file, cliLiveByPath[file.path]);
+          if (diffRows) {
+            var diffSource = diffRows.map(function(row) {
+              return row.text;
+            }).join("\n");
+            var diffLines = asCodeLines(highlightSyntax(diffSource, file.name));
+            body = React2.createElement(
+              "pre",
+              { className: "file-preview-code" },
+              diffLines.map(function(lineHtml, i) {
+                var row = diffRows[i] || { type: "same" };
+                return React2.createElement(
+                  "div",
+                  { key: i, "data-line": row.newLine || void 0, className: "file-preview-line" + codeCardDiffClass(row) + (sourceFocus && sourceFocus.path === file.path && sourceFocus.line === row.newLine ? " highlighted" : "") },
+                  React2.createElement("span", { className: "file-preview-linenum" }, codeCardDiffLineNo(row)),
+                  React2.createElement("span", { className: "file-preview-text", onClick: data.beam && row.newLine ? function(e) {
+                    beamSourceClick(e, file.path, row.newLine - 1);
+                  } : void 0, dangerouslySetInnerHTML: { __html: annotateHtmlWithSymbols(lineHtml || " ", codeViewSymbols, activeSymbol) } })
+                );
+              })
+            );
+          } else {
+            var lines = asCodeLines(highlightSyntax(file.content || "", file.name));
+            body = React2.createElement(
+              "pre",
+              { className: "file-preview-code" },
+              lines.map(function(lineHtml, i) {
+                return React2.createElement(
+                  "div",
+                  { key: i, "data-line": i + 1, className: "file-preview-line" + (sourceFocus && sourceFocus.path === file.path && sourceFocus.line === i + 1 ? " highlighted" : "") },
+                  React2.createElement("span", { className: "file-preview-linenum" }, i + 1),
+                  React2.createElement("span", { className: "file-preview-text", onClick: data.beam ? function(e) {
+                    beamSourceClick(e, file.path, i);
+                  } : void 0, dangerouslySetInnerHTML: { __html: annotateHtmlWithSymbols(lineHtml || " ", codeViewSymbols, activeSymbol) } })
+                );
+              })
+            );
+          }
+        } else if (sourceState === "failed") {
+          body = React2.createElement(
+            "div",
+            { className: "code-card-source-status" },
+            React2.createElement("div", { className: "empty-desc" }, "Source unavailable"),
+            React2.createElement("button", { className: "code-card-retry", type: "button", onClick: function(e) {
+              e.stopPropagation();
+              retryCodeSource(file.path);
+            } }, "Retry")
+          );
+        } else {
+          var message = sourceState === "skipped" ? file.analysisSkipped === "oversized" ? "Skipped during analysis (file too large)" : "File was not fetched during analysis" : sourceState === "loading" ? "Loading source..." : "Reopen this project to read source";
+          body = React2.createElement("div", { className: "empty-desc", style: { padding: "12px" } }, message);
+        }
+        var cardPrefs = currentCodeCardPrefs();
+        var cardSize = applyCodeCardUserSize(codeCardSizeForDiff(file, cardPrefs, diffRows), codeCardUserSizeRef.current[file.path]);
+        var pills = isPrimary ? codeCardSymbolPills(file, data ? data.connections : [], cardPrefs, diffRows) : [];
+        var colorBlocks = codeColorBlockSections(file, data ? data.connections : [], cardPrefs, diffRows);
+        var blockLayer = colorBlocks.length ? React2.createElement(
+          "div",
+          { className: "code-color-blocks" },
+          colorBlocks.map(function(block) {
+            return React2.createElement("div", {
+              key: block.name + ":" + block.startLine,
+              className: "code-color-block " + block.kind,
+              title: block.name,
+              style: { top: block.top + "px", height: block.height + "px", background: block.color },
+              onMouseEnter: function(e) {
+                var host = codeCanvasRef.current;
+                if (!host) return;
+                var r = host.getBoundingClientRect();
+                setTooltip({ x: e.clientX - r.left + 10, y: e.clientY - r.top, title: block.name, content: block.kind + (block.startLine ? " \xB7 L" + block.startLine : "") });
+              },
+              onMouseLeave: function() {
+                setTooltip(null);
+              }
+            });
+          })
+        ) : null;
+        body = React2.createElement("div", { className: "code-card-source" }, body, blockLayer);
+        return React2.createElement(
+          "div",
+          { key: file.path, "data-code-card": file.path, className: "code-card" + (isPrimary ? " primary" : " linked") + (cardSize.clipped ? " clipped" : "") + (cardSize.expand ? " expand" : "") + (cardSize.wrap ? " wrap" : ""), onClick: function(e) {
+            var taken = consumeCodeCardClick(codeCardIgnoreClickRef.current);
+            codeCardIgnoreClickRef.current = taken.ignoreNextClick;
+            if (taken.ignore) {
+              e.stopPropagation();
+              return;
+            }
+            if (!selected || selected.path !== file.path) selectFile(file.path);
+          } },
+          React2.createElement(
+            "div",
+            { className: "code-card-head", onPointerDown: function(e) {
+              beginCodeCardDrag(e, file);
+            } },
+            React2.createElement(
+              "div",
+              null,
+              React2.createElement("div", { className: "code-card-name" }, file.name),
+              React2.createElement("div", { className: "code-card-path" }, file.path)
+            ),
+            React2.createElement("span", { className: "badge badge-default" }, isPrimary ? "selected" : "open"),
+            React2.createElement("button", { className: "top-btn", type: "button", "aria-label": "Close " + file.name, title: "Close file", onPointerDown: function(e) {
+              e.stopPropagation();
+            }, onClick: function(e) {
+              e.stopPropagation();
+              closeCodeCard(file.path);
+            } }, React2.createElement(Icon2, { name: "close", size: "s" }))
+          ),
+          React2.createElement("div", { className: "code-card-body", onClick: function(e) {
+            var mark = e.target.closest ? e.target.closest("[data-sym]") : null;
+            if (mark) {
+              e.stopPropagation();
+              var name = mark.getAttribute("data-sym");
+              setActiveSymbol(function(prev) {
+                return prev === name ? null : name;
+              });
+            }
+          }, onScroll: isPrimary && cardSize.clipped ? function(e) {
+            setCodePillScroll(e.currentTarget.scrollTop);
+          } : void 0 }, body),
+          pills.map(function(pill) {
+            var top = codeCardPillViewTop(pill.top, isPrimary ? codePillScroll : 0, cardSize.height, CODE_CARD_HEAD_HEIGHT);
+            if (top == null) return null;
+            return React2.createElement("button", {
+              key: pill.name + ":" + pill.line,
+              className: "code-line-pill " + pill.kind + (activeSymbol === pill.name ? " active" : ""),
+              style: { top: top + "px" },
+              title: pill.name,
+              onClick: function(e) {
+                e.stopPropagation();
+                setActiveSymbol(function(prev) {
+                  return prev === pill.name ? null : pill.name;
+                });
+              }
+            }, pill.name);
+          }),
+          React2.createElement("div", { className: "code-card-resize code-card-resize-e", "data-code-resize": "e", onPointerDown: function(e) {
+            beginCodeCardResize(e, file, "e");
+          } }),
+          React2.createElement("div", { className: "code-card-resize code-card-resize-s", "data-code-resize": "s", onPointerDown: function(e) {
+            beginCodeCardResize(e, file, "s");
+          } }),
+          React2.createElement("div", { className: "code-card-resize code-card-resize-se", "data-code-resize": "se", onPointerDown: function(e) {
+            beginCodeCardResize(e, file, "se");
+          } })
+        );
+      }
+      function renderCodeView() {
+        var primaryPath = selected && selected.path;
+        return React2.createElement(
+          "div",
+          { className: "code-canvas", ref: codeCanvasRef },
+          React2.createElement("svg", { ref: svgRef }),
+          React2.createElement(
+            "div",
+            { className: "code-canvas-cards", ref: codeCardsLayerRef },
+            codeViewFiles.map(function(file) {
+              return renderCodeFileCard(file, file.path === primaryPath);
+            })
+          ),
+          React2.createElement(
+            "div",
+            { className: "code-canvas-hud" },
+            React2.createElement("div", { className: "code-canvas-hint" }, codeViewFiles.length ? "Open files from nodes or the Files tree. Open cards stay put. Wheel pans \xB7 Ctrl+wheel zooms." : "No files to open as cards."),
+            codeViewSymbols.length > 0 && React2.createElement(
+              "div",
+              { className: "code-sym-list" },
+              codeViewSymbols.map(function(sym) {
+                return React2.createElement("button", { key: sym.name, className: "code-sym-chip " + sym.kind + (activeSymbol === sym.name ? " active" : ""), title: sym.name, onClick: function() {
+                  setActiveSymbol(function(prev) {
+                    return prev === sym.name ? null : sym.name;
+                  });
+                } }, sym.name);
+              })
+            )
+          )
+        );
+      }
+      useEffect2(() => {
+        if (!selected) {
+          updateGraphHighlight(null, null);
+          return;
+        }
+        if (graphConfig.vizType === "code") applyForceLinkVisuals();
+        else updateGraphHighlight(selected.path, calcBlast(selected.path, data.connections, data.files));
+      }, [selected?.path, data, graphConfig.vizType]);
+      function reveal(path, camera) {
+        pendingFlyToRef.current = null;
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          const node = graphNodesByIdRef.current[path], svg = svgRef.current;
+          if (!node || !zoomRef.current || !svg) return;
+          const t = camera ? d32.zoomIdentity.translate(camera.x, camera.y).scale(camera.k) : d32.zoomIdentity.translate(svg.clientWidth / 2 - node.x, svg.clientHeight / 2 - node.y);
+          d32.select(svg).transition().duration(250).call(zoomRef.current.transform, t);
+        }));
+      }
+      useImperativeHandle(ref, () => ({
+        focus(path) {
+          pendingFlyToRef.current = path;
+        },
+        reveal,
+        prepareSource(location) {
+          if (!codeCardUserSizeRef.current[location.path]) codeCardUserSizeRef.current[location.path] = { height: 640 };
+          pendingSourceFocusRef.current = { path: location.path, line: location.range ? location.range.start.line + 1 : 1 };
+        },
+        snapshotScene() {
+          return { placements: copyRecords(codeCardPlacementRef.current), sizes: copyRecords(codeCardUserSizeRef.current), pinned: Array.from(codeCardUserPinnedRef.current), camera: snapshotZoomTransform(codeZoomTransformRef.current) };
+        },
+        get svgElement() {
+          return svgRef.current;
+        },
+        frameForExport(padding) {
+          const svg = svgRef.current, zoom = zoomRef.current, previous = d32.zoomTransform(svg);
+          const fit = computeGraphFitTransform(padding);
+          if (fit) d32.select(svg).call(zoom.transform, fit);
+          return () => {
+            if (svgRef.current === svg) d32.select(svg).call(zoom.transform, previous);
+          };
+        },
+        zoomBy(factor) {
+          if (svgRef.current && zoomRef.current) d32.select(svgRef.current).transition().duration(200).call(zoomRef.current.scaleBy, factor);
+        },
+        resetZoom() {
+          if (svgRef.current && zoomRef.current) d32.select(svgRef.current).transition().duration(300).call(zoomRef.current.transform, d32.zoomIdentity);
+        },
+        fit() {
+          const t = computeGraphFitTransform(100);
+          if (t) d32.select(svgRef.current).transition().duration(400).call(zoomRef.current.transform, t);
+        }
+      }));
+      if (!data || !active || !["graph", "code"].includes(graphConfig.vizType)) return null;
+      return React2.createElement(React2.Fragment, null, graphConfig.vizType === "code" ? renderCodeView() : React2.createElement("svg", { ref: svgRef }), vizHasCanvasMinimap(graphConfig.vizType) && React2.createElement("div", {
+        className: "canvas-minimap",
+        ref: minimapHostRef,
+        tabIndex: 0,
+        role: "application",
+        "aria-label": "Canvas mini-map. Click or drag to pan. Arrow keys pan the view. Home recenters.",
+        title: "Click or drag to pan. Arrow keys pan the view.",
+        onPointerDown: handleMinimapPointerDown,
+        onPointerMove: handleMinimapPointerMove,
+        onPointerUp: handleMinimapPointerUp,
+        onPointerCancel: handleMinimapPointerUp,
+        onKeyDown: handleMinimapKeyDown,
+        onWheel: function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }, React2.createElement("canvas", { ref: minimapCanvasRef })));
+    });
+  }
+
+  // src/project/runtime-index.mjs
+  function indexRuntime(snapshot, files = []) {
+    const processesById = /* @__PURE__ */ new Map(), processesBySource = /* @__PURE__ */ new Map();
+    if (snapshot?.status !== "ready") return { processesById, processesBySource, applications: [], roots: [] };
+    const paths = new Set(files.map((file) => file.path));
+    const processes = snapshot.processes || [];
+    for (const process of processes) {
+      processesById.set(process.id, process);
+      if (!process.sourcePath || !paths.has(process.sourcePath)) continue;
+      if (!processesBySource.has(process.sourcePath)) processesBySource.set(process.sourcePath, []);
+      processesBySource.get(process.sourcePath).push(process);
+    }
+    const local = (application) => {
+      const process = processesById.get(application.rootId);
+      return process && paths.has(process.sourcePath) ? 1 : 0;
+    };
+    const applications = (snapshot.applications || []).slice().sort((a, b) => local(b) - local(a) || a.name.localeCompare(b.name));
+    return { processesById, processesBySource, applications, roots: processes.filter((process) => !process.parentId && !process.application) };
+  }
+  function runtimeAncestors(index, id) {
+    const ancestors = /* @__PURE__ */ new Set();
+    while (id && !ancestors.has(id)) {
+      const process = index.processesById.get(id);
+      if (!process) break;
+      ancestors.add(id);
+      id = process.parentId;
+    }
+    return ancestors;
+  }
+
+  // src/views/inspection.mjs
+  function createInspectionPanels(React2) {
+    const { useRef: useRef2, useEffect: useEffect2 } = React2;
+    function Symbols({ items, path, onOpen, onReferences }) {
+      return items.map(function(symbol, i) {
+        return React2.createElement(
+          "div",
+          { key: i, style: { paddingLeft: 8 } },
+          React2.createElement(
+            "div",
+            { style: { display: "flex", gap: 6, marginBottom: 4 } },
+            React2.createElement("button", { className: "top-btn", style: { flex: 1, textAlign: "left", overflowWrap: "anywhere" }, onClick: function() {
+              onOpen({ path, range: symbol.selectionRange || symbol.range });
+            } }, symbol.name),
+            React2.createElement("button", { className: "top-btn", title: "Find references", onClick: function() {
+              onReferences(path, (symbol.selectionRange || symbol.range).start);
+            } }, "Refs")
+          ),
+          symbol.children && React2.createElement(Symbols, { items: symbol.children, path, onOpen, onReferences })
+        );
+      });
+    }
+    function SourceNavigation2({ path, symbols, locations, error, onOpen, onReferences }) {
+      return React2.createElement(
+        React2.Fragment,
+        null,
+        error && React2.createElement("p", { role: "status" }, error),
+        symbols.length > 0 && React2.createElement("div", { className: "card" }, React2.createElement("div", { className: "card-header" }, "Outline"), React2.createElement("div", { className: "card-body" }, React2.createElement(Symbols, { items: symbols, path, onOpen, onReferences }))),
+        locations && React2.createElement("div", { className: "card" }, React2.createElement("div", { className: "card-header" }, locations.title), React2.createElement(
+          "div",
+          { className: "card-body" },
+          locations.items.length === 0 ? "No locations found." : locations.items.map(function(location, i) {
+            return React2.createElement("button", { key: i, className: "top-btn", style: { display: "block", width: "100%", textAlign: "left", marginBottom: 5 }, onClick: function() {
+              onOpen(location);
+            } }, (location.path || location.uri) + ":" + (location.range.start.line + 1));
+          })
+        ))
+      );
+    }
+    function AnalysisTools2({ assessments }) {
+      return Object.keys(assessments || {}).map(function(id) {
+        var tool = assessments[id];
+        return React2.createElement(
+          "details",
+          { key: id, style: { marginBottom: 8 } },
+          React2.createElement("summary", null, tool.name + " \xB7 " + tool.status),
+          tool.reason && React2.createElement("pre", { style: { whiteSpace: "pre-wrap" } }, tool.reason)
+        );
+      });
+    }
+    function SourceFindings2({ summary, onOpen }) {
+      if (!summary?.count) return null;
+      return React2.createElement(
+        "div",
+        { className: "card", "aria-label": "File findings" },
+        React2.createElement("div", { className: "card-header" }, "Findings (", summary.count, ")"),
+        React2.createElement("div", { className: "card-body" }, summary.entries.map((entry, i) => {
+          const issue = entry.issue, location = entry.sourceLocation;
+          const line = location.range ? location.range.start.line + 1 : location.line;
+          return React2.createElement(
+            "button",
+            { key: i, className: "top-btn", style: { display: "block", width: "100%", textAlign: "left", whiteSpace: "normal", marginBottom: 6 }, onClick: () => onOpen(location) },
+            React2.createElement("div", null, entry.kind === "issue" && !issue.sourceLocation ? issue.desc || issue.title : issue.title || issue.message || issue.type),
+            React2.createElement("div", { style: { fontSize: 10, color: "var(--t3)" } }, issue.evidence || issue.provider || (entry.kind === "security" ? "Security" : "Source analysis"), line ? " \xB7 L" + line : "")
+          );
+        }))
+      );
+    }
+    function SourceProcesses2({ index, path, onSelect }) {
+      const processes = index.processesBySource.get(path) || [];
+      return processes.length > 0 && React2.createElement(
+        "div",
+        { className: "card" },
+        React2.createElement("div", { className: "card-header" }, "Running processes"),
+        React2.createElement("div", { className: "card-body" }, processes.map(function(process) {
+          return React2.createElement("button", { key: process.id, className: "top-btn", onClick: function() {
+            onSelect(process.id);
+          } }, process.label || process.module, " ", process.pid);
+        }))
+      );
+    }
+    function RuntimePanel2({ index, inspection, onOpen }) {
+      const { snapshot, node, busy, focus } = inspection;
+      const processes = index.processesById, focusAncestors = runtimeAncestors(index, focus);
+      const panel = useRef2(null);
+      useEffect2(() => {
+        if (!focus) return;
+        const frame = requestAnimationFrame(() => {
+          const row = Array.from(panel.current?.querySelectorAll("[data-process-id]") || []).find((el) => el.dataset.processId === focus);
+          row?.scrollIntoView({ block: "center" });
+        });
+        return () => cancelAnimationFrame(frame);
+      }, [focus, index]);
+      function processTree(id, seen) {
+        var process = processes.get(id);
+        if (!process || seen.has(id)) return null;
+        var next = new Set(seen);
+        next.add(id);
+        return React2.createElement(
+          "details",
+          { key: id, "data-process-id": id, open: process.type === "supervisor" || focusAncestors.has(id), style: { margin: "8px 0 8px 10px", outline: id === focus ? "1px solid var(--acc)" : void 0 } },
+          React2.createElement("summary", null, process.label || process.module || process.pid),
+          React2.createElement("div", { style: { color: "var(--t3)", margin: "6px 0" } }, process.pid, " \xB7 ", process.metrics && process.metrics.status, " \xB7 queue ", process.metrics && process.metrics.messageQueueLength, " \xB7 ", process.metrics && process.metrics.memory, " B \xB7 ", process.metrics && process.metrics.reductions, " reductions"),
+          index.processesBySource.has(process.sourcePath) && React2.createElement("button", { className: "top-btn", onClick: function() {
+            onOpen({ path: process.sourcePath });
+          } }, "Source"),
+          (process.children || []).map(function(child) {
+            return processTree(child, next);
+          })
+        );
+      }
+      return React2.createElement(
+        "div",
+        { ref: panel },
+        React2.createElement(
+          "form",
+          { onSubmit: function(event) {
+            event.preventDefault();
+            inspection.connect();
+          }, style: { display: "flex", gap: 6, marginBottom: 12 } },
+          React2.createElement("input", { value: node, onChange: function(e) {
+            inspection.setNode(e.target.value);
+          }, placeholder: "name@hostname", "aria-label": "BEAM node", style: { minWidth: 0, flex: 1 } }),
+          React2.createElement("button", { className: "top-btn", disabled: busy || !node.trim(), type: "submit" }, busy ? "Connecting\u2026" : snapshot && snapshot.status === "ready" ? "Refresh" : "Connect")
+        ),
+        snapshot && snapshot.status !== "ready" && React2.createElement("p", { role: "status" }, snapshot.reason || snapshot.error || (snapshot.warnings || []).join(" ") || "Runtime unavailable"),
+        snapshot && snapshot.status === "ready" && React2.createElement(
+          React2.Fragment,
+          null,
+          React2.createElement("div", { style: { color: "var(--t3)" } }, "Snapshot \xB7 " + new Date(snapshot.collectedAt).toLocaleTimeString()),
+          index.applications.map(function(app) {
+            return React2.createElement("details", { key: app.name, open: focusAncestors.has(app.rootId) }, React2.createElement("summary", { style: { padding: "8px 0" } }, app.name), processTree(app.rootId, /* @__PURE__ */ new Set()));
+          }),
+          React2.createElement("details", { open: index.roots.some((p) => focusAncestors.has(p.id)) }, React2.createElement("summary", { style: { padding: "8px 0" } }, "Other processes"), index.roots.map(function(p) {
+            return processTree(p.id, /* @__PURE__ */ new Set());
+          })),
+          (snapshot.warnings || []).map(function(warning, i) {
+            return React2.createElement("p", { key: i, role: "status" }, warning);
+          })
+        )
+      );
+    }
+    return { SourceNavigation: SourceNavigation2, AnalysisTools: AnalysisTools2, SourceProcesses: SourceProcesses2, SourceFindings: SourceFindings2, RuntimePanel: RuntimePanel2 };
+  }
+
+  // src/browser/runtime-inspection.mjs
+  function createRuntimeInspectionHook(React2) {
+    const { useState: useState2, useRef: useRef2, useEffect: useEffect2 } = React2;
+    return function useRuntimeInspection2(connection, defaultNode = "") {
+      const [node, setNode] = useState2(defaultNode);
+      const [result, setResult] = useState2({ connection, snapshot: null, busy: false, focus: null });
+      const current = useRef2(connection);
+      current.current = connection;
+      useEffect2(() => {
+        current.current = connection;
+        setResult({ connection, snapshot: null, busy: false, focus: null });
+        return () => {
+          if (current.current === connection) current.current = null;
+        };
+      }, [connection]);
+      useEffect2(() => setNode(defaultNode), [connection, defaultNode]);
+      const state = result.connection === connection ? result : { snapshot: null, busy: false, focus: null };
+      async function connect() {
+        if (!connection) {
+          setResult({ connection, snapshot: { status: "unavailable", reason: "Open this checkout with the CLI to inspect its runtime." }, busy: false, focus: null });
+          return;
+        }
+        setResult((previous) => ({ ...previous, connection, busy: true }));
+        try {
+          const snapshot = await connection.runtime(node);
+          if (current.current === connection) setResult((previous) => ({ ...previous, connection, snapshot, busy: false }));
+        } catch (error) {
+          if (current.current === connection && error.name !== "AbortError") setResult((previous) => ({ ...previous, connection, snapshot: { status: "unavailable", reason: error.message }, busy: false }));
+        }
+      }
+      function setFocus(focus) {
+        setResult((previous) => ({ ...previous, connection, focus }));
+      }
+      return { ...state, node, setNode, connect, setFocus };
+    };
+  }
 
   // src/views/graph3d.mjs
   function createGraph3DView({ React: React2, getRuntime, colors: COLORS2, layerColors: LAYER_COLORS2 }) {
@@ -712,6 +4509,7 @@
         function getBaseColor(d) {
           if (colorMode === "folder") return colorMap[d.folder] || COLORS2[0];
           if (colorMode === "layer") return LAYER_COLORS2[d.layer] || LAYER_COLORS2["utils"];
+          if (colorMode === "findings") return colorMap[d.id] || FINDING_COLORS.none;
           if (colorMode === "churn") return colorMap[d.id] || "#22c55e";
           return COLORS2[0];
         }
@@ -728,6 +4526,7 @@
         function getC(d) {
           var baseColor = getBaseColor(d);
           if (selectedPath) {
+            if (colorMode === "findings") return hexToRgba(baseColor, d.id === selectedPath || blastRadius && (blastRadius.affected.includes(d.id) || blastRadius.dependencies.includes(d.id)) ? 0.95 : 0.15);
             if (d.id === selectedPath) return hexToRgba("var(--acc)", 0.95);
             if (blastRadius && blastRadius.affected.indexOf(d.id) >= 0) return hexToRgba("var(--purple)", 0.95);
             if (blastRadius && blastRadius.dependencies.indexOf(d.id) >= 0) return hexToRgba("var(--orange)", 0.95);
@@ -2910,156 +6709,6 @@
     };
   }
 
-  // src/project/identity.mjs
-  function newLocalSelectionId() {
-    return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
-  }
-  function localFolderCacheMeta(options) {
-    options = options || {};
-    var title = String(options.title || "").trim();
-    var paths = (options.paths || []).map(function(p) {
-      return String(p || "").replace(/\\/g, "/");
-    }).filter(Boolean).slice().sort();
-    if (!title) {
-      var raw = String(options.rootPrefix || "").replace(/\\/g, "/");
-      title = (raw.split("/").filter(Boolean)[0] || "").trim();
-    }
-    if (!title) title = "Local Folder";
-    var selectionId = String(options.selectionId || "").trim() || newLocalSelectionId();
-    return { sourceKey: title + "|sel:" + selectionId, title, selectionId };
-  }
-  function cliWatchCacheMeta(status) {
-    status = status || {};
-    var root = String(status.root || "").replace(/\\/g, "/");
-    var title = String(status.name || "").trim();
-    if (!title && root) title = (root.split("/").filter(Boolean).pop() || "").trim();
-    if (!title) title = "Local watch";
-    return { sourceKey: root || "cli", title };
-  }
-  function zipArchiveCacheMeta(options) {
-    options = options || {};
-    var title = String(options.name || options.title || "").trim() || "ZIP Archive";
-    var size = Number(options.size);
-    if (!isFinite(size) || size < 0) size = 0;
-    var modified = Number(options.lastModified);
-    if (!isFinite(modified) || modified < 0) modified = 0;
-    var paths = (options.paths || []).map(function(p) {
-      return String(p || "").replace(/\\/g, "/");
-    }).filter(Boolean).slice().sort();
-    return { sourceKey: title + "|" + size + "|" + modified + "|" + paths.length + "|" + paths.slice(0, 12).join("|"), title };
-  }
-  function retainedFolderMatchesRecord(record, retained) {
-    if (!record || !record.sourceKey) return true;
-    retained = retained || {};
-    return String(retained.sourceKey || "") === String(record.sourceKey);
-  }
-  function normalizeCliRoot(root) {
-    return String(root || "").replace(/\\/g, "/").replace(/\/+$/, "");
-  }
-  function cliRecordMatchesStatus(record, status) {
-    if (!record || !record.sourceKey) return true;
-    if (!status || !status.ok) return false;
-    return normalizeCliRoot(status.root) === normalizeCliRoot(record.sourceKey);
-  }
-  function zipFileIdentity(zipFile) {
-    if (!zipFile) return "";
-    var title = String(zipFile.name || "").trim() || "ZIP Archive";
-    var size = Number(zipFile.size);
-    if (!isFinite(size) || size < 0) size = 0;
-    var modified = Number(zipFile.lastModified);
-    if (!isFinite(modified) || modified < 0) modified = 0;
-    return title + "|" + size + "|" + modified;
-  }
-  function retainedZipMatchesRecord(record, retained) {
-    if (!record || !record.sourceKey) return true;
-    retained = retained || {};
-    if (retained.sourceKey && String(retained.sourceKey) === String(record.sourceKey)) return true;
-    var identity = String(retained.identity || "");
-    return !!identity && String(record.sourceKey).indexOf(identity + "|") === 0;
-  }
-  function normalizeExcludeKey(patterns) {
-    var list = [];
-    (patterns || []).forEach(function(p) {
-      var raw = typeof p === "string" ? p : p && p.raw;
-      raw = String(raw || "").trim();
-      if (raw && list.indexOf(raw) < 0) list.push(raw);
-    });
-    list.sort();
-    return list.join("\n");
-  }
-  function githubCacheSourceKey(owner, repo, patterns) {
-    var base = String(owner || "") + "/" + String(repo || "");
-    var excl = normalizeExcludeKey(patterns);
-    return excl ? base + "|excl:" + excl : base;
-  }
-  function githubSourceKeyForLoadedAnalysis(owner, repo, data, pendingPatterns) {
-    var patterns = data && data.excludePatterns != null ? data.excludePatterns : pendingPatterns;
-    return githubCacheSourceKey(owner, repo, patterns);
-  }
-  function cachedAnalysisMatchesExcludes(record, patterns) {
-    if (!record) return false;
-    var wanted = normalizeExcludeKey(patterns);
-    var key = String(record.sourceKey || "");
-    var marker = key.indexOf("|excl:");
-    if (marker >= 0) return key.slice(marker + 6) === wanted;
-    return normalizeExcludeKey(record.data && record.data.excludePatterns) === wanted;
-  }
-  function githubZipDownloadUrl(owner, repo) {
-    return "https://github.com/" + encodeURIComponent(owner) + "/" + encodeURIComponent(repo) + "/archive/HEAD.zip";
-  }
-  function analysisCacheKey(sourceType, sourceKey) {
-    return String(sourceType || "unknown") + ":" + String(sourceKey || "").replace(/\\/g, "/");
-  }
-  function connectionIdentity(connection) {
-    var src = connection && (typeof connection.source === "object" ? connection.source.id : connection.source);
-    var tgt = connection && (typeof connection.target === "object" ? connection.target.id : connection.target);
-    var count = connection && connection.count != null ? connection.count : 1;
-    return String(src || "") + "	" + String(tgt || "") + "	" + String(connection && connection.fn || "") + "	" + String(count);
-  }
-  function fileGraphIdentity(file) {
-    if (!file) return "";
-    var fnCount = file.functions && file.functions.length ? file.functions.length : 0;
-    return [file.path || "", file.name || "", file.folder || "", file.layer || "", file.churn || 0, fnCount].join("	");
-  }
-  function analysisGraphKey(data) {
-    if (!data || !data.files) return "";
-    var files = data.files.map(fileGraphIdentity).join("\n");
-    var connections = (data.connections || []).map(connectionIdentity).sort().join("\n");
-    return files + "\n" + connections;
-  }
-  function graphStructureKey(data, folderFilter) {
-    var graph = analysisGraphKey(data);
-    if (!graph) return "";
-    return String(folderFilter || "") + "\n" + graph;
-  }
-  function codeViewSceneKey(data, folderFilter, vizType, source) {
-    return analysisHydrationId(source, data) + "|" + String(folderFilter || "") + "|" + String(vizType || "");
-  }
-  function analysisHydrationIdFromParts(source, graphKey) {
-    source = source || {};
-    return [source.sourceType || "", source.sourceKey || "", graphKey || ""].join("\0");
-  }
-  function analysisHydrationId(source, data) {
-    return analysisHydrationIdFromParts(source, analysisGraphKey(data));
-  }
-  function loadedAnalysisSourceIdentity(options) {
-    options = options || {};
-    if (options.localSourceKind === "folder") return { sourceType: "folder", sourceKey: options.folderKey || "local-folder" };
-    if (options.localSourceKind === "zip") return { sourceType: "zip", sourceKey: options.zipKey || "zip" };
-    if (options.localSourceKind === "cli") return { sourceType: "cli", sourceKey: options.cliRoot || "cli" };
-    if (options.githubOwner && options.githubRepo) return { sourceType: "github", sourceKey: options.githubKey || options.githubOwner + "/" + options.githubRepo };
-    if (options.cliOk) return { sourceType: "cli", sourceKey: options.cliRoot || "cli" };
-    return null;
-  }
-  function hydrationRequestIsCurrent(hydrationId, currentId) {
-    if (hydrationId == null || currentId == null) return true;
-    return hydrationId === currentId;
-  }
-  function hydratedSourceIsCurrent(update, currentId) {
-    if (!update || !update.path || typeof update.content !== "string") return false;
-    return hydrationRequestIsCurrent(update.hydrationId, currentId);
-  }
-
   // src/project/local-tools.mjs
   function createLocalTools({ identity, status, fetch: request = globalThis.fetch }) {
     if (identity?.sourceType !== "cli" || !cliRecordMatchesStatus(identity, status)) return null;
@@ -3253,318 +6902,6 @@
     };
   }
 
-  // src/views/highlight.mjs
-  function highlightSyntax(code, filename) {
-    if (!code) return [""];
-    var ext = (filename || "").split(".").pop().toLowerCase();
-    var isJS = ["js", "jsx", "ts", "tsx", "mjs", "cjs"].includes(ext);
-    var isPy = ["py", "pyw", "pyi"].indexOf(ext) >= 0;
-    var isJava = ["java", "kt", "scala", "cs", "go"].includes(ext);
-    var isHTML2 = ["html", "htm", "vue", "svelte"].includes(ext);
-    var isCSS2 = ["css", "scss", "sass", "less"].includes(ext);
-    var isJSON2 = ["json", "yaml", "yml", "toml"].includes(ext);
-    var isRuby = ["rb", "rake"].includes(ext);
-    var isPHP = ext === "php";
-    var isVBA2 = ["vba", "bas", "cls", "xlsm", "xlam", "xlsb", "xla", "xlw"].includes(ext);
-    function esc(s) {
-      return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    }
-    function highlight(text, pattern, replacement) {
-      return text.split(/(<[^>]*>)/g).map(function(part, i) {
-        return i % 2 ? part : part.replace(pattern, replacement);
-      }).join("");
-    }
-    var result = code.split("\n").map(function(line) {
-      var escaped = esc(line);
-      if (isJS || isJava || isPHP || isCSS2) escaped = highlight(escaped, /(\/\/.*$)/gm, '<span class="syn-com">$1</span>');
-      if (isPy || isRuby) escaped = highlight(escaped, /(#.*$)/gm, '<span class="syn-com">$1</span>');
-      if (isHTML2) escaped = highlight(escaped, /(&lt;!--[\s\S]*?--&gt;)/g, '<span class="syn-com">$1</span>');
-      escaped = highlight(escaped, /(&quot;[^&]*&quot;|'[^']*'|`[^`]*`)/g, '<span class="syn-str">$1</span>');
-      escaped = highlight(escaped, /\b(\d+\.?\d*)\b/g, '<span class="syn-num">$1</span>');
-      if (isJS) escaped = highlight(escaped, /\b(const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|try|catch|finally|throw|new|class|extends|import|export|from|default|async|await|yield|typeof|instanceof|in|of|this|super|null|undefined|true|false|void|static|get|set)\b/g, '<span class="syn-kw">$1</span>');
-      if (isPy) {
-        escaped = highlight(escaped, /\b(async|await|def|class|return|if|elif|else|for|while|try|except|finally|raise|import|from|as|with|pass|break|continue|lambda|yield|global|nonlocal|assert|True|False|None|and|or|not|in|is|del|match|case|type)\b/g, '<span class="syn-kw">$1</span>');
-        escaped = highlight(escaped, /(@\w+)/g, '<span class="syn-fn">$1</span>');
-        escaped = highlight(escaped, /\b(self|cls)\b/g, '<span class="syn-kw" style="opacity:0.7">$1</span>');
-      }
-      if (isJava) escaped = highlight(escaped, /\b(public|private|protected|static|final|void|class|interface|extends|implements|return|if|else|for|while|do|switch|case|break|continue|try|catch|finally|throw|new|import|package|this|super|null|true|false)\b/g, '<span class="syn-kw">$1</span>');
-      if (isRuby) escaped = highlight(escaped, /\b(def|class|module|end|return|if|elsif|else|unless|case|when|for|while|until|do|begin|rescue|ensure|raise|require|include|extend|attr_accessor|attr_reader|attr_writer|true|false|nil|self)\b/g, '<span class="syn-kw">$1</span>');
-      if (isPHP) escaped = highlight(escaped, /\b(function|class|return|if|else|elseif|for|foreach|while|do|switch|case|break|continue|try|catch|finally|throw|new|public|private|protected|static|const|use|namespace|extends|implements|true|false|null)\b/g, '<span class="syn-kw">$1</span>');
-      if (isVBA2) escaped = highlight(escaped, /\b(Public|Private|Friend|Static|Dim|Set|Let|Get|Call|Function|Sub|End Sub|End Function|Exit Sub|Exit Function|If|Then|Else|ElseIf|End If|For|To|Step|Next|Do|Loop|While|Wend|Select|Case|End Select|With|End With|On Error|Resume|GoTo|ByVal|ByRef|Optional|ParamArray|As|Type|Enum|Const|True|False|Nothing|Empty|Null|Me|Application|ThisWorkbook|Worksheets|Cells|Range|MsgBox|InputBox|Debug\.Print)\b/gi, '<span class="syn-kw">$1</span>');
-      if (isCSS2) escaped = highlight(escaped, /(@media|@import|@keyframes|@font-face|!important)/g, '<span class="syn-kw">$1</span>');
-      if (isHTML2) {
-        escaped = highlight(escaped, /(&lt;\/?)([\w-]+)/g, '$1<span class="syn-tag">$2</span>');
-        escaped = highlight(escaped, /([\w-]+)(=)/g, '<span class="syn-attr">$1</span>$2');
-      }
-      escaped = highlight(escaped, /\b([a-zA-Z_]\w*)(\s*)\(/g, '<span class="syn-fn">$1</span>$2(');
-      if (isJS || isJava) escaped = highlight(escaped, /(:\s*)([A-Z]\w*)/g, '$1<span class="syn-type">$2</span>');
-      return escaped;
-    });
-    return result;
-  }
-
-  // src/project/source.mjs
-  function asCodeLines(lines) {
-    if (Array.isArray(lines)) return lines.length ? lines : [""];
-    return [String(lines || "")];
-  }
-  function pathIsFlagged(map, path) {
-    if (!path || !map) return false;
-    if (typeof map.has === "function") return map.has(path);
-    return !!map[path];
-  }
-  function nextCodeSourceReads(neededPaths, inFlight, failed) {
-    inFlight = inFlight || /* @__PURE__ */ Object.create(null);
-    return (neededPaths || []).filter(function(path) {
-      return !!path && !inFlight[path] && !pathIsFlagged(failed, path);
-    });
-  }
-  function fileHasLoadedSource(file) {
-    return !!(file && Object.prototype.hasOwnProperty.call(file, "content") && typeof file.content === "string");
-  }
-  function analysisFileNeedsSource(file) {
-    return !!(file && !file.analysisSkipped && !fileHasLoadedSource(file));
-  }
-  function recordCodeSourceFailure(prev, path) {
-    var next = Object.assign(/* @__PURE__ */ Object.create(null), prev || {});
-    if (path) next[path] = true;
-    return next;
-  }
-  function clearCodeSourceFailure(prev, path) {
-    var next = Object.assign(/* @__PURE__ */ Object.create(null), prev || {});
-    if (path) delete next[path];
-    return next;
-  }
-  function recordCodeSourceFailureIfCurrent(prev, path, hydrationId, currentId) {
-    if (!hydrationRequestIsCurrent(hydrationId, currentId)) return prev || /* @__PURE__ */ Object.create(null);
-    return recordCodeSourceFailure(prev, path);
-  }
-  function clearCodeSourceFailureIfCurrent(prev, path, hydrationId, currentId) {
-    if (!hydrationRequestIsCurrent(hydrationId, currentId)) return prev || /* @__PURE__ */ Object.create(null);
-    return clearCodeSourceFailure(prev, path);
-  }
-  function fileSourceDisplayState(file, canFetch, failed) {
-    if (!file) return "empty";
-    if (file.analysisSkipped) return "skipped";
-    if (fileHasLoadedSource(file)) return "ready";
-    if (canFetch && pathIsFlagged(failed, file.path)) return "failed";
-    return canFetch ? "loading" : "unavailable";
-  }
-  function filesNeedingSource(files) {
-    return (files || []).filter(analysisFileNeedsSource);
-  }
-  function mergeHydratedFileSources(data, updates, currentId) {
-    if (!data || !data.files || !updates || !updates.length) return data;
-    var byPath = /* @__PURE__ */ Object.create(null);
-    updates.forEach(function(update) {
-      if (!hydratedSourceIsCurrent(update, currentId)) return;
-      byPath[update.path] = update.content;
-    });
-    var changed = false;
-    var files = data.files.map(function(file) {
-      if (byPath[file.path] == null || fileHasLoadedSource(file)) return file;
-      changed = true;
-      return Object.assign({}, file, { content: byPath[file.path] });
-    });
-    return changed ? Object.assign({}, data, { files }) : data;
-  }
-
-  // src/investigation/navigation.mjs
-  function searchProject(data, query) {
-    var normalize = function(value) {
-      return String(value || "").toLowerCase().replace(/[._/\\-]+/g, " ");
-    };
-    var terms = normalize(query).trim().split(/\s+/).filter(Boolean);
-    if (!terms.length) return [];
-    var results = [];
-    function add(item, text) {
-      var haystack = normalize(text);
-      if (!terms.every(function(term) {
-        return haystack.includes(term);
-      })) return;
-      var title = normalize(item.label), needle = terms.join(" ");
-      item.rank = title === needle ? 0 : title.startsWith(needle) ? 1 : 2;
-      results.push(item);
-    }
-    (data.files || []).forEach(function(file) {
-      add({ kind: "file", path: file.path, label: file.name, line: 1 }, file.path);
-      (file.functions || []).forEach(function(fn) {
-        add({ kind: "symbol", path: file.path, label: fn.name, line: fn.line || 1 }, fn.name + " " + file.path);
-      });
-      (file.elixir && file.elixir.modules || []).forEach(function(module) {
-        var name = typeof module === "string" ? module : module.name;
-        add({ kind: "module", path: file.path, label: name, line: module.line || 1 }, name);
-      });
-    });
-    return results.sort(function(a, b) {
-      return a.rank - b.rank || (a.kind === "file" ? -1 : 1) - (b.kind === "file" ? -1 : 1) || a.label.localeCompare(b.label) || a.path.localeCompare(b.path);
-    });
-  }
-  function navigationWithCamera(history, camera) {
-    if (history.index < 0 || !camera) return history;
-    var entries = history.entries.slice();
-    entries[history.index] = Object.assign({}, entries[history.index], { camera });
-    return { entries, index: history.index };
-  }
-  function recordNavigation(history, location, camera) {
-    var entries = navigationWithCamera(history, camera).entries.slice(0, history.index + 1), previous = entries[entries.length - 1];
-    if (previous && previous.path === location.path && previous.scope === location.scope && previous.view === location.view && JSON.stringify(previous.range || null) === JSON.stringify(location.range || null)) {
-      entries[entries.length - 1] = location;
-    } else entries.push(location);
-    return { entries, index: entries.length - 1 };
-  }
-  function stepNavigation(history, delta, camera) {
-    var index = history.index + delta;
-    if (index < 0 || index >= history.entries.length) return null;
-    return { entries: navigationWithCamera(history, camera).entries, index };
-  }
-  var CODE_CARD_MAX = 12;
-  function defaultCodeViewSeed(data, folderFilter) {
-    if (!data || !data.files || !data.files.length) return null;
-    var filtered = folderFilter ? data.files.filter(function(f) {
-      return f.folder === folderFilter || f.folder.startsWith(folderFilter + "/");
-    }) : data.files;
-    if (!filtered.length) return null;
-    var byPath = /* @__PURE__ */ Object.create(null);
-    filtered.forEach(function(f) {
-      byPath[f.path] = f;
-    });
-    var counts = /* @__PURE__ */ Object.create(null);
-    (data.connections || []).forEach(function(c) {
-      var src = typeof c.source === "object" ? c.source.id : c.source;
-      var tgt = typeof c.target === "object" ? c.target.id : c.target;
-      if (byPath[src]) counts[src] = (counts[src] || 0) + 1;
-      if (byPath[tgt]) counts[tgt] = (counts[tgt] || 0) + 1;
-    });
-    var best = filtered[0];
-    var bestN = counts[best.path] || 0;
-    filtered.forEach(function(file) {
-      var n = counts[file.path] || 0;
-      if (n > bestN) {
-        best = file;
-        bestN = n;
-      }
-    });
-    return best.path;
-  }
-  function fileMatchesFolderFilter(file, folderFilter) {
-    if (!folderFilter) return true;
-    if (!file) return false;
-    return file.folder === folderFilter || !!file.folder && file.folder.startsWith(folderFilter + "/");
-  }
-  function pathMatchesFolderFilter(path, data, folderFilter) {
-    if (!folderFilter) return true;
-    if (!data || !data.files || !path) return false;
-    for (var i = 0; i < data.files.length; i++) {
-      if (data.files[i].path === path) return fileMatchesFolderFilter(data.files[i], folderFilter);
-    }
-    return false;
-  }
-  function folderFilterAfterCodeNav(path, data, folderFilter) {
-    if (pathMatchesFolderFilter(path, data, folderFilter)) return folderFilter || null;
-    return null;
-  }
-  function codeViewSeedPath(selectedPath, data, folderFilter) {
-    if (!data || !data.files || !data.files.length) return null;
-    if (selectedPath) {
-      var selected = null;
-      for (var i = 0; i < data.files.length; i++) {
-        if (data.files[i].path === selectedPath) {
-          selected = data.files[i];
-          break;
-        }
-      }
-      if (selected && fileMatchesFolderFilter(selected, folderFilter)) return selectedPath;
-    }
-    return defaultCodeViewSeed(data, folderFilter);
-  }
-  function hiddenOpenedCodePaths(paths, data, folderFilter) {
-    var hidden = /* @__PURE__ */ Object.create(null);
-    if (!folderFilter) return hidden;
-    var visible = /* @__PURE__ */ Object.create(null);
-    filesForOpenedCodePaths(paths, data, folderFilter).forEach(function(file) {
-      if (file && file.path) visible[file.path] = true;
-    });
-    (paths || []).forEach(function(path) {
-      if (path && !visible[path]) hidden[path] = true;
-    });
-    return hidden;
-  }
-  function codeCardPlacementKeepSet(openedPaths, visibleFiles) {
-    var keep = /* @__PURE__ */ Object.create(null);
-    (openedPaths || []).forEach(function(path) {
-      if (path) keep[path] = true;
-    });
-    (visibleFiles || []).forEach(function(file) {
-      if (file && file.path) keep[file.path] = true;
-    });
-    return keep;
-  }
-  function pruneCodeCardPlacements(placements, keep) {
-    var departed = /* @__PURE__ */ Object.create(null);
-    Object.keys(placements || {}).forEach(function(path) {
-      if (keep && keep[path]) return;
-      departed[path] = true;
-      delete placements[path];
-    });
-    return departed;
-  }
-  function evictHiddenCodeCards(list, hidden, count) {
-    var need = Number(count);
-    if (!isFinite(need) || need <= 0) return (list || []).slice();
-    var removed = 0;
-    return (list || []).filter(function(path) {
-      if (removed >= need) return true;
-      if (pathIsFlagged(hidden, path)) {
-        removed++;
-        return false;
-      }
-      return true;
-    });
-  }
-  function openCodeCardPaths(prev, path, limit, replace, hidden) {
-    var list = (prev || []).slice();
-    if (!path) return list;
-    if (list.indexOf(path) >= 0) return list;
-    var max = limit == null ? CODE_CARD_MAX : Number(limit);
-    if (isFinite(max) && list.length >= max) {
-      var need = list.length - max + 1;
-      if (hidden) list = evictHiddenCodeCards(list, hidden, need);
-      if (list.length >= max) {
-        if (!replace) return list;
-        list = list.slice(Math.max(0, list.length - max + 1));
-      }
-    }
-    list.push(path);
-    return list;
-  }
-  function resolveOpenCodeCard(prev, path, limit, replace, hidden) {
-    var before = prev || [];
-    var next = openCodeCardPaths(before, path, limit, replace, hidden);
-    var already = !!(path && before.indexOf(path) >= 0);
-    var inserted = !!(path && !already && next.indexOf(path) >= 0);
-    return { paths: next, already, inserted, opened: already || inserted };
-  }
-  function ensureCodeViewOpenedPaths(openedPaths, selectedPath, data, folderFilter) {
-    var seed = codeViewSeedPath(selectedPath, data, folderFilter);
-    if (!seed) return { paths: openedPaths || [], seed: null, opened: false, inserted: false };
-    var resolved = resolveOpenCodeCard(openedPaths, seed, Infinity, false, hiddenOpenedCodePaths(openedPaths, data, folderFilter));
-    return { paths: resolved.paths, seed, opened: resolved.opened, inserted: resolved.inserted };
-  }
-  function filesForOpenedCodePaths(paths, data, folderFilter) {
-    if (!data || !data.files) return [];
-    var filtered = folderFilter ? data.files.filter(function(f) {
-      return f.folder === folderFilter || f.folder.startsWith(folderFilter + "/");
-    }) : data.files;
-    var byPath = /* @__PURE__ */ Object.create(null);
-    filtered.forEach(function(file) {
-      byPath[file.path] = file;
-    });
-    return (paths || []).map(function(path) {
-      return byPath[path];
-    }).filter(Boolean);
-  }
-
   // src/investigation/state.mjs
   function createInvestigationState() {
     return { selectedPath: null, scope: null, view: "graph", openedPaths: [], range: null, navigation: { entries: [], index: -1 } };
@@ -3645,993 +6982,6 @@
       default:
         return state;
     }
-  }
-
-  // src/project/changes.mjs
-  var CLI_WATCH_DIFF_MS = 200;
-  var CODE_DIFF_LCS_LIMIT = 16e4;
-  function normalizeCliWatchPath(path) {
-    return String(path || "").replace(/\\/g, "/").replace(/^\/+/, "");
-  }
-  function noteCliWatchPath(prev, path) {
-    var next = normalizeCliWatchPath(path);
-    if (!next) return prev || [];
-    var list = prev || [];
-    if (list.indexOf(next) >= 0) return list;
-    return list.concat([next]);
-  }
-  function cliWatchEventRev(value) {
-    var n = Number(value);
-    return Number.isFinite(n) ? n : null;
-  }
-  function normalizeCliWatchDuringEvent(item) {
-    if (typeof item === "string") return { path: normalizeCliWatchPath(item), rev: null };
-    var path = normalizeCliWatchPath(item && item.path);
-    if (!path) return null;
-    return { path, rev: cliWatchEventRev(item.rev) };
-  }
-  function noteCliWatchDuringEvent(prev, path, rev) {
-    var ev = normalizeCliWatchDuringEvent({ path, rev });
-    if (!ev) return prev || [];
-    var list = (prev || []).slice();
-    var idx = -1;
-    for (var i = 0; i < list.length; i++) {
-      var cur = normalizeCliWatchDuringEvent(list[i]);
-      if (cur && cur.path === ev.path) {
-        idx = i;
-        break;
-      }
-    }
-    if (idx >= 0) list[idx] = ev;
-    else list.push(ev);
-    return list;
-  }
-  function cliWatchEventIsAfterSnapshot(eventRev, snapRev) {
-    if (eventRev == null || snapRev == null) return true;
-    return Number(eventRev) > Number(snapRev);
-  }
-  function cliWatchSnapRevFromResponse(res) {
-    if (!res || !res.headers || typeof res.headers.get !== "function") return null;
-    return cliWatchEventRev(res.headers.get("x-codeflow-rev"));
-  }
-  function forgetCliWatchPath(prev, path) {
-    var next = normalizeCliWatchPath(path);
-    if (!next) return prev || [];
-    return (prev || []).filter(function(item) {
-      return item !== next;
-    });
-  }
-  function analyzedFileForCliWatchPath(files, path) {
-    var next = normalizeCliWatchPath(path);
-    if (!next || !files) return null;
-    for (var i = 0; i < files.length; i++) {
-      var file = files[i];
-      if (file && normalizeCliWatchPath(file.path) === next) return file;
-    }
-    return null;
-  }
-  function cliWatchLiveMatchesBaseline(file, liveContent) {
-    return !!(fileHasAnalyzedSourceForDiff(file) && typeof liveContent === "string" && liveContent === file.content);
-  }
-  function cliWatchLiveClearsDirty(file, liveContent, kind) {
-    return kind === "ok" && cliWatchLiveMatchesBaseline(file, liveContent);
-  }
-  function mergeCliLiveContents(prev, updates) {
-    var next = Object.assign(/* @__PURE__ */ Object.create(null), prev || {});
-    (updates || []).forEach(function(update) {
-      if (!update || !update.path) return;
-      var path = normalizeCliWatchPath(update.path);
-      if (!path) return;
-      if (typeof update.content !== "string") {
-        delete next[path];
-        return;
-      }
-      next[path] = update.content;
-    });
-    return next;
-  }
-  function fileHasAnalyzedSourceForDiff(file) {
-    return !!(file && !file.analysisSkipped && typeof file.content === "string");
-  }
-  function cliWatchDiffPaths(files, paths) {
-    var known = /* @__PURE__ */ Object.create(null);
-    (files || []).forEach(function(file) {
-      if (file && file.path && fileHasAnalyzedSourceForDiff(file)) known[file.path] = true;
-    });
-    var out = [];
-    (paths || []).forEach(function(path) {
-      var next = normalizeCliWatchPath(path);
-      if (next && known[next] && out.indexOf(next) < 0) out.push(next);
-    });
-    return out;
-  }
-  function splitCodeLines(text) {
-    return String(text == null ? "" : text).split("\n");
-  }
-  function codeCardDiffClass(row) {
-    if (!row || row.type === "same") return "";
-    if (row.type === "add") return " diff-add";
-    if (row.type === "del") return " diff-del";
-    return "";
-  }
-  function codeCardDiffLineNo(row) {
-    if (!row) return "";
-    if (row.type === "del") return row.oldLine || "";
-    return row.newLine || row.oldLine || "";
-  }
-  function codeCardHasDiff(rows) {
-    if (!rows || !rows.length) return false;
-    for (var i = 0; i < rows.length; i++) {
-      if (rows[i] && rows[i].type && rows[i].type !== "same") return true;
-    }
-    return false;
-  }
-  function lcsDiffRows(oldLines, newLines, oldOff, newOff) {
-    var a = oldLines || [];
-    var b = newLines || [];
-    var n = a.length, m = b.length;
-    var dp = new Array(n + 1);
-    var i, j;
-    for (i = 0; i <= n; i++) {
-      dp[i] = new Array(m + 1);
-      dp[i][0] = 0;
-    }
-    for (j = 1; j <= m; j++) dp[0][j] = 0;
-    for (i = 1; i <= n; i++) {
-      for (j = 1; j <= m; j++) {
-        dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
-      }
-    }
-    var out = [];
-    i = n;
-    j = m;
-    while (i > 0 && j > 0) {
-      if (a[i - 1] === b[j - 1]) {
-        out.push({ type: "same", text: a[i - 1], oldLine: oldOff + i, newLine: newOff + j });
-        i--;
-        j--;
-      } else if (dp[i - 1][j] >= dp[i][j - 1]) {
-        out.push({ type: "del", text: a[i - 1], oldLine: oldOff + i, newLine: null });
-        i--;
-      } else {
-        out.push({ type: "add", text: b[j - 1], oldLine: null, newLine: newOff + j });
-        j--;
-      }
-    }
-    while (i > 0) {
-      out.push({ type: "del", text: a[i - 1], oldLine: oldOff + i, newLine: null });
-      i--;
-    }
-    while (j > 0) {
-      out.push({ type: "add", text: b[j - 1], oldLine: null, newLine: newOff + j });
-      j--;
-    }
-    out.reverse();
-    return out;
-  }
-  function replaceDiffRows(oldLines, newLines, oldOff, newOff) {
-    var out = [];
-    var i;
-    for (i = 0; i < (oldLines || []).length; i++) {
-      out.push({ type: "del", text: oldLines[i], oldLine: oldOff + i + 1, newLine: null });
-    }
-    for (i = 0; i < (newLines || []).length; i++) {
-      out.push({ type: "add", text: newLines[i], oldLine: null, newLine: newOff + i + 1 });
-    }
-    return out;
-  }
-  function diffCodeLines(before, after) {
-    var a = splitCodeLines(before);
-    var b = splitCodeLines(after);
-    var rows = [];
-    var i = 0, j = 0;
-    while (i < a.length && j < b.length && a[i] === b[j]) {
-      rows.push({ type: "same", text: a[i], oldLine: i + 1, newLine: j + 1 });
-      i++;
-      j++;
-    }
-    var aEnd = a.length, bEnd = b.length;
-    while (aEnd > i && bEnd > j && a[aEnd - 1] === b[bEnd - 1]) {
-      aEnd--;
-      bEnd--;
-    }
-    var midA = a.slice(i, aEnd);
-    var midB = b.slice(j, bEnd);
-    var mid = midA.length * midB.length <= CODE_DIFF_LCS_LIMIT ? lcsDiffRows(midA, midB, i, j) : replaceDiffRows(midA, midB, i, j);
-    for (var k = 0; k < mid.length; k++) rows.push(mid[k]);
-    for (k = 0; k < a.length - aEnd; k++) {
-      rows.push({ type: "same", text: a[aEnd + k], oldLine: aEnd + k + 1, newLine: bEnd + k + 1 });
-    }
-    return rows;
-  }
-  function codeCardDiffRows(file, liveContent) {
-    if (!file || typeof file.content !== "string" || typeof liveContent !== "string") return null;
-    if (file.content === liveContent) return null;
-    if (liveContent === "") {
-      return splitCodeLines(file.content).map(function(text, i) {
-        return { type: "del", text, oldLine: i + 1, newLine: null };
-      });
-    }
-    var rows = diffCodeLines(file.content, liveContent);
-    return codeCardHasDiff(rows) ? rows : null;
-  }
-  function fileForCodeCardDiff(file, diffRows) {
-    if (!file || !diffRows || !diffRows.length) return file;
-    return Object.assign({}, file, { content: diffRows.map(function(row) {
-      return row.text;
-    }).join("\n") });
-  }
-  function codeCardDiffLineIndex(diffRows, analyzedLine) {
-    var n = Math.max(1, Number(analyzedLine) || 1);
-    if (!diffRows || !diffRows.length) return n;
-    var found = -1;
-    for (var i = 0; i < diffRows.length; i++) {
-      if (diffRows[i] && diffRows[i].oldLine === n) {
-        found = i + 1;
-        if (diffRows[i].type === "same") return found;
-      }
-    }
-    return found > 0 ? found : n;
-  }
-  function startedCliWatchDiffPaths(pending, gen) {
-    var out = [];
-    (pending || []).forEach(function(path) {
-      var next = normalizeCliWatchPath(path);
-      if (next && out.indexOf(next) < 0) out.push(next);
-    });
-    Object.keys(gen || {}).forEach(function(path) {
-      var next = normalizeCliWatchPath(path);
-      if (next && out.indexOf(next) < 0) out.push(next);
-    });
-    return out;
-  }
-  function bumpCliWatchDiffEpoch(epoch) {
-    return (Number(epoch) || 0) + 1;
-  }
-  function cliWatchDiffRequestIsCurrent(epoch, capturedEpoch, genByPath, path, capturedGen) {
-    if ((Number(epoch) || 0) !== (Number(capturedEpoch) || 0)) return false;
-    return !!(genByPath && genByPath[path] === capturedGen);
-  }
-  function retainCliWatchPathsAfterAnalysis(receivedDuring, readByPath, snapRevByPath) {
-    var read = readByPath || /* @__PURE__ */ Object.create(null);
-    var snaps = snapRevByPath || /* @__PURE__ */ Object.create(null);
-    var out = [];
-    (receivedDuring || []).forEach(function(item) {
-      var ev = normalizeCliWatchDuringEvent(item);
-      if (!ev || !read[ev.path] || out.indexOf(ev.path) >= 0) return;
-      if (!cliWatchEventIsAfterSnapshot(ev.rev, Object.prototype.hasOwnProperty.call(snaps, ev.path) ? snaps[ev.path] : null)) return;
-      out.push(ev.path);
-    });
-    return out;
-  }
-  var CLI_WATCH_MAX_BYTES = 2 * 1024 * 1024;
-  function cliWatchLiveRejectsOversized(size) {
-    var n = Number(size);
-    return Number.isFinite(n) && n > CLI_WATCH_MAX_BYTES;
-  }
-  function cliWatchLiveFromResponse(status, body, ok, contentLength) {
-    if (cliWatchLiveRejectsOversized(contentLength)) return { kind: "error" };
-    if (ok) {
-      var content = typeof body === "string" ? body : "";
-      if (cliWatchLiveRejectsOversized(content.length)) return { kind: "error" };
-      return { kind: "ok", content };
-    }
-    if (Number(status) === 404) return { kind: "missing", content: "" };
-    return { kind: "error" };
-  }
-  function shouldApplyCliWatchLive(result) {
-    return !!(result && (result.kind === "ok" || result.kind === "missing"));
-  }
-  function pendingCliWatchDiffPaths(dirty, live, inflight) {
-    var have = live || /* @__PURE__ */ Object.create(null);
-    var wait = inflight || [];
-    return (dirty || []).filter(function(path) {
-      if (!path) return false;
-      if (Object.prototype.hasOwnProperty.call(have, path)) return false;
-      if (wait.indexOf(path) >= 0) return false;
-      return true;
-    });
-  }
-  function cliWatchAppliesToAnalysis(localSourceKind, cliStatus, analysisSource) {
-    if (!cliStatus || !cliStatus.ok) return false;
-    if (localSourceKind === "folder" || localSourceKind === "zip") return false;
-    if (analysisSource && analysisSource.sourceType && analysisSource.sourceType !== "cli") return false;
-    if (localSourceKind && localSourceKind !== "cli") return false;
-    if (analysisSource && analysisSource.sourceType === "cli") return cliRecordMatchesStatus(analysisSource, cliStatus);
-    return localSourceKind === "cli";
-  }
-
-  // src/views/card-size.mjs
-  function codeCardSizeForDiff(file, prefs, diffRows) {
-    prefs = normalizeCodeCardPrefs(prefs);
-    var base = codeCardSize(file, prefs);
-    if (!diffRows || !diffRows.length) return base;
-    var painted = codeCardSize(fileForCodeCardDiff(file, diffRows), prefs);
-    if (prefs.expand) return painted;
-    return Object.assign({}, base, {
-      naturalHeight: Math.max(base.naturalHeight || 0, painted.naturalHeight || 0),
-      naturalWidth: Math.max(base.naturalWidth || 0, painted.naturalWidth || 0),
-      clipped: !!(base.clipped || painted.naturalHeight > base.height || painted.naturalWidth > base.width)
-    });
-  }
-  var CODE_CARD_MIN_WIDTH = 320;
-  var CODE_CARD_MIN_HEIGHT = 160;
-  var CODE_CARD_MAX_HEIGHT = 1840;
-  var CODE_CARD_LINE_HEIGHT = 19;
-  var CODE_CARD_CHAR_WIDTH = 7;
-  var CODE_CARD_HEAD_HEIGHT = 42;
-  var CODE_CARD_BODY_PAD = 16;
-  var CODE_CARD_GUTTER = 72;
-  function codeCardContentMetrics(file) {
-    var content = file && typeof file.content === "string" ? file.content : "";
-    var lines = content ? content.split("\n") : [""];
-    var maxLineChars = 0;
-    var lineChars = [];
-    for (var i = 0; i < lines.length; i++) {
-      var n = String(lines[i]).length;
-      lineChars.push(n);
-      if (n > maxLineChars) maxLineChars = n;
-    }
-    return { lines: Math.max(1, lines.length), maxLineChars, lineChars };
-  }
-  var CODE_CARD_WIDTH = 440;
-  function normalizeCodeCardPrefs(prefs) {
-    prefs = prefs || {};
-    return { expand: !!prefs.expand, wrap: !!prefs.wrap };
-  }
-  function codeCardWrapColumns() {
-    return Math.max(1, Math.floor((CODE_CARD_WIDTH - CODE_CARD_GUTTER - CODE_CARD_BODY_PAD) / CODE_CARD_CHAR_WIDTH));
-  }
-  function codeCardWrappedLineCount(metrics, prefs) {
-    metrics = metrics || codeCardContentMetrics(null);
-    prefs = normalizeCodeCardPrefs(prefs);
-    if (!prefs.wrap) return Math.max(1, metrics.lines || 1);
-    var cols = codeCardWrapColumns();
-    var chars = metrics.lineChars || [];
-    var count = 0;
-    if (!chars.length) return Math.max(1, metrics.lines || 1);
-    for (var i = 0; i < chars.length; i++) {
-      count += Math.max(1, Math.ceil((chars[i] || 0) / cols) || 1);
-    }
-    return Math.max(1, count);
-  }
-  function codeCardVisualLineIndex(file, line, prefs) {
-    var n = Math.max(1, Number(line) || 1);
-    prefs = normalizeCodeCardPrefs(prefs);
-    if (!prefs.wrap) return n;
-    var metrics = codeCardContentMetrics(file);
-    var cols = codeCardWrapColumns();
-    var chars = metrics.lineChars || [];
-    var visual = 0;
-    var lim = Math.min(chars.length, n - 1);
-    for (var i = 0; i < lim; i++) {
-      visual += Math.max(1, Math.ceil((chars[i] || 0) / cols) || 1);
-    }
-    return visual + 1;
-  }
-  function codeCardVisualLineEndIndex(file, line, prefs) {
-    var n = Math.max(1, Number(line) || 1);
-    prefs = normalizeCodeCardPrefs(prefs);
-    if (!prefs.wrap) return n;
-    var metrics = codeCardContentMetrics(file);
-    var total = codeCardWrappedLineCount(metrics, prefs);
-    if (n >= Math.max(1, metrics.lines || 1)) return total;
-    return Math.max(n, codeCardVisualLineIndex(file, n + 1, prefs) - 1);
-  }
-  function codeCardNaturalWidth(metrics) {
-    metrics = metrics || { maxLineChars: 0 };
-    return CODE_CARD_GUTTER + CODE_CARD_BODY_PAD + (metrics.maxLineChars || 0) * CODE_CARD_CHAR_WIDTH;
-  }
-  function codeCardSize(file, prefs) {
-    prefs = normalizeCodeCardPrefs(prefs);
-    var metrics = codeCardContentMetrics(file);
-    var width = CODE_CARD_WIDTH;
-    var naturalWidth = codeCardNaturalWidth(metrics);
-    var visualLines = codeCardWrappedLineCount(metrics, prefs);
-    var naturalHeight = CODE_CARD_HEAD_HEIGHT + CODE_CARD_BODY_PAD + visualLines * CODE_CARD_LINE_HEIGHT;
-    var height = Math.max(CODE_CARD_MIN_HEIGHT, prefs.expand ? naturalHeight : Math.min(CODE_CARD_MAX_HEIGHT, naturalHeight));
-    var heightClipped = !prefs.expand && naturalHeight > CODE_CARD_MAX_HEIGHT;
-    var widthClipped = !prefs.wrap && naturalWidth > width;
-    return { width, height, clipped: heightClipped || widthClipped, expand: prefs.expand, wrap: prefs.wrap, naturalHeight, naturalWidth };
-  }
-  var CODE_CARD_RESIZE_MAX_WIDTH = 1200;
-  function clampCodeCardResize(width, height, prefs) {
-    prefs = normalizeCodeCardPrefs(prefs);
-    var w = Math.max(CODE_CARD_MIN_WIDTH, Math.min(CODE_CARD_RESIZE_MAX_WIDTH, Number(width) || CODE_CARD_WIDTH));
-    var h = Math.max(CODE_CARD_MIN_HEIGHT, Number(height) || CODE_CARD_MIN_HEIGHT);
-    if (!prefs.expand) h = Math.min(CODE_CARD_MAX_HEIGHT, h);
-    return { width: w, height: h };
-  }
-  function applyCodeCardUserSize(base, override) {
-    base = base || codeCardSize(null);
-    if (!override) return base;
-    var next = clampCodeCardResize(override.width != null ? override.width : base.width, override.height != null ? override.height : base.height, base);
-    var heightClipped = (base.naturalHeight || 0) > next.height;
-    var widthClipped = !base.wrap && (base.naturalWidth || 0) > next.width;
-    return Object.assign({}, base, { width: next.width, height: next.height, clipped: heightClipped || widthClipped });
-  }
-
-  // src/views/canvas-layout.mjs
-  function nodeReplacedByCard(path, cardPaths) {
-    return !!(cardPaths && cardPaths.has(path));
-  }
-  function unburyNodesFromCards(nodes, cardPaths, sizesByPath, pad, boxesByPath) {
-    pad = pad == null ? 36 : pad;
-    var list = nodes || [];
-    var cards = [];
-    list.forEach(function(node) {
-      if (!node || !cardPaths || !cardPaths.has(node.id)) return;
-      var box = cardWorldBox(node, sizesByPath, boxesByPath);
-      if (!box) return;
-      cards.push({ node, box });
-    });
-    if (!cards.length) return list;
-    var pass;
-    for (pass = 0; pass < 4; pass++) {
-      var moved = false;
-      list.forEach(function(node) {
-        if (!node || cardPaths && cardPaths.has(node.id)) return;
-        var xy = liveGraphNodeXY(node);
-        if (!xy) return;
-        cards.forEach(function(card) {
-          var box = card.box;
-          var left = box.x - pad, top = box.y - pad, right = box.x + box.width + pad, bottom = box.y + box.height + pad;
-          if (xy.x < left || xy.x > right || xy.y < top || xy.y > bottom) return;
-          var dLeft = xy.x - left, dRight = right - xy.x, dTop = xy.y - top, dBottom = bottom - xy.y;
-          var min = Math.min(dLeft, dRight, dTop, dBottom);
-          if (min === dLeft) xy.x = left;
-          else if (min === dRight) xy.x = right;
-          else if (min === dTop) xy.y = top;
-          else xy.y = bottom;
-          node.x = xy.x;
-          node.y = xy.y;
-          if (node.fx != null) node.fx = node.x;
-          if (node.fy != null) node.fy = node.y;
-          moved = true;
-        });
-      });
-      if (!moved) break;
-    }
-    return list;
-  }
-  function graphFolderCenters(folders, width, height, options) {
-    options = options || {};
-    var list = [];
-    (folders || []).forEach(function(f) {
-      if (f != null && list.indexOf(f) < 0) list.push(f);
-    });
-    var out = /* @__PURE__ */ Object.create(null);
-    if (!list.length) return out;
-    var cols = Math.max(2, Math.ceil(Math.sqrt(list.length)));
-    var rows = Math.max(1, Math.ceil(list.length / cols));
-    var minW = options.minCellW == null ? 0 : Number(options.minCellW) || 0;
-    var minH = options.minCellH == null ? 0 : Number(options.minCellH) || 0;
-    var cw = Math.max(minW, (Number(width) || 800) / (cols + 1));
-    var ch = Math.max(minH, (Number(height) || 600) / (rows + 1));
-    list.forEach(function(f, i) {
-      out[f] = { x: (i % cols + 1) * cw, y: (Math.floor(i / cols) + 1) * ch };
-    });
-    return out;
-  }
-  function leftoverCodeNodeGrid(count, spacing) {
-    spacing = spacing == null ? 56 : Number(spacing) || 56;
-    count = Math.max(0, Math.floor(Number(count) || 0));
-    var out = [];
-    if (count <= 0) return out;
-    var cols = Math.max(1, Math.ceil(Math.sqrt(count)));
-    var rows = Math.max(1, Math.ceil(count / cols));
-    var i;
-    for (i = 0; i < count; i++) {
-      var col = i % cols;
-      var row = Math.floor(i / cols);
-      out.push({
-        x: (col - (cols - 1) / 2) * spacing,
-        y: (row - (rows - 1) / 2) * spacing
-      });
-    }
-    return out;
-  }
-  function parkLeftoverCodeNodes(nodes, cardPaths, centers, options) {
-    options = options || {};
-    var spacing = options.spacing == null ? 56 : options.spacing;
-    var pin = options.pin !== false;
-    var groups = /* @__PURE__ */ Object.create(null);
-    var order = [];
-    (nodes || []).forEach(function(node) {
-      if (!node) return;
-      if (cardPaths && cardPaths.has(node.id)) return;
-      if (node.fx != null && isFinite(Number(node.fx))) return;
-      var folder = node.folder || "root";
-      if (!groups[folder]) {
-        groups[folder] = [];
-        order.push(folder);
-      }
-      groups[folder].push(node);
-    });
-    order.forEach(function(folder) {
-      var group = groups[folder];
-      var c = centers && centers[folder];
-      if (!c || !isFinite(c.x) || !isFinite(c.y)) return;
-      var offs = leftoverCodeNodeGrid(group.length, spacing);
-      group.forEach(function(node, i) {
-        node.x = c.x + offs[i].x;
-        node.y = c.y + offs[i].y;
-        if (pin) {
-          node.fx = node.x;
-          node.fy = node.y;
-        }
-      });
-    });
-    return nodes;
-  }
-  function codeViewSiblingNodes(nodes, dragged, cardPaths) {
-    if (!dragged) return [];
-    var folder = dragged.folder || "root";
-    var out = [];
-    (nodes || []).forEach(function(node) {
-      if (!node || node === dragged || node.id === dragged.id) return;
-      if (cardPaths && cardPaths.has(node.id)) return;
-      if ((node.folder || "root") !== folder) return;
-      out.push(node);
-    });
-    return out;
-  }
-  function translateCodeViewSiblings(nodes, dragged, dx, dy, cardPaths) {
-    dx = Number(dx) || 0;
-    dy = Number(dy) || 0;
-    if (!dx && !dy) return [];
-    var siblings = codeViewSiblingNodes(nodes, dragged, cardPaths);
-    siblings.forEach(function(node) {
-      if (isFinite(node.x)) node.x += dx;
-      if (isFinite(node.y)) node.y += dy;
-      if (node.fx != null && isFinite(Number(node.fx))) node.fx = node.x;
-      if (node.fy != null && isFinite(Number(node.fy))) node.fy = node.y;
-    });
-    return siblings;
-  }
-  function nodeWorldBox(node, size) {
-    if (!node || !size) return null;
-    var xy = liveGraphNodeXY(node);
-    if (!xy) return null;
-    var width = Number(size.width) || 0;
-    var height = Number(size.height) || 0;
-    if (width <= 0 || height <= 0) return null;
-    return { x: xy.x - width / 2, y: xy.y - height / 2, width, height };
-  }
-  function cardWorldBox(node, sizesByPath, boxesByPath) {
-    if (!node) return null;
-    var size = sizesByPath && sizesByPath[node.id] || codeCardSize(null);
-    var live = nodeWorldBox(node, size);
-    var snap = boxesByPath && boxesByPath[node.id];
-    if (!snap) return live;
-    if (!live) return snap;
-    var liveCx = live.x + live.width / 2, liveCy = live.y + live.height / 2;
-    var snapCx = snap.x + snap.width / 2, snapCy = snap.y + snap.height / 2;
-    if (Math.abs(liveCx - snapCx) > 0.5 || Math.abs(liveCy - snapCy) > 0.5) {
-      return { x: liveCx - snap.width / 2, y: liveCy - snap.height / 2, width: snap.width, height: snap.height };
-    }
-    return snap;
-  }
-  function resolveBoxOverlap(box, obstacles, gap) {
-    if (!box) return null;
-    gap = gap == null ? 24 : Number(gap) || 0;
-    var next = { x: box.x, y: box.y, width: box.width, height: box.height };
-    var pass;
-    for (pass = 0; pass < 8; pass++) {
-      var hit = null;
-      (obstacles || []).forEach(function(obs) {
-        if (!hit && boxesOverlap(next, obs, gap)) hit = obs;
-      });
-      if (!hit) break;
-      var slack = gap + 1;
-      var right = hit.x + hit.width + slack - next.x;
-      var left = next.x + next.width + slack - hit.x;
-      var down = hit.y + hit.height + slack - next.y;
-      var up = next.y + next.height + slack - hit.y;
-      if (right <= left && right <= down && right <= up) next.x += right;
-      else if (left <= down && left <= up) next.x -= left;
-      else if (down <= up) next.y += down;
-      else next.y -= up;
-    }
-    return next;
-  }
-  function bumpOverlappingCodeCards(nodes, droppedId, cardPaths, sizesByPath, gap) {
-    if (!droppedId) return null;
-    var dropped = null;
-    var obstacles = [];
-    (nodes || []).forEach(function(node) {
-      if (!node || !cardPaths || !cardPaths.has(node.id)) return;
-      var size = sizesByPath && sizesByPath[node.id] || codeCardSize(null);
-      var box = nodeWorldBox(node, size);
-      if (!box) return;
-      if (node.id === droppedId) dropped = { node, size, box };
-      else obstacles.push(box);
-    });
-    if (!dropped) return null;
-    var next = resolveBoxOverlap(dropped.box, obstacles, gap);
-    if (!next) return dropped.node;
-    dropped.node.x = dropped.node.fx = next.x + next.width / 2;
-    dropped.node.y = dropped.node.fy = next.y + next.height / 2;
-    return dropped.node;
-  }
-  function leftoverGroupBox(nodes, pad) {
-    var boxes = [];
-    (nodes || []).forEach(function(node) {
-      var xy = liveGraphNodeXY(node);
-      if (!xy) return;
-      boxes.push({ x: xy.x - 22, y: xy.y - 22, width: 44, height: 44 });
-    });
-    return unionPaddedBoxes(boxes, pad == null ? 16 : pad, 0);
-  }
-  function leftoverHullObstacles(nodes, cardPaths) {
-    var leftoversByFolder = /* @__PURE__ */ Object.create(null);
-    (nodes || []).forEach(function(node) {
-      if (!node || cardPaths && cardPaths.has(node.id)) return;
-      var folder = node.folder || "root";
-      if (!leftoversByFolder[folder]) leftoversByFolder[folder] = [];
-      leftoversByFolder[folder].push(node);
-    });
-    var hulls = [];
-    Object.keys(leftoversByFolder).forEach(function(folder) {
-      var hull = leftoverGroupBox(leftoversByFolder[folder], 16);
-      if (hull) hulls.push(hull);
-    });
-    return hulls;
-  }
-  function nudgeLeftoverGroupsFromCards(nodes, cardPaths, sizesByPath, pad, boxesByPath) {
-    pad = pad == null ? 40 : pad;
-    var cards = [];
-    var leftoversByFolder = /* @__PURE__ */ Object.create(null);
-    (nodes || []).forEach(function(node) {
-      if (!node) return;
-      if (cardPaths && cardPaths.has(node.id)) {
-        var box = cardWorldBox(node, sizesByPath, boxesByPath);
-        if (box) cards.push(box);
-        return;
-      }
-      var folder = node.folder || "root";
-      if (!leftoversByFolder[folder]) leftoversByFolder[folder] = [];
-      leftoversByFolder[folder].push(node);
-    });
-    Object.keys(leftoversByFolder).forEach(function(folder) {
-      var group = leftoversByFolder[folder];
-      var hull = leftoverGroupBox(group, 16);
-      if (!hull) return;
-      var next = resolveBoxOverlap(hull, cards, pad);
-      if (!next) return;
-      var dx = next.x - hull.x;
-      var dy = next.y - hull.y;
-      if (!dx && !dy) return;
-      group.forEach(function(node) {
-        if (isFinite(node.x)) node.x += dx;
-        if (isFinite(node.y)) node.y += dy;
-        if (node.fx != null) node.fx = node.x;
-        if (node.fy != null) node.fy = node.y;
-      });
-    });
-    return nodes;
-  }
-  function leftoverSpatialCellKey(x, y, cell) {
-    var size = Number(cell);
-    if (!isFinite(size) || size <= 0) size = 36;
-    return Math.floor((Number(x) || 0) / size) + "	" + Math.floor((Number(y) || 0) / size);
-  }
-  function leftoverSeparationNeighbors(a, b, gap) {
-    if (!a || !b || a === b) return false;
-    var dx = b.x - a.x, dy = b.y - a.y;
-    var dist = Math.hypot(dx, dy);
-    if (dist >= gap) return false;
-    var push = (gap - (dist || 0.01)) / 2;
-    var nx = dist < 1e-6 ? 1 : dx / dist;
-    var ny = dist < 1e-6 ? 0 : dy / dist;
-    a.x -= nx * push;
-    a.y -= ny * push;
-    b.x += nx * push;
-    b.y += ny * push;
-    if (a.fx != null) a.fx = a.x;
-    if (a.fy != null) a.fy = a.y;
-    if (b.fx != null) b.fx = b.x;
-    if (b.fy != null) b.fy = b.y;
-    return true;
-  }
-  function leftoverSeparationBuckets(leftovers, cell) {
-    var buckets = /* @__PURE__ */ Object.create(null);
-    (leftovers || []).forEach(function(node, i) {
-      var key = leftoverSpatialCellKey(node.x, node.y, cell);
-      if (!buckets[key]) buckets[key] = [];
-      buckets[key].push(i);
-    });
-    return buckets;
-  }
-  function separateLeftoverCodeNodes(nodes, cardPaths, gap) {
-    gap = gap == null ? 36 : Number(gap) || 36;
-    var leftovers = [];
-    (nodes || []).forEach(function(node) {
-      if (!node || cardPaths && cardPaths.has(node.id)) return;
-      if (!isFinite(node.x) || !isFinite(node.y)) return;
-      leftovers.push(node);
-    });
-    if (leftovers.length < 2) return nodes;
-    var cell = Math.max(gap, 1);
-    var pass, i, ox, oy;
-    for (pass = 0; pass < 6; pass++) {
-      var buckets = leftoverSeparationBuckets(leftovers, cell);
-      var moved = false;
-      for (i = 0; i < leftovers.length; i++) {
-        var a = leftovers[i];
-        var cx = Math.floor(a.x / cell);
-        var cy = Math.floor(a.y / cell);
-        for (ox = -1; ox <= 1; ox++) {
-          for (oy = -1; oy <= 1; oy++) {
-            var group = buckets[cx + ox + "	" + (cy + oy)];
-            if (!group) continue;
-            group.forEach(function(j) {
-              if (j <= i) return;
-              if (leftoverSeparationNeighbors(a, leftovers[j], gap)) moved = true;
-            });
-          }
-        }
-      }
-      if (!moved) break;
-    }
-    return nodes;
-  }
-  function settleCodeViewAfterDrag(nodes, cardPaths, sizesByPath, droppedId, options) {
-    options = options || {};
-    var boxesByPath = options.boxesByPath || null;
-    var dropped = null;
-    if (droppedId) {
-      (nodes || []).some(function(node) {
-        if (node && node.id === droppedId) {
-          dropped = node;
-          return true;
-        }
-        return false;
-      });
-    }
-    function applyDroppedDelta(before2) {
-      if (!dropped || !before2) return;
-      var dx = dropped.x - before2.x, dy = dropped.y - before2.y;
-      if (dx || dy) translateCodeViewSiblings(nodes, dropped, dx, dy, cardPaths);
-    }
-    var before = dropped ? liveGraphNodeXY(dropped) : null;
-    if (dropped && cardPaths && cardPaths.has(dropped.id)) {
-      bumpOverlappingCodeCards(nodes, dropped.id, cardPaths, sizesByPath, options.cardGap == null ? 24 : options.cardGap);
-      applyDroppedDelta(before);
-      before = liveGraphNodeXY(dropped);
-    }
-    var pass;
-    for (pass = 0; pass < 3; pass++) {
-      nudgeLeftoverGroupsFromCards(nodes, cardPaths, sizesByPath, options.hullPad == null ? 40 : options.hullPad, boxesByPath);
-    }
-    unburyNodesFromCards(nodes, cardPaths, sizesByPath, options.nodePad == null ? 48 : options.nodePad, boxesByPath);
-    if (dropped && cardPaths && cardPaths.has(dropped.id)) {
-      before = liveGraphNodeXY(dropped);
-      var hulls = leftoverHullObstacles(nodes, cardPaths);
-      var box = cardWorldBox(dropped, sizesByPath, boxesByPath);
-      if (box && hulls.length) {
-        var next = resolveBoxOverlap(box, hulls, options.hullPad == null ? 40 : options.hullPad);
-        if (next && (next.x !== box.x || next.y !== box.y)) {
-          dropped.x = dropped.fx = next.x + next.width / 2;
-          dropped.y = dropped.fy = next.y + next.height / 2;
-          applyDroppedDelta(before);
-        }
-      }
-    }
-    separateLeftoverCodeNodes(nodes, cardPaths, options.nodeGap == null ? 40 : options.nodeGap);
-    return nodes;
-  }
-  function boxesOverlap(a, b, gap) {
-    if (!a || !b) return false;
-    gap = gap == null ? 0 : Number(gap) || 0;
-    return !(a.x > b.x + b.width + gap || a.x + a.width < b.x - gap || a.y > b.y + b.height + gap || a.y + a.height < b.y - gap);
-  }
-  function codeCardCollisionRadius(size) {
-    size = size || codeCardSize(null);
-    return Math.round(Math.hypot(size.width, size.height) / 2) + 18;
-  }
-  function liveCodeCollideRadius(node, size) {
-    if (size) return codeCardCollisionRadius(size);
-    return Math.max(8, Math.min(24, 5 + (node && node.fnCount || 0) * 0.8)) + 12;
-  }
-  function appendCodeCardPlacement(placements, file, size, options) {
-    options = options || {};
-    var gapX = options.gapX == null ? 88 : options.gapX;
-    var gapY = options.gapY == null ? 36 : options.gapY;
-    var originX = options.originX == null ? 80 : options.originX;
-    var originY = options.originY == null ? 72 : options.originY;
-    var next = Object.assign(/* @__PURE__ */ Object.create(null), placements || {});
-    if (!file || !file.path) return next;
-    size = size || codeCardSize(file);
-    var folder = file.folder || "root";
-    var prev = next[file.path];
-    if (prev) {
-      next[file.path] = {
-        left: prev.left,
-        top: prev.top,
-        x: prev.left + size.width / 2,
-        y: prev.top + size.height / 2,
-        width: size.width,
-        height: size.height,
-        folder: prev.folder || folder
-      };
-      return reflowUnpinnedCodeCards(next, options.pinnedPaths, options);
-    }
-    var same = [];
-    var folderLeft = null;
-    Object.keys(next).forEach(function(id) {
-      var item = next[id];
-      if (!item || item.folder !== folder) return;
-      same.push(item);
-      folderLeft = folderLeft == null ? item.left : Math.min(folderLeft, item.left);
-    });
-    var left, top;
-    if (!same.length) {
-      var center = options.centers && options.centers[folder];
-      if (center && isFinite(center.x) && isFinite(center.y)) {
-        left = center.x - size.width / 2;
-        top = center.y - size.height / 2;
-      } else {
-        var maxRight = originX;
-        Object.keys(next).forEach(function(id) {
-          var item = next[id];
-          if (!item) return;
-          maxRight = Math.max(maxRight, item.left + item.width + gapX);
-        });
-        left = Object.keys(next).length ? maxRight : originX;
-        top = originY;
-      }
-    } else {
-      left = folderLeft;
-      var maxBottom = originY;
-      same.forEach(function(item) {
-        maxBottom = Math.max(maxBottom, item.top + item.height + gapY);
-      });
-      top = maxBottom;
-    }
-    next[file.path] = {
-      left,
-      top,
-      x: left + size.width / 2,
-      y: top + size.height / 2,
-      width: size.width,
-      height: size.height,
-      folder
-    };
-    return reflowUnpinnedCodeCards(next, options.pinnedPaths, options);
-  }
-  function codePathIsPinned(pinnedPaths, path) {
-    if (!path || !pinnedPaths) return false;
-    if (typeof pinnedPaths.has === "function") return pinnedPaths.has(path);
-    return !!pinnedPaths[path];
-  }
-  function reflowUnpinnedCodeCards(placements, pinnedPaths, options) {
-    options = options || {};
-    var gapY = options.gapY == null ? 36 : options.gapY;
-    var originY = options.originY == null ? 72 : options.originY;
-    var next = placements || /* @__PURE__ */ Object.create(null);
-    var byFolder = /* @__PURE__ */ Object.create(null);
-    Object.keys(next).forEach(function(path) {
-      var item = next[path];
-      if (!item) return;
-      var folder = item.folder || "root";
-      if (!byFolder[folder]) byFolder[folder] = [];
-      byFolder[folder].push(path);
-    });
-    Object.keys(byFolder).forEach(function(folder) {
-      var paths = byFolder[folder];
-      paths.sort(function(a, b) {
-        var dy = (next[a].top || 0) - (next[b].top || 0);
-        if (dy) return dy;
-        return a < b ? -1 : a > b ? 1 : 0;
-      });
-      var center = options.centers && options.centers[folder];
-      var startY = originY;
-      if (center && isFinite(center.y)) {
-        var firstH = next[paths[0]] && next[paths[0]].height;
-        startY = center.y - (firstH || CODE_CARD_MIN_HEIGHT) / 2;
-      }
-      var cursor = startY;
-      paths.forEach(function(path) {
-        var item = Object.assign({}, next[path]);
-        next[path] = item;
-        if (codePathIsPinned(pinnedPaths, path)) {
-          item.x = item.left + item.width / 2;
-          item.y = item.top + item.height / 2;
-          cursor = Math.max(cursor, item.top + item.height + gapY);
-          return;
-        }
-        item.top = cursor;
-        item.x = item.left + item.width / 2;
-        item.y = item.top + item.height / 2;
-        cursor = item.top + item.height + gapY;
-      });
-    });
-    return next;
-  }
-  function liveGraphNodeXY(node) {
-    if (!node) return null;
-    var x = node.fx != null && isFinite(Number(node.fx)) ? Number(node.fx) : Number(node.x);
-    var y = node.fy != null && isFinite(Number(node.fy)) ? Number(node.fy) : Number(node.y);
-    if (!isFinite(x) || !isFinite(y)) return null;
-    return { x, y };
-  }
-  function readCodeCardWorldBox(card) {
-    if (!card || !card.style) return null;
-    var x = parseFloat(card.style.left);
-    var y = parseFloat(card.style.top);
-    var width = parseFloat(card.style.width);
-    var height = parseFloat(card.style.height);
-    if (!isFinite(x) || !isFinite(y) || !isFinite(width) || !isFinite(height) || width <= 0 || height <= 0) return null;
-    return { x, y, width, height };
-  }
-  function readCodeCardWorldBoxes(layer) {
-    var out = /* @__PURE__ */ Object.create(null);
-    if (!layer || !layer.querySelectorAll) return out;
-    var cards = layer.querySelectorAll("[data-code-card]");
-    Array.prototype.forEach.call(cards, function(card) {
-      var path = card.getAttribute("data-code-card");
-      var box = readCodeCardWorldBox(card);
-      if (path && box) out[path] = box;
-    });
-    return out;
-  }
-  function codeFolderMemberBox(node, sizesByPath, boxesByPath, fallbackR) {
-    if (!node) return null;
-    if (boxesByPath && boxesByPath[node.id]) return boxesByPath[node.id];
-    var xy = liveGraphNodeXY(node);
-    if (!xy) return null;
-    var size = sizesByPath && sizesByPath[node.id];
-    if (size && isFinite(size.width) && isFinite(size.height)) {
-      return { x: xy.x - size.width / 2, y: xy.y - size.height / 2, width: size.width, height: size.height };
-    }
-    if (fallbackR) {
-      return { x: xy.x - fallbackR, y: xy.y - fallbackR, width: fallbackR * 2, height: fallbackR * 2 };
-    }
-    size = codeCardSize(null);
-    return { x: xy.x - size.width / 2, y: xy.y - size.height / 2, width: size.width, height: size.height };
-  }
-  function unionPaddedBoxes(boxes, pad, labelExtra) {
-    pad = pad == null ? 24 : pad;
-    labelExtra = labelExtra == null ? 22 : labelExtra;
-    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    (boxes || []).forEach(function(box) {
-      if (!box || !isFinite(box.x) || !isFinite(box.y) || !isFinite(box.width) || !isFinite(box.height)) return;
-      minX = Math.min(minX, box.x);
-      minY = Math.min(minY, box.y);
-      maxX = Math.max(maxX, box.x + box.width);
-      maxY = Math.max(maxY, box.y + box.height);
-    });
-    if (!isFinite(minX)) return null;
-    return { x: minX - pad, y: minY - pad - labelExtra, width: maxX - minX + pad * 2, height: maxY - minY + pad * 2 + labelExtra };
-  }
-  function codeFolderHullBounds(cardNodes, leftoverNodes, sizesByPath, pad, boxesByPath) {
-    var boxes = [];
-    (cardNodes || []).forEach(function(node) {
-      var box = codeFolderMemberBox(node, sizesByPath, boxesByPath, 0);
-      if (box) boxes.push(box);
-    });
-    var cardUnion = unionPaddedBoxes(boxes, 0, 0);
-    (leftoverNodes || []).forEach(function(node) {
-      var box = codeFolderMemberBox(node, sizesByPath, null, 30);
-      if (!box) return;
-      if (cardUnion && !boxesOverlap(box, cardUnion, 240)) return;
-      boxes.push(box);
-    });
-    return unionPaddedBoxes(boxes, pad == null ? 40 : pad, 22);
-  }
-  function preserveGraphNodeState(nodes, prevById) {
-    (nodes || []).forEach(function(node) {
-      var prev = prevById && prevById[node.id];
-      if (!prev) return;
-      if (isFinite(prev.x)) node.x = prev.x;
-      if (isFinite(prev.y)) node.y = prev.y;
-      if (isFinite(prev.vx)) node.vx = prev.vx;
-      if (isFinite(prev.vy)) node.vy = prev.vy;
-      if (prev.fx != null && isFinite(prev.fx)) node.fx = prev.fx;
-      if (prev.fy != null && isFinite(prev.fy)) node.fy = prev.fy;
-    });
-    return nodes;
   }
 
   // src/project/tree.mjs
@@ -4841,43 +7191,6 @@
     });
   }
 
-  // src/views/camera.mjs
-  var CODE_VIEW_MIN_FIT_SCALE = 0.4;
-  var CODE_VIEW_MAX_FIT_SCALE = 1.15;
-  function snapshotZoomTransform(transform) {
-    var t = transform || {};
-    var k = Number(t.k);
-    if (!isFinite(k) || k <= 0) k = 1;
-    var x = Number(t.x);
-    if (!isFinite(x)) x = 0;
-    var y = Number(t.y);
-    if (!isFinite(y)) y = 0;
-    return { k, x, y };
-  }
-  function shouldFitCodeCamera(cameraReady, vizType) {
-    return vizType === "code" && !cameraReady;
-  }
-  function clampCodeViewFitScale(scale) {
-    var value = Number(scale);
-    if (!isFinite(value) || value <= 0) return CODE_VIEW_MIN_FIT_SCALE;
-    if (value < CODE_VIEW_MIN_FIT_SCALE) return CODE_VIEW_MIN_FIT_SCALE;
-    if (value > CODE_VIEW_MAX_FIT_SCALE) return CODE_VIEW_MAX_FIT_SCALE;
-    return value;
-  }
-  function codeCardFitBounds(nodes, sizesByPath, cardPaths) {
-    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    (nodes || []).forEach(function(node) {
-      if (!node || !cardPaths || !cardPaths.has(node.id) || !isFinite(node.x) || !isFinite(node.y)) return;
-      var size = sizesByPath && sizesByPath[node.id] || codeCardSize(null);
-      minX = Math.min(minX, node.x - size.width / 2);
-      minY = Math.min(minY, node.y - size.height / 2);
-      maxX = Math.max(maxX, node.x + size.width / 2);
-      maxY = Math.max(maxY, node.y + size.height / 2);
-    });
-    if (!isFinite(minX)) return null;
-    return { minX, minY, maxX, maxY, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
-  }
-
   // src/investigation/workspace.mjs
   function restoreWorkspace(saved, data) {
     if (!saved || saved.version !== 1) return null;
@@ -4923,703 +7236,6 @@
       result.navigation = { entries: before.concat(after), index: before.length - 1 };
     }
     return result;
-  }
-
-  // src/views/card-interaction.mjs
-  function noteCodeCardPointerEnd(moved) {
-    return { select: !moved, ignoreNextClick: !!moved };
-  }
-  function consumeCodeCardClick(ignoreNextClick) {
-    return { ignore: !!ignoreNextClick, ignoreNextClick: false };
-  }
-  function codeCardDragDelta(clientX, clientY, startX, startY, scale, threshold) {
-    var screenX = (Number(clientX) || 0) - (Number(startX) || 0);
-    var screenY = (Number(clientY) || 0) - (Number(startY) || 0);
-    var k = Number(scale);
-    if (!isFinite(k) || k <= 0) k = 1;
-    var limit = threshold == null ? 3 : Number(threshold);
-    if (!isFinite(limit)) limit = 3;
-    return {
-      x: screenX / k,
-      y: screenY / k,
-      screenX,
-      screenY,
-      moved: Math.abs(screenX) + Math.abs(screenY) > limit
-    };
-  }
-  function codeCardResizeDelta(clientX, clientY, startX, startY, startW, startH, scale, edge) {
-    var k = Number(scale);
-    if (!isFinite(k) || k <= 0) k = 1;
-    var dx = ((Number(clientX) || 0) - (Number(startX) || 0)) / k;
-    var dy = ((Number(clientY) || 0) - (Number(startY) || 0)) / k;
-    var width = Number(startW) || CODE_CARD_WIDTH;
-    var height = Number(startH) || CODE_CARD_MIN_HEIGHT;
-    if (edge === "e" || edge === "se") width += dx;
-    if (edge === "s" || edge === "se") height += dy;
-    return { width, height, dx, dy };
-  }
-  function codeViewDragRefresh(phase) {
-    return phase === "release";
-  }
-  function raiseCodeCardStack(order, path) {
-    var next = [];
-    (order || []).forEach(function(id) {
-      if (id && id !== path) next.push(id);
-    });
-    if (path) next.push(path);
-    return next;
-  }
-  function codeCardZIndex(order, path) {
-    var i = (order || []).indexOf(path);
-    return i < 0 ? 1 : i + 2;
-  }
-  function applyCodeCardStackOrder(layer, order) {
-    if (!layer || !layer.querySelectorAll) return 0;
-    var cards = layer.querySelectorAll("[data-code-card]");
-    var n = 0;
-    Array.prototype.forEach.call(cards, function(card) {
-      var path = card.getAttribute("data-code-card");
-      card.style.zIndex = String(codeCardZIndex(order, path));
-      n++;
-    });
-    return n;
-  }
-  function findCodeCardElement(layer, path) {
-    if (!layer || !layer.querySelectorAll || !path) return null;
-    var cards = layer.querySelectorAll("[data-code-card]");
-    var i;
-    for (i = 0; i < cards.length; i++) {
-      if (cards[i].getAttribute("data-code-card") === path) return cards[i];
-    }
-    return null;
-  }
-  function applyCodeCardDragFrame(layer, path, node, size) {
-    var card = findCodeCardElement(layer, path);
-    if (!card) return false;
-    var style = codeCardAnchorStyle(node, size);
-    card.style.visibility = style.visibility;
-    card.style.left = style.left;
-    card.style.top = style.top;
-    return style.visibility === "visible";
-  }
-  function applyCodeCardResizeFrame(card, size) {
-    if (!card || !size) return false;
-    card.style.width = size.width + "px";
-    card.style.height = size.height + "px";
-    if (card.classList) {
-      if (size.clipped && card.classList.add) card.classList.add("clipped");
-      else if (card.classList.remove) card.classList.remove("clipped");
-    }
-    return true;
-  }
-  function codeViewWheelAction(event) {
-    if (event && (event.ctrlKey || event.metaKey)) return "zoom";
-    return "pan";
-  }
-  function codeViewWheelPanDelta(deltaX, deltaY, scale) {
-    var k = Number(scale);
-    if (!isFinite(k) || k <= 0) k = 1;
-    return { x: -(Number(deltaX) || 0) / k, y: -(Number(deltaY) || 0) / k };
-  }
-  function codeCanvasTransformStyle(transform) {
-    var t = transform || {};
-    var k = Number(t.k);
-    if (!isFinite(k) || k <= 0) k = 1;
-    var x = Number(t.x);
-    if (!isFinite(x)) x = 0;
-    var y = Number(t.y);
-    if (!isFinite(y)) y = 0;
-    return "translate(" + x + "px," + y + "px) scale(" + k + ")";
-  }
-  function codeCardAnchorStyle(node, size) {
-    size = size || codeCardSize(null);
-    var xy = liveGraphNodeXY(node);
-    if (!xy) return { visibility: "hidden", left: "0px", top: "0px" };
-    return {
-      visibility: "visible",
-      left: xy.x - size.width / 2 + "px",
-      top: xy.y - size.height / 2 + "px"
-    };
-  }
-  function applyCodeCardLayout(layer, nodesById, transform, sizesByPath, stackOrder) {
-    if (!layer) return { placed: 0, titleScale: 1 };
-    layer.style.transform = codeCanvasTransformStyle(transform);
-    var k = transform && isFinite(Number(transform.k)) ? Number(transform.k) : 1;
-    var titleScale = readableLabelScale(k);
-    var cards = layer.querySelectorAll ? layer.querySelectorAll("[data-code-card]") : [];
-    var placed = 0;
-    Array.prototype.forEach.call(cards, function(card) {
-      var path = card.getAttribute("data-code-card");
-      var size = sizesByPath && sizesByPath[path] || codeCardSize(null);
-      var style = codeCardAnchorStyle(nodesById && nodesById[path], size);
-      card.style.visibility = style.visibility;
-      card.style.left = style.left;
-      card.style.top = style.top;
-      card.style.width = size.width + "px";
-      card.style.height = size.height + "px";
-      if (stackOrder) card.style.zIndex = String(codeCardZIndex(stackOrder, path));
-      if (card.classList) {
-        if (size.clipped && card.classList.add) card.classList.add("clipped");
-        else if (card.classList.remove) card.classList.remove("clipped");
-        if (size.expand && card.classList.add) card.classList.add("expand");
-        else if (card.classList.remove) card.classList.remove("expand");
-        if (size.wrap && card.classList.add) card.classList.add("wrap");
-        else if (card.classList.remove) card.classList.remove("wrap");
-      }
-      var title = card.querySelector ? card.querySelector(".code-card-name") : null;
-      if (title) title.style.transform = "scale(" + titleScale + ")";
-      if (card.classList) {
-        if (zoomHidesCodeText(k) && card.classList.add) card.classList.add("code-far");
-        else if (card.classList.remove) card.classList.remove("code-far");
-        if (zoomShowsColorBlocks(k) && card.classList.add) card.classList.add("code-blocks");
-        else if (card.classList.remove) card.classList.remove("code-blocks");
-      }
-      if (style.visibility === "visible") placed++;
-    });
-    return { placed, titleScale, colorBlocks: zoomShowsColorBlocks(k), codeFar: zoomHidesCodeText(k) };
-  }
-  function readCodeCardBodyScroll(layer, path) {
-    if (!layer || !path) return 0;
-    var cards = layer.querySelectorAll ? layer.querySelectorAll("[data-code-card]") : [];
-    for (var i = 0; i < cards.length; i++) {
-      if (cards[i].getAttribute("data-code-card") !== path) continue;
-      var body = cards[i].querySelector ? cards[i].querySelector(".code-card-body") : null;
-      var top = body ? Number(body.scrollTop) : 0;
-      return isFinite(top) ? top : 0;
-    }
-    return 0;
-  }
-  function isCodeCanvasDeselectTarget(target, svg) {
-    if (!target || !svg) return false;
-    if (target === svg) return true;
-    if (target.getAttribute && target.getAttribute("data-code-bg") === "1") return true;
-    return !!(target.closest && target.closest('[data-code-bg="1"]'));
-  }
-  function isCodeCanvasNativeScrollTarget(target) {
-    if (!target || !target.closest) return false;
-    if (target.closest(".code-sym-list")) return true;
-    if (!target.closest(".code-card.clipped .code-card-body")) return false;
-    return !target.closest(".code-card.code-far");
-  }
-  function codeViewWheelUsesNativeScroll(event, target) {
-    if (codeViewWheelAction(event) === "zoom") return false;
-    return isCodeCanvasNativeScrollTarget(target);
-  }
-
-  // src/views/card-links.mjs
-  function codeCardSymbolLine(file, name) {
-    if (!file || !name) return null;
-    var fns = file.functions || [];
-    var i;
-    for (i = 0; i < fns.length; i++) {
-      if (fns[i] && fns[i].name === name && fns[i].line) return fns[i].line;
-    }
-    var content = String(file.content || "");
-    if (!content) return null;
-    var escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    var re = new RegExp("(?:^|[^A-Za-z0-9_$])" + escaped + "(?:[^A-Za-z0-9_$]|$)");
-    var lines = content.split("\n");
-    for (i = 0; i < lines.length; i++) {
-      if (re.test(lines[i])) return i + 1;
-    }
-    return null;
-  }
-  function codeCardLineY(size, line, file, prefs) {
-    var n = Math.max(1, Number(line) || 1);
-    var visual = file ? codeCardVisualLineIndex(file, n, prefs) : n;
-    return CODE_CARD_HEAD_HEIGHT + 8 + (visual - 0.5) * CODE_CARD_LINE_HEIGHT;
-  }
-  function codeLinkPrefersVertical(src, tgt) {
-    if (!src || !tgt || !isFinite(src.x) || !isFinite(tgt.x)) return false;
-    return Math.abs(src.x - tgt.x) < 1;
-  }
-  function codeEdgeBezier(x1, y1, x2, y2) {
-    var dxAbs = Math.abs(x2 - x1);
-    var dyAbs = Math.abs(y2 - y1);
-    if (dxAbs < 1 && dyAbs > 0) {
-      var vspan = Math.max(80, dyAbs * 0.45);
-      var dy = (y2 < y1 ? -1 : 1) * vspan;
-      return "M" + x1 + "," + y1 + "C" + x1 + "," + (y1 + dy) + " " + x2 + "," + (y2 - dy) + " " + x2 + "," + y2;
-    }
-    var span = Math.max(80, dxAbs * 0.45);
-    var dx = (x2 < x1 ? -1 : 1) * span;
-    return "M" + x1 + "," + y1 + "C" + (x1 + dx) + "," + y1 + " " + (x2 - dx) + "," + y2 + " " + x2 + "," + y2;
-  }
-  function codeCardAnchorY(node, size, line) {
-    size = size || codeCardSize(null);
-    var y = line ? codeCardLineY(size, line) : CODE_CARD_HEAD_HEIGHT + (size.height - CODE_CARD_HEAD_HEIGHT) / 2;
-    if (!isFinite(y)) y = size.height / 2;
-    y = Math.max(CODE_CARD_HEAD_HEIGHT + 6, Math.min(size.height - 8, y));
-    return (node && isFinite(node.y) ? node.y : 0) - size.height / 2 + y;
-  }
-  function codeCardLinkEndpoint(node, size, file, other, fn, isCard, vertical) {
-    if (!isCard) return { x: node.x, y: node.y };
-    size = size || codeCardSize(file);
-    if (vertical) {
-      var top = node.y - size.height / 2;
-      var bottom = node.y + size.height / 2;
-      var towardY = other && isFinite(other.y) ? other.y : bottom + 1;
-      return { x: node.x, y: towardY < node.y ? top : bottom };
-    }
-    var line = fn ? codeCardSymbolLine(file, fn) : null;
-    var y = codeCardAnchorY(node, size, line);
-    var left = node.x - size.width / 2;
-    var right = node.x + size.width / 2;
-    var toward = other && isFinite(other.x) ? other.x : right + 1;
-    return { x: toward < node.x ? left : right, y };
-  }
-  function codeCardLinkPath(link, sizesByPath, filesByPath, cardPaths) {
-    var src = link && link.source;
-    var tgt = link && link.target;
-    if (!src || !tgt || typeof src !== "object" || typeof tgt !== "object") return null;
-    var srcIsCard = !!(cardPaths && cardPaths.has(src.id));
-    var tgtIsCard = !!(cardPaths && cardPaths.has(tgt.id));
-    if (!srcIsCard && !tgtIsCard) return null;
-    if (!isFinite(src.x) || !isFinite(src.y) || !isFinite(tgt.x) || !isFinite(tgt.y)) return null;
-    var srcFile = filesByPath && filesByPath[src.id];
-    var tgtFile = filesByPath && filesByPath[tgt.id];
-    var srcSize = sizesByPath && sizesByPath[src.id] || codeCardSize(srcFile);
-    var tgtSize = sizesByPath && sizesByPath[tgt.id] || codeCardSize(tgtFile);
-    var fn = link.fn;
-    var vertical = codeLinkPrefersVertical(src, tgt);
-    var p1 = codeCardLinkEndpoint(src, srcSize, srcFile, tgt, fn, srcIsCard, vertical);
-    var p2 = codeCardLinkEndpoint(tgt, tgtSize, tgtFile, src, fn, tgtIsCard, vertical);
-    return codeEdgeBezier(p1.x, p1.y, p2.x, p2.y);
-  }
-
-  // src/views/minimap.mjs
-  function minimapWorldFromBoxes(boxes, pad) {
-    var union = unionPaddedBoxes(boxes, pad == null ? 48 : pad, 0);
-    if (!union) return null;
-    return {
-      minX: union.x,
-      minY: union.y,
-      maxX: union.x + union.width,
-      maxY: union.y + union.height,
-      width: union.width,
-      height: union.height
-    };
-  }
-  function minimapCardInputs(vizType, sizesByPath, cardPaths) {
-    if (vizType !== "code") return { sizesByPath: null, cardPaths: null };
-    return { sizesByPath: sizesByPath || null, cardPaths: cardPaths || null };
-  }
-  function collectMinimapContent(nodes, sizesByPath, cardPaths, colorOf, pad) {
-    var marks = [];
-    var boxes = [];
-    var folders = /* @__PURE__ */ Object.create(null);
-    (nodes || []).forEach(function(node) {
-      var xy = liveGraphNodeXY(node);
-      if (!xy) return;
-      var folder = node.folder || "root";
-      var color = typeof colorOf === "function" ? colorOf(node) : null;
-      var isCard = !!(cardPaths && cardPaths.has && cardPaths.has(node.id) && sizesByPath && sizesByPath[node.id]);
-      var box;
-      if (isCard) {
-        var size = sizesByPath[node.id];
-        box = { x: xy.x - size.width / 2, y: xy.y - size.height / 2, width: size.width, height: size.height };
-        marks.push({ kind: "card", x: box.x, y: box.y, width: box.width, height: box.height, color, folder });
-      } else {
-        box = { x: xy.x - 16, y: xy.y - 16, width: 32, height: 32 };
-        marks.push({ kind: "node", x: xy.x, y: xy.y, color, folder });
-      }
-      if (!folders[folder]) folders[folder] = { boxes: [], color };
-      folders[folder].boxes.push(box);
-      boxes.push(box);
-      if (color) folders[folder].color = color;
-    });
-    var hulls = [];
-    Object.keys(folders).forEach(function(folder) {
-      var union = unionPaddedBoxes(folders[folder].boxes, 18, 0);
-      if (union) hulls.push({ folder, color: folders[folder].color, x: union.x, y: union.y, width: union.width, height: union.height });
-    });
-    return { marks, hulls, world: minimapWorldFromBoxes(boxes, pad) };
-  }
-  function viewportWorldRect(transform, viewW, viewH) {
-    var t = snapshotZoomTransform(transform);
-    var w = Number(viewW);
-    var h = Number(viewH);
-    if (!isFinite(w) || w <= 0) w = 800;
-    if (!isFinite(h) || h <= 0) h = 600;
-    return { x: -t.x / t.k, y: -t.y / t.k, width: w / t.k, height: h / t.k };
-  }
-  function minimapFitRect(world, mapW, mapH, pad) {
-    mapW = Number(mapW);
-    mapH = Number(mapH);
-    if (!world || !isFinite(world.width) || !isFinite(world.height) || world.width <= 0 || world.height <= 0) return null;
-    if (!isFinite(mapW) || !isFinite(mapH) || mapW <= 0 || mapH <= 0) return null;
-    pad = pad == null ? 8 : Number(pad);
-    if (!isFinite(pad) || pad < 0) pad = 0;
-    var innerW = Math.max(1, mapW - pad * 2);
-    var innerH = Math.max(1, mapH - pad * 2);
-    var scale = Math.min(innerW / world.width, innerH / world.height);
-    if (!isFinite(scale) || scale <= 0) scale = 1;
-    var usedW = world.width * scale;
-    var usedH = world.height * scale;
-    return { scale, ox: pad + (innerW - usedW) / 2, oy: pad + (innerH - usedH) / 2 };
-  }
-  function worldToMinimap(x, y, world, fit) {
-    if (!world || !fit) return { x: 0, y: 0 };
-    return { x: (Number(x) - world.minX) * fit.scale + fit.ox, y: (Number(y) - world.minY) * fit.scale + fit.oy };
-  }
-  function clampMinimapPoint(mx, my, world, fit) {
-    mx = Number(mx);
-    my = Number(my);
-    if (!world || !fit || !isFinite(Number(fit.scale)) || !fit.scale) {
-      return { x: isFinite(mx) ? mx : 0, y: isFinite(my) ? my : 0 };
-    }
-    var minX = Number(fit.ox) || 0;
-    var minY = Number(fit.oy) || 0;
-    var maxX = minX + Number(world.width) * Number(fit.scale);
-    var maxY = minY + Number(world.height) * Number(fit.scale);
-    if (!isFinite(maxX) || maxX < minX) maxX = minX;
-    if (!isFinite(maxY) || maxY < minY) maxY = minY;
-    if (!isFinite(mx)) mx = minX;
-    if (!isFinite(my)) my = minY;
-    if (mx < minX) mx = minX;
-    else if (mx > maxX) mx = maxX;
-    if (my < minY) my = minY;
-    else if (my > maxY) my = maxY;
-    return { x: mx, y: my };
-  }
-  function minimapToWorld(mx, my, world, fit) {
-    if (!world || !fit || !fit.scale) return { x: 0, y: 0 };
-    var p = clampMinimapPoint(mx, my, world, fit);
-    return { x: (p.x - fit.ox) / fit.scale + world.minX, y: (p.y - fit.oy) / fit.scale + world.minY };
-  }
-  function zoomTransformToCenterWorld(worldX, worldY, scale, viewW, viewH) {
-    var k = Number(scale);
-    if (!isFinite(k) || k <= 0) k = 1;
-    var w = Number(viewW);
-    var h = Number(viewH);
-    if (!isFinite(w) || w <= 0) w = 800;
-    if (!isFinite(h) || h <= 0) h = 600;
-    return { k, x: w / 2 - Number(worldX) * k, y: h / 2 - Number(worldY) * k };
-  }
-  function zoomTransformFromMinimapPoint(mx, my, world, fit, transform, viewW, viewH) {
-    var pt = minimapToWorld(mx, my, world, fit);
-    var t = snapshotZoomTransform(transform);
-    return zoomTransformToCenterWorld(pt.x, pt.y, t.k, viewW, viewH);
-  }
-  function zoomTransformNudgeWorld(transform, dxWorld, dyWorld) {
-    var t = snapshotZoomTransform(transform);
-    var dx = Number(dxWorld);
-    var dy = Number(dyWorld);
-    if (!isFinite(dx)) dx = 0;
-    if (!isFinite(dy)) dy = 0;
-    return { k: t.k, x: t.x - dx * t.k, y: t.y - dy * t.k };
-  }
-  function panTransformByViewportFraction(transform, dxFrac, dyFrac, viewW, viewH) {
-    var view = viewportWorldRect(transform, viewW, viewH);
-    var fx = Number(dxFrac);
-    var fy = Number(dyFrac);
-    if (!isFinite(fx)) fx = 0;
-    if (!isFinite(fy)) fy = 0;
-    return zoomTransformNudgeWorld(transform, view.width * fx, view.height * fy);
-  }
-  function panTransformToWorldMidpoint(transform, world, viewW, viewH) {
-    var t = snapshotZoomTransform(transform);
-    if (!world) return t;
-    var midX = (Number(world.minX) + Number(world.maxX)) / 2;
-    var midY = (Number(world.minY) + Number(world.maxY)) / 2;
-    if (!isFinite(midX) || !isFinite(midY)) return t;
-    return zoomTransformToCenterWorld(midX, midY, t.k, viewW, viewH);
-  }
-  function minimapPointerXY(clientX, clientY, rect) {
-    rect = rect || {};
-    return { x: (Number(clientX) || 0) - (Number(rect.left) || 0), y: (Number(clientY) || 0) - (Number(rect.top) || 0) };
-  }
-  function colorWithAlpha(color, alpha) {
-    color = String(color || "");
-    var a = Number(alpha);
-    if (!isFinite(a)) a = 1;
-    if (a < 0) a = 0;
-    if (a > 1) a = 1;
-    if (color.charAt(0) === "#" && (color.length === 7 || color.length === 4)) {
-      var r, g, b;
-      if (color.length === 4) {
-        r = parseInt(color.charAt(1) + color.charAt(1), 16);
-        g = parseInt(color.charAt(2) + color.charAt(2), 16);
-        b = parseInt(color.charAt(3) + color.charAt(3), 16);
-      } else {
-        r = parseInt(color.slice(1, 3), 16);
-        g = parseInt(color.slice(3, 5), 16);
-        b = parseInt(color.slice(5, 7), 16);
-      }
-      if (isFinite(r) && isFinite(g) && isFinite(b)) return "rgba(" + r + "," + g + "," + b + "," + a + ")";
-    }
-    return color;
-  }
-  function readMinimapTheme(el) {
-    var styles = el && typeof getComputedStyle === "function" ? getComputedStyle(el) : null;
-    function css(name, fallback) {
-      var v = styles ? String(styles.getPropertyValue(name) || "").trim() : "";
-      return v || fallback;
-    }
-    return {
-      bg: css("--bg1", "#0f0f12"),
-      acc: css("--acc", "#00ff9d"),
-      muted: css("--t3", "#5c5c66")
-    };
-  }
-  function clearCanvasMinimap(canvas) {
-    if (!canvas || typeof canvas.getContext !== "function") return false;
-    var ctx = canvas.getContext("2d");
-    if (!ctx) return false;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width || 0, canvas.height || 0);
-    return true;
-  }
-  function drawCanvasMinimap(canvas, model) {
-    if (!canvas || typeof canvas.getContext !== "function" || !model || !model.fit || !model.world) return false;
-    var ctx = canvas.getContext("2d");
-    if (!ctx) return false;
-    var dpr = typeof window !== "undefined" && window.devicePixelRatio ? window.devicePixelRatio : 1;
-    if (!isFinite(dpr) || dpr <= 0) dpr = 1;
-    var w = Number(model.mapW);
-    var h = Number(model.mapH);
-    if (!isFinite(w) || w <= 0) w = 176;
-    if (!isFinite(h) || h <= 0) h = 118;
-    var pixelW = Math.max(1, Math.round(w * dpr));
-    var pixelH = Math.max(1, Math.round(h * dpr));
-    if (canvas.width !== pixelW || canvas.height !== pixelH) {
-      canvas.width = pixelW;
-      canvas.height = pixelH;
-    }
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
-    var theme = model.theme || {};
-    var acc = theme.acc || "#00ff9d";
-    var muted = theme.muted || "#5c5c66";
-    (model.hulls || []).forEach(function(hull) {
-      if (!hull) return;
-      var p1 = worldToMinimap(hull.x, hull.y, model.world, model.fit);
-      var p2 = worldToMinimap(hull.x + hull.width, hull.y + hull.height, model.world, model.fit);
-      var hx = p1.x, hy = p1.y, hw = Math.max(2, p2.x - p1.x), hh = Math.max(2, p2.y - p1.y);
-      ctx.beginPath();
-      ctx.fillStyle = colorWithAlpha(hull.color || muted, 0.12);
-      ctx.strokeStyle = colorWithAlpha(hull.color || muted, 0.4);
-      ctx.lineWidth = 1;
-      if (typeof ctx.roundRect === "function") ctx.roundRect(hx, hy, hw, hh, 3);
-      else ctx.rect(hx, hy, hw, hh);
-      ctx.fill();
-      ctx.stroke();
-    });
-    (model.marks || []).forEach(function(mark) {
-      if (!mark || mark.kind !== "card") return;
-      var c1 = worldToMinimap(mark.x, mark.y, model.world, model.fit);
-      var c2 = worldToMinimap(mark.x + mark.width, mark.y + mark.height, model.world, model.fit);
-      ctx.fillStyle = colorWithAlpha(mark.color || acc, 0.32);
-      ctx.fillRect(c1.x, c1.y, Math.max(2, c2.x - c1.x), Math.max(2, c2.y - c1.y));
-    });
-    (model.marks || []).forEach(function(mark) {
-      if (!mark || mark.kind !== "node") return;
-      var p = worldToMinimap(mark.x, mark.y, model.world, model.fit);
-      ctx.beginPath();
-      ctx.fillStyle = mark.color || acc;
-      ctx.arc(p.x, p.y, 1.7, 0, Math.PI * 2);
-      ctx.fill();
-    });
-    if (model.viewport) {
-      var v = model.viewport;
-      var v1 = worldToMinimap(v.x, v.y, model.world, model.fit);
-      var v2 = worldToMinimap(v.x + v.width, v.y + v.height, model.world, model.fit);
-      ctx.fillStyle = colorWithAlpha(acc, 0.1);
-      ctx.strokeStyle = acc;
-      ctx.lineWidth = 1.25;
-      ctx.fillRect(v1.x, v1.y, v2.x - v1.x, v2.y - v1.y);
-      ctx.strokeRect(v1.x, v1.y, v2.x - v1.x, v2.y - v1.y);
-    }
-    return true;
-  }
-
-  // src/views/source-symbols.mjs
-  function escapeRegExp(value) {
-    return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  }
-  function isValidSymbolName(name) {
-    return /^[A-Za-z_$][\w$]*$/.test(String(name || ""));
-  }
-  function escapeHtmlAttr(value) {
-    return String(value || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  }
-  function safeSymbolKind(kind) {
-    return kind === "fn" || kind === "import" || kind === "export" || kind === "var" ? kind : "var";
-  }
-  function extractFileSymbols(file, connections) {
-    var symbols = [];
-    var seen = /* @__PURE__ */ Object.create(null);
-    function add(name, kind) {
-      if (!isValidSymbolName(name) || seen[name]) return;
-      seen[name] = true;
-      symbols.push({ name, kind: kind || "var" });
-    }
-    (file && file.functions || []).forEach(function(fn) {
-      add(fn.name, fn.isExported ? "export" : "fn");
-    });
-    var content = String(file && file.content || "");
-    var match;
-    var importRe = /\bimport\s+(?!\()([\s\S]*?)\s+from\s*['"`][^'"`]+['"`]/g;
-    while (match = importRe.exec(content)) {
-      var spec = match[1] || "";
-      if (/^\s*type\b/.test(spec)) continue;
-      var named = spec.match(/\{([\s\S]*?)\}/);
-      if (named) {
-        named[1].split(",").forEach(function(part) {
-          part = part.trim().replace(/^type\s+/, "").trim();
-          var alias = part.match(/^([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)$/);
-          add(alias ? alias[2] : part.replace(/[^\w$].*$/, ""), "import");
-        });
-      }
-      var ns = spec.match(/\*\s+as\s+([A-Za-z_$][\w$]*)/);
-      if (ns) add(ns[1], "import");
-      var def = spec.split("{")[0].split("*")[0].split(",")[0].trim();
-      if (isValidSymbolName(def)) add(def, "import");
-    }
-    var exportRe = /\bexport\s+(?:default\s+)?(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)/g;
-    while (match = exportRe.exec(content)) add(match[1], "export");
-    var namedExportRe = /\bexport\s+(?:default\s+)?\{([\s\S]*?)\}/g;
-    while (match = namedExportRe.exec(content)) {
-      match[1].split(",").forEach(function(part) {
-        part = part.trim();
-        var alias = part.match(/^([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)$/);
-        add(alias ? alias[1] : part.replace(/[^\w$].*$/, ""), "export");
-      });
-    }
-    var pyFromRe = /^\s*from\s+[.\w]+\s+import\s+([^\n#]+)/gm;
-    while (match = pyFromRe.exec(content)) {
-      match[1].replace(/[()]/g, "").split(",").forEach(function(part) {
-        var pieces = part.trim().split(/\s+as\s+/);
-        add((pieces[1] || pieces[0] || "").trim(), "import");
-      });
-    }
-    (connections || []).forEach(function(c) {
-      var src = typeof c.source === "object" ? c.source.id : c.source;
-      var tgt = typeof c.target === "object" ? c.target.id : c.target;
-      if (file && (src === file.path || tgt === file.path) && c.fn) add(c.fn, "fn");
-    });
-    return symbols;
-  }
-  function codeColorBlockLineCount(file) {
-    if (file && typeof file.content === "string" && file.content) return Math.max(1, file.content.split("\n").length);
-    var lines = Number(file && file.lines);
-    if (isFinite(lines) && lines > 0) return Math.max(1, lines);
-    var max = 1;
-    (file && file.functions || []).forEach(function(fn) {
-      var line = Number(fn && fn.line);
-      if (isFinite(line) && line > max) max = line;
-    });
-    return max;
-  }
-  function codeColorBlockSections(file, connections, prefs, diffRows) {
-    prefs = normalizeCodeCardPrefs(prefs);
-    var paintFile = fileForCodeCardDiff(file, diffRows);
-    var total = codeColorBlockLineCount(paintFile);
-    var byLine = /* @__PURE__ */ Object.create(null);
-    (file && file.functions || []).forEach(function(fn) {
-      if (!fn || !fn.name || !fn.line) return;
-      var kind = fn.type === "class" || fn.type === "dataclass" || fn.type === "abstract_class" ? "class" : fn.isExported ? "export" : "fn";
-      var line = codeCardDiffLineIndex(diffRows, fn.line);
-      if (!byLine[line]) byLine[line] = { name: fn.name, kind, startLine: line };
-    });
-    extractFileSymbols(file, connections).forEach(function(sym) {
-      var analyzed = codeCardSymbolLine(file, sym.name);
-      if (!analyzed) return;
-      var line = codeCardDiffLineIndex(diffRows, analyzed);
-      if (!line || byLine[line]) return;
-      byLine[line] = { name: sym.name, kind: sym.kind || "var", startLine: line };
-    });
-    var starts = Object.keys(byLine).map(Number).filter(isFinite).sort(function(a, b) {
-      return a - b;
-    });
-    var sections = [];
-    if (!starts.length) {
-      sections.push({ name: file && (file.name || file.path) || "file", kind: "file", startLine: 1, endLine: total });
-    } else {
-      if (starts[0] > 1) {
-        sections.push({ name: file && (file.name || file.path) || "file", kind: "file", startLine: 1, endLine: starts[0] - 1 });
-      }
-      starts.forEach(function(start, i) {
-        var item = byLine[start];
-        var end = i + 1 < starts.length ? starts[i + 1] - 1 : total;
-        if (end < start) end = start;
-        sections.push({ name: item.name, kind: item.kind, startLine: start, endLine: end });
-      });
-    }
-    return sections.map(function(section) {
-      var startVisual = paintFile ? codeCardVisualLineIndex(paintFile, section.startLine, prefs) : section.startLine;
-      var endVisual = paintFile ? codeCardVisualLineEndIndex(paintFile, section.endLine, prefs) : section.endLine;
-      if (endVisual < startVisual) endVisual = startVisual;
-      return Object.assign({}, section, {
-        color: codeColorBlockKindColor(section.kind),
-        top: 8 + (startVisual - 1) * CODE_CARD_LINE_HEIGHT,
-        height: Math.max(6, (endVisual - startVisual + 1) * CODE_CARD_LINE_HEIGHT)
-      });
-    });
-  }
-  function codeCardSymbolPills(file, connections, prefs, diffRows) {
-    var paintFile = fileForCodeCardDiff(file, diffRows);
-    var size = codeCardSizeForDiff(file, prefs, diffRows);
-    return extractFileSymbols(file, connections).map(function(sym) {
-      var line = codeCardSymbolLine(file, sym.name);
-      if (!line) return null;
-      var visual = codeCardDiffLineIndex(diffRows, line);
-      return { name: sym.name, kind: sym.kind, line: visual, top: codeCardLineY(size, visual, paintFile, prefs) };
-    }).filter(Boolean);
-  }
-  function codeCardPillViewTop(lineTop, scrollTop, cardHeight, headHeight) {
-    var y = Number(lineTop) - (Number(scrollTop) || 0);
-    var min = headHeight == null ? CODE_CARD_HEAD_HEIGHT : Number(headHeight);
-    var max = Number(cardHeight);
-    if (!isFinite(y) || !isFinite(min) || !isFinite(max)) return null;
-    if (y < min || y > max) return null;
-    return y;
-  }
-  function collectCrossFileSymbols(files, connections) {
-    var byName = /* @__PURE__ */ Object.create(null);
-    (files || []).forEach(function(file) {
-      extractFileSymbols(file, connections).forEach(function(sym) {
-        if (!byName[sym.name]) byName[sym.name] = { name: sym.name, kind: sym.kind, files: [] };
-        if (byName[sym.name].files.indexOf(file.path) < 0) byName[sym.name].files.push(file.path);
-        if (sym.kind === "export") byName[sym.name].kind = "export";
-        else if (sym.kind === "import" && byName[sym.name].kind !== "export") byName[sym.name].kind = "import";
-      });
-    });
-    return Object.keys(byName).map(function(name) {
-      return byName[name];
-    }).sort(function(a, b) {
-      return b.files.length - a.files.length || a.name.localeCompare(b.name);
-    });
-  }
-  function annotateHtmlWithSymbols(html, symbols, activeSymbol) {
-    var source = String(html || "");
-    if (!source || !symbols || !symbols.length) return source;
-    var names = symbols.map(function(s) {
-      return s.name;
-    }).filter(isValidSymbolName);
-    if (!names.length) return source;
-    var kindByName = /* @__PURE__ */ Object.create(null);
-    symbols.forEach(function(s) {
-      if (isValidSymbolName(s.name)) kindByName[s.name] = s.kind || "var";
-    });
-    var re = new RegExp("\\b(" + names.map(escapeRegExp).join("|") + ")\\b", "g");
-    var out = "";
-    var last = 0;
-    var match;
-    while (match = re.exec(source)) {
-      var idx = match.index;
-      var before = source.slice(0, idx);
-      var lastLt = before.lastIndexOf("<");
-      var lastGt = before.lastIndexOf(">");
-      if (lastLt > lastGt) continue;
-      out += source.slice(last, idx);
-      var kind = safeSymbolKind(kindByName[match[1]] || "var");
-      var active = activeSymbol && activeSymbol === match[1] ? " active" : "";
-      var safeName = escapeHtmlAttr(match[1]);
-      out += '<span class="sym-mark ' + kind + active + '" data-sym="' + safeName + '">' + safeName + "</span>";
-      last = idx + match[0].length;
-    }
-    return out + source.slice(last);
   }
 
   // src/analysis/evidence.mjs
@@ -5716,107 +7332,6 @@
       });
     });
     return Object.assign({}, data, { issues, assessments });
-  }
-
-  // src/analysis/metrics.mjs
-  function calcBlast(fileId, conns, files) {
-    var exportedTo = {};
-    var importedFrom = {};
-    var exportedFns = {};
-    conns.forEach(function(c) {
-      var src = typeof c.source === "object" ? c.source.id : c.source;
-      var tgt = typeof c.target === "object" ? c.target.id : c.target;
-      if (!exportedTo[src]) exportedTo[src] = /* @__PURE__ */ new Set();
-      exportedTo[src].add(tgt);
-      if (!importedFrom[tgt]) importedFrom[tgt] = /* @__PURE__ */ new Set();
-      importedFrom[tgt].add(src);
-      if (c.evidence === "mix xref") return;
-      if (!exportedFns[src]) exportedFns[src] = /* @__PURE__ */ new Map();
-      var fnMap = exportedFns[src];
-      fnMap.set(c.fn, (fnMap.get(c.fn) || 0) + (c.count || 1));
-    });
-    var directDeps = exportedTo[fileId] ? Array.from(exportedTo[fileId]) : [];
-    var transitive = /* @__PURE__ */ new Map();
-    var queue = directDeps.map(function(f) {
-      return { file: f, depth: 1 };
-    });
-    var visited = new Set([fileId].concat(directDeps));
-    while (queue.length > 0) {
-      var item = queue.shift();
-      if (item.depth > 3) continue;
-      transitive.set(item.file, item.depth);
-      var nextDeps = exportedTo[item.file] || /* @__PURE__ */ new Set();
-      nextDeps.forEach(function(f) {
-        if (!visited.has(f)) {
-          visited.add(f);
-          queue.push({ file: f, depth: item.depth + 1 });
-        }
-      });
-    }
-    var fnUsage = exportedFns[fileId] || /* @__PURE__ */ new Map();
-    var fnsUsed = fnUsage.size;
-    var totalCalls = 0;
-    fnUsage.forEach(function(cnt) {
-      totalCalls += cnt;
-    });
-    var dependencies = importedFrom[fileId] ? Array.from(importedFrom[fileId]) : [];
-    var impactScore = directDeps.length;
-    transitive.forEach(function(depth, f) {
-      if (depth > 1) impactScore += 1 / depth;
-    });
-    var centrality = directDeps.length + dependencies.length + fnsUsed;
-    var level = "low";
-    var connectedFiles = files.filter(function(f) {
-      return exportedTo[f.path] || importedFrom[f.path];
-    }).length;
-    var relativePct = connectedFiles > 0 ? Math.round(directDeps.length / connectedFiles * 100) : 0;
-    if (directDeps.length >= 8 || fnsUsed >= 5) level = "critical";
-    else if (directDeps.length >= 4 || fnsUsed >= 3) level = "high";
-    else if (directDeps.length >= 2 || fnsUsed >= 1) level = "medium";
-    return {
-      affected: directDeps,
-      transitive: Array.from(transitive.keys()),
-      count: directDeps.length,
-      transitiveCount: transitive.size,
-      percent: relativePct,
-      level,
-      depth: transitive.size > 0 ? Math.max.apply(null, Array.from(transitive.values())) : 0,
-      fnsUsed,
-      totalCalls,
-      dependencies,
-      impactScore: Math.round(impactScore * 10) / 10,
-      centrality
-    };
-  }
-  function calcHealth(data) {
-    if (!data) return { score: 0, grade: "F" };
-    var score = 100;
-    var assessedDead = data.deadFunctions ? data.deadFunctions.filter(function(f) {
-      return f.certainty !== "unverified";
-    }).length : data.stats.dead;
-    var deadPct = data.stats.functions > 0 ? assessedDead / data.stats.functions * 100 : 0;
-    score -= Math.min(20, deadPct);
-    var circular = data.issues.filter(function(i) {
-      return i.title.includes("Circular");
-    }).length;
-    score -= Math.min(20, circular * 5);
-    var god = data.issues.filter(function(i) {
-      return i.title.includes("Large");
-    }).length;
-    score -= Math.min(15, god * 3);
-    var avgCoup = data.stats.files > 0 ? data.stats.connections / data.stats.files : 0;
-    score -= Math.min(15, Math.max(0, avgCoup - 3) * 2);
-    var sec = data.securityIssues ? data.securityIssues.filter(function(i) {
-      return i.severity === "high";
-    }).length : 0;
-    score -= Math.min(20, sec * 5);
-    score = Math.max(0, Math.round(score));
-    var grade = "F";
-    if (score >= 90) grade = "A";
-    else if (score >= 80) grade = "B";
-    else if (score >= 70) grade = "C";
-    else if (score >= 60) grade = "D";
-    return { score, grade };
   }
 
   // src/project/exclusions.mjs
@@ -56544,11 +58059,12 @@ This problem is likely caused by another plugin injecting
   var runAnalysisData = createAnalysisClient({ analyzeFiles, yieldFn: yieldToBrowser });
   var GitHub = createGitHubAdapter({ KJUR: globalThis.KJUR });
   var { useState, useReducer, useEffect, useLayoutEffect, useRef, useMemo, useCallback } = React;
-  var { SourceNavigation, AnalysisTools, SourceProcesses, RuntimePanel } = createInspectionPanels(React);
+  var { SourceNavigation, AnalysisTools, SourceProcesses, SourceFindings, RuntimePanel } = createInspectionPanels(React);
   var useRuntimeInspection = createRuntimeInspectionHook(React);
   var ArchitectureView = createArchitectureView({ React, mermaid: globalThis.mermaid });
   var COLORS = ["#4d9fff", "#a78bfa", "#22d3ee", "#00ff9d", "#ff9f43", "#ec4899", "#ff5f5f", "#84cc16"];
   var LAYER_COLORS = { ui: "#4d9fff", components: "#22d3ee", services: "#a78bfa", utils: "#00ff9d", data: "#ff9f43", config: "#ec4899", test: "#f59e0b", modules: "#a78bfa", forms: "#22d3ee", classes: "#ff9f43", note: "#c084fc" };
+  var NativeCanvas = createNativeCanvas({ React, d3: globalThis.d3, Icon, COLORS, LAYER_COLORS });
   var Graph3DView = createGraph3DView({ React, getRuntime: () => ({ ForceGraph3D: globalThis.ForceGraph3D, THREE: globalThis.THREE }), colors: COLORS, layerColors: LAYER_COLORS });
   var ANALYSIS_LIMITS = { repoSoft: 300, localSoft: 500 };
   function calcPRRisk(prData, repoData) {
@@ -57014,6 +58530,8 @@ This problem is likely caused by another plugin injecting
     );
   }
   function App() {
+    const nativeCanvasRef = useRef(null);
+    const [restoredNativeScene, setRestoredNativeScene] = useState(null);
     const projectLoading = useMemo(createProjectLoading, []);
     useEffect(() => () => projectLoading.dispose(), [projectLoading]);
     var _a = useState(window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"), theme = _a[0], setTheme = _a[1];
@@ -57091,10 +58609,6 @@ This problem is likely caused by another plugin injecting
     }, [data, fileQuery]);
     var fileSearchRef = useRef(null);
     const sourceFocus = useMemo(() => investigation.range && investigation.selectedPath ? { path: investigation.selectedPath, line: investigation.range.start.line + 1 } : null, [investigation.range, investigation.selectedPath]);
-    var pendingSourceFocusRef = useRef(null);
-    useLayoutEffect(() => {
-      pendingSourceFocusRef.current = sourceFocus;
-    }, [sourceFocus]);
     useEffect(function() {
       function quickOpen(event) {
         if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
@@ -57119,6 +58633,10 @@ This problem is likely caused by another plugin injecting
       return localTools.language(method, path, position);
     }
     function openSourceLocation(location) {
+      if (!location.range && Number.isInteger(location.line) && location.line > 0) {
+        const position = { line: location.line - 1, character: 0 };
+        location = { ...location, range: { start: position, end: position } };
+      }
       if (!location.path) {
         setBeamNavigationError("Source is outside this project.");
         return;
@@ -57132,14 +58650,9 @@ This problem is likely caused by another plugin injecting
       setGraphConfig(function(prev) {
         return Object.assign({}, prev, { vizType: "code" });
       });
-      if (!codeCardUserSizeRef.current[location.path]) codeCardUserSizeRef.current[location.path] = { height: 640 };
+      nativeCanvasRef.current?.prepareSource(location);
       openCodeFile(location.path, false, location.range);
       setRightTab("details");
-      revealSourceLocation(location);
-    }
-    function revealSourceLocation(location) {
-      var focus = { path: location.path, line: location.range ? location.range.start.line + 1 : 1 };
-      pendingSourceFocusRef.current = focus;
     }
     async function navigateBeamSymbol(method, path, position) {
       setBeamNavigationError(null);
@@ -57167,7 +58680,6 @@ This problem is likely caused by another plugin injecting
     var _cliDirty = useState([]), cliDirty = _cliDirty[0], setCliDirty = _cliDirty[1];
     var _cliLive = useState(/* @__PURE__ */ Object.create(null)), cliLiveByPath = _cliLive[0], setCliLiveByPath = _cliLive[1];
     var isMobile = viewportWidth <= 980;
-    var svgRef = useRef(null);
     var graph3dViewRef = useRef(null);
     var topbarRef = useRef(null);
     var filePreviewRef = useRef(null);
@@ -57178,42 +58690,10 @@ This problem is likely caused by another plugin injecting
     var disjointRef = useRef(null);
     var bundleRef = useRef(null);
     var architectureViewRef = useRef(null);
-    var zoomRef = useRef(null);
-    var simRef = useRef(null);
-    var nodesRef = useRef(null);
-    var linksRef = useRef(null);
-    var linkParticlesRef = useRef(null);
-    var applyForceLinkVisualsRef = useRef(null);
     var selectFileRef = useRef(null);
-    var codeCardsLayerRef = useRef(null);
-    var codeCardPathsRef = useRef(/* @__PURE__ */ new Set());
-    var codeZoomTransformRef = useRef({ k: 1, x: 0, y: 0 });
-    var graphNodesByIdRef = useRef(/* @__PURE__ */ Object.create(null));
-    var selectedPathRef = useRef(null);
-    var codeCardSizesRef = useRef(/* @__PURE__ */ Object.create(null));
-    var codeCardUserPinnedRef = useRef(/* @__PURE__ */ new Set());
-    var codeCardLayoutKeyRef = useRef("");
-    var codeViewCameraReadyRef = useRef(false);
-    var codeViewSceneRef = useRef("");
-    var codeCardIgnoreClickRef = useRef(false);
-    var codeCardPlacementRef = useRef(/* @__PURE__ */ Object.create(null));
     var openedSceneRef = useRef("");
     var workspaceKeyRef = useRef(null), workspaceRestoreRef = useRef(null);
-    var pendingFlyToRef = useRef(null);
-    var openCodeFileRef = useRef(null);
-    var codeFilesByPathRef = useRef(/* @__PURE__ */ Object.create(null));
-    var codeCanvasRef = useRef(null);
     var codeSourceInFlightRef = useRef(/* @__PURE__ */ Object.create(null));
-    var updateHullsRef = useRef(null);
-    var drawMinimapRef = useRef(null);
-    var minimapHostRef = useRef(null);
-    var minimapCanvasRef = useRef(null);
-    var minimapModelRef = useRef(null);
-    var minimapDragRef = useRef(null);
-    var minimapRafRef = useRef(0);
-    var codeFolderCentersRef = useRef(/* @__PURE__ */ Object.create(null));
-    var codeCardUserSizeRef = useRef(/* @__PURE__ */ Object.create(null));
-    var codeCardStackRef = useRef([]);
     var analysisHydrationIdRef = useRef("");
     var dataRef = useRef(null);
     dataRef.current = data;
@@ -57227,12 +58707,9 @@ This problem is likely caused by another plugin injecting
     var cliWatchReadRef = useRef(/* @__PURE__ */ Object.create(null));
     var cliWatchSnapRevRef = useRef(/* @__PURE__ */ Object.create(null));
     var _sourceFailed = useState(/* @__PURE__ */ Object.create(null)), codeSourceFailed = _sourceFailed[0], setCodeSourceFailed = _sourceFailed[1];
-    var _pillScroll = useState(0), codePillScroll = _pillScroll[0], setCodePillScroll = _pillScroll[1];
     var _codeExpand = useState(false), codeViewExpand = _codeExpand[0], setCodeViewExpand = _codeExpand[1];
     var _codeWrap = useState(true), codeViewWrap = _codeWrap[0], setCodeViewWrap = _codeWrap[1];
     var _lineThick = useState(readUiPrefs().lineThickness), lineThickness = _lineThick[0], setLineThickness = _lineThick[1];
-    var lineThicknessRef = useRef(lineThickness);
-    lineThicknessRef.current = lineThickness;
     var pendingRecentDeleteTimerRef = useRef(null);
     var zipInputRef = useRef(null);
     var zipArchiveRef = useRef(null);
@@ -58260,20 +59737,18 @@ This problem is likely caused by another plugin injecting
         setLoading(false);
       }
     }
+    var hadAnalysisRef = useRef(false);
     var selectFile = useCallback(function(path, location) {
-      dispatchInvestigation({ type: "select", path, ...location, camera: snapshotZoomTransform(codeZoomTransformRef.current) });
+      dispatchInvestigation({ type: "select", path, ...location, camera: snapshotZoomTransform(nativeCanvasRef.current?.snapshotScene().camera) });
     }, []);
     selectFileRef.current = selectFile;
     useEffect(function() {
-      selectedPathRef.current = investigation.selectedPath;
       if (!selected) {
         setBlastRadius(null);
         return;
       }
       const blast = calcBlast(selected.path, data.connections, data.files);
       setBlastRadius(blast);
-      if (graphConfig.vizType !== "code") updateGraphHighlight(selected.path, blast);
-      else applyForceLinkVisuals();
     }, [data, investigation.selectedPath, graphConfig.vizType]);
     useEffect(function() {
       if (!selected) return;
@@ -58308,22 +59783,20 @@ This problem is likely caused by another plugin injecting
       };
     }, [investigation.selectedPath, repoInfo, localSourceKind]);
     function openCodeFile(path, replace, range) {
-      dispatchInvestigation({ type: "open", path, replace, range, camera: snapshotZoomTransform(codeZoomTransformRef.current) });
-      pendingFlyToRef.current = path;
+      dispatchInvestigation({ type: "open", path, replace, range, camera: snapshotZoomTransform(nativeCanvasRef.current?.snapshotScene().camera) });
+      nativeCanvasRef.current?.focus(path);
     }
     function changeVisualization(view) {
-      const action = { type: "view", view, enter: true, camera: snapshotZoomTransform(codeZoomTransformRef.current) };
+      const action = { type: "view", view, enter: true, camera: snapshotZoomTransform(nativeCanvasRef.current?.snapshotScene().camera) };
       const next = reduceInvestigation(investigation, action, data);
-      if (view === "code" && next.openedPaths !== investigation.openedPaths) pendingFlyToRef.current = next.selectedPath;
+      if (view === "code" && next.openedPaths !== investigation.openedPaths) nativeCanvasRef.current?.focus(next.selectedPath);
       dispatchInvestigation(action);
     }
     function closeCodeCard(path) {
-      const action = { type: "close", path, camera: snapshotZoomTransform(codeZoomTransformRef.current) };
+      const action = { type: "close", path, camera: snapshotZoomTransform(nativeCanvasRef.current?.snapshotScene().camera) };
       const next = reduceInvestigation(investigation, action, data);
-      if (next.selectedPath !== investigation.selectedPath) pendingFlyToRef.current = next.selectedPath;
+      if (next.selectedPath !== investigation.selectedPath) nativeCanvasRef.current?.focus(next.selectedPath);
       dispatchInvestigation(action);
-      delete codeCardPlacementRef.current[path];
-      codeCardUserPinnedRef.current.delete(path);
     }
     function retryCodeSource(path) {
       if (!path) return;
@@ -58332,17 +59805,8 @@ This problem is likely caused by another plugin injecting
         return clearCodeSourceFailure(prev, path);
       });
     }
-    openCodeFileRef.current = openCodeFile;
     function revealGraphFile(path, camera) {
-      requestAnimationFrame(function() {
-        requestAnimationFrame(function() {
-          var node = graphNodesByIdRef.current[path];
-          if (!node || !zoomRef.current || !svgRef.current) return;
-          var width = svgRef.current.clientWidth, height = svgRef.current.clientHeight;
-          var transform = camera ? d3.zoomIdentity.translate(camera.x, camera.y).scale(camera.k) : d3.zoomIdentity.translate(width / 2 - node.x, height / 2 - node.y);
-          d3.select(svgRef.current).transition().duration(250).call(zoomRef.current.transform, transform);
-        });
-      });
+      nativeCanvasRef.current?.reveal(path, camera);
     }
     function goToFile(path) {
       if (codeFileNavOpensCard(graphConfig.vizType)) openCodeFile(path);
@@ -58354,39 +59818,16 @@ This problem is likely caused by another plugin injecting
       }
     }
     function navigateHistory(delta) {
-      const next = reduceInvestigation(investigation, { type: "history", delta, camera: snapshotZoomTransform(codeZoomTransformRef.current) }, data);
+      const next = reduceInvestigation(investigation, { type: "history", delta, camera: snapshotZoomTransform(nativeCanvasRef.current?.snapshotScene().camera) }, data);
       if (next === investigation) return;
-      pendingFlyToRef.current = null;
-      dispatchInvestigation({ type: "history", delta, camera: snapshotZoomTransform(codeZoomTransformRef.current) });
+      nativeCanvasRef.current?.focus(null);
+      dispatchInvestigation({ type: "history", delta, camera: snapshotZoomTransform(nativeCanvasRef.current?.snapshotScene().camera) });
       if (next.view === "graph" || next.view === "code") revealGraphFile(next.selectedPath, next.navigation.entries[next.navigation.index].camera);
-    }
-    function updateGraphHighlight(path, blast) {
-      if (!nodesRef.current || !linksRef.current) return;
-      var affectedSet = new Set(blast ? blast.affected : []);
-      var dependencySet = new Set(blast ? blast.dependencies : []);
-      nodesRef.current.selectAll(".nc,.nb").transition().duration(200).attr("opacity", function(n) {
-        if (n.id === path) return 1;
-        if (affectedSet.has(n.id) || dependencySet.has(n.id)) return 1;
-        return path ? 0.15 : 1;
-      }).attr("fill", function(n) {
-        var fill = n.id === path ? "#ff5f5f" : affectedSet.has(n.id) ? "#ff9f43" : dependencySet.has(n.id) ? "#4d9fff" : getNodeColor(n);
-        return d3.select(this).classed("nb") ? graphColorBlockFill(fill) : fill;
-      });
-      linksRef.current.transition().duration(200).attr("stroke-opacity", function(l) {
-        var src = l.source.id || l.source;
-        var tgt = l.target.id || l.target;
-        if (src === path || tgt === path) return 0.8;
-        return path ? 0.05 : 0.4;
-      }).attr("stroke", function(l) {
-        var src = l.source.id || l.source;
-        var tgt = l.target.id || l.target;
-        if (src === path || tgt === path) return "var(--acc)";
-        return theme === "light" ? "#ccc" : "#333";
-      });
     }
     function getNodeColor(d) {
       if (colorMode === "folder") return colorMap[d.folder] || COLORS[0];
       if (colorMode === "layer") return LAYER_COLORS[d.layer] || LAYER_COLORS["utils"];
+      if (colorMode === "findings") return colorMap[d.id] || FINDING_COLORS.none;
       if (colorMode === "churn") return colorMap[d.id] || "#22c55e";
       return COLORS[0];
     }
@@ -58489,6 +59930,7 @@ This problem is likely caused by another plugin injecting
         }, 100);
       }
     }, [filePreview]);
+    const findingsByFile = useMemo(() => indexSourceFindings(data), [data]);
     var colorMap = useMemo(function() {
       if (!data) return {};
       var m = {};
@@ -58499,6 +59941,9 @@ This problem is likely caused by another plugin injecting
         m["root"] = COLORS[0];
       } else if (colorMode === "layer") data.files.forEach(function(f) {
         m[f.path] = LAYER_COLORS[f.layer] || COLORS[0];
+      });
+      else if (colorMode === "findings") data.files.forEach((file) => {
+        m[file.path] = sourceFindingColor(findingsByFile.get(file.path));
       });
       else if (colorMode === "churn") {
         var maxC = Math.max.apply(null, data.files.map(function(f) {
@@ -58511,21 +59956,6 @@ This problem is likely caused by another plugin injecting
       }
       return m;
     }, [data, colorMode]);
-    var graphRebuildKey = useMemo(function() {
-      return [
-        currentHydrationId,
-        graphStructureKey(data, folderFilter),
-        colorMode,
-        theme,
-        graphConfig.vizType,
-        graphConfig.viewMode,
-        graphConfig.spacing,
-        graphConfig.linkDist,
-        graphConfig.showLabels,
-        graphConfig.curvedLinks,
-        graphConfig.vizType === "code" ? [selected && selected.path, openedCodePaths.join("|")].join(":") : ""
-      ].join("\0");
-    }, [currentHydrationId, data, folderFilter, colorMode, theme, graphConfig, selected && selected.path, openedCodePaths]);
     var codeViewFiles = useMemo(function() {
       if (!data) return [];
       return filesForOpenedCodePaths(openedCodePaths, data, folderFilter);
@@ -58539,11 +59969,10 @@ This problem is likely caused by another plugin injecting
       dispatchInvestigation({ type: "reset", view: graphConfig.vizType });
       setSelectedArchitectureBlock(null);
       setFileQuery("");
-      pendingSourceFocusRef.current = null;
-      codeCardPlacementRef.current = /* @__PURE__ */ Object.create(null);
+      setRestoredNativeScene(null);
       codeSourceInFlightRef.current = /* @__PURE__ */ Object.create(null);
       setCodeSourceFailed(/* @__PURE__ */ Object.create(null));
-      pendingFlyToRef.current = null;
+      nativeCanvasRef.current?.focus(null);
     }, [currentHydrationId]);
     useEffect(function() {
       if (!data) {
@@ -58569,9 +59998,7 @@ This problem is likely caused by another plugin injecting
       if (!restored) return;
       workspaceRestoreRef.current = ["graph", "code"].includes(restored.view) ? restored : null;
       setSelectedArchitectureBlock(restored.architectureBlockId);
-      codeCardPlacementRef.current = restored.placements;
-      codeCardUserSizeRef.current = restored.sizes;
-      codeCardUserPinnedRef.current = new Set(restored.pinned);
+      setRestoredNativeScene(restored);
       dispatchInvestigation({ type: "restore", workspace: restored });
     }, [currentHydrationId]);
     useEffect(function() {
@@ -58587,10 +60014,7 @@ This problem is likely caused by another plugin injecting
             view: graphConfig.vizType,
             architectureBlockId: selectedArchitectureBlock,
             navigation,
-            placements: codeCardPlacementRef.current,
-            sizes: codeCardUserSizeRef.current,
-            pinned: Array.from(codeCardUserPinnedRef.current),
-            camera: snapshotZoomTransform(codeZoomTransformRef.current)
+            ...nativeCanvasRef.current?.snapshotScene()
           }));
         } catch (e) {
         }
@@ -58603,354 +60027,13 @@ This problem is likely caused by another plugin injecting
       };
     }, [currentHydrationId, folderFilter, selected && selected.path, openedCodePaths, graphConfig.vizType, selectedArchitectureBlock, navigation]);
     useEffect(function() {
-      var el = codeCanvasRef.current;
-      if (!el || graphConfig.vizType !== "code") return;
-      function onWheel(e) {
-        if (!zoomRef.current || !svgRef.current) return;
-        if (codeViewWheelUsesNativeScroll(e, e.target)) return;
-        var action = codeViewWheelAction(e);
-        e.preventDefault();
-        var svg = d3.select(svgRef.current);
-        if (action === "zoom") {
-          var rect = svgRef.current.getBoundingClientRect();
-          var factor = e.deltaY < 0 ? 1.08 : 1 / 1.08;
-          zoomRef.current.scaleBy(svg, factor, [e.clientX - rect.left, e.clientY - rect.top]);
-          return;
-        }
-        var pan = codeViewWheelPanDelta(e.deltaX, e.deltaY, snapshotZoomTransform(codeZoomTransformRef.current).k);
-        zoomRef.current.translateBy(svg, pan.x, pan.y);
-      }
-      el.addEventListener("wheel", onWheel, { passive: false });
-      return function() {
-        el.removeEventListener("wheel", onWheel);
-      };
-    }, [graphConfig.vizType]);
-    useLayoutEffect(function() {
-      if (graphConfig.vizType !== "code" || !selected || !selected.path) {
-        setCodePillScroll(0);
-        return;
-      }
-      setCodePillScroll(readCodeCardBodyScroll(codeCardsLayerRef.current, selected.path));
-    }, [graphConfig.vizType, selected && selected.path]);
-    var hadAnalysisRef = useRef(false);
-    useEffect(function() {
       if (data && !hadAnalysisRef.current) setLeftTab("overview");
       hadAnalysisRef.current = !!data;
     }, [data]);
-    selectedPathRef.current = selected && selected.path;
-    codeCardPathsRef.current = new Set(codeViewFiles.map(function(file) {
-      return file.path;
-    }));
-    var filesByPath = /* @__PURE__ */ Object.create(null);
-    if (data && data.files) data.files.forEach(function(file) {
-      filesByPath[file.path] = file;
-    });
-    codeFilesByPathRef.current = filesByPath;
-    function currentCodeCardPrefs() {
-      return normalizeCodeCardPrefs({ expand: codeViewExpand, wrap: codeViewWrap });
-    }
-    function currentCodeCardSizes() {
-      var prefs = currentCodeCardPrefs();
-      var overrides = codeCardUserSizeRef.current;
-      var sizes = /* @__PURE__ */ Object.create(null);
-      codeViewFiles.forEach(function(file) {
-        var rows = codeCardDiffRows(file, cliLiveByPath[file.path]);
-        sizes[file.path] = applyCodeCardUserSize(codeCardSizeForDiff(file, prefs, rows), overrides[file.path]);
-      });
-      codeCardSizesRef.current = sizes;
-      return sizes;
-    }
-    function syncCodeCards() {
-      applyCodeCardLayout(codeCardsLayerRef.current, graphNodesByIdRef.current, codeZoomTransformRef.current, codeCardSizesRef.current, codeCardStackRef.current);
-    }
-    function redrawMovedGraphNodes(movedIds) {
-      if (!nodesRef.current || !movedIds || !movedIds.length) return;
-      var seen = /* @__PURE__ */ Object.create(null);
-      movedIds.forEach(function(node) {
-        if (node && node.id) seen[node.id] = true;
-      });
-      nodesRef.current.filter(function(d) {
-        return d && seen[d.id];
-      }).attr("transform", function(d) {
-        return "translate(" + d.x + "," + d.y + ")";
-      });
-    }
-    function graphLinkPath(d) {
-      if (graphConfig.vizType === "code") {
-        var cardPath = codeCardLinkPath(d, codeCardSizesRef.current, codeFilesByPathRef.current, codeCardPathsRef.current);
-        if (cardPath) return cardPath;
-      }
-      if (graphConfig.curvedLinks) {
-        var dx = d.target.x - d.source.x, dy = d.target.y - d.source.y, dr = Math.sqrt(dx * dx + dy * dy);
-        return "M" + d.source.x + "," + d.source.y + "A" + dr + "," + dr + " 0 0,1 " + d.target.x + "," + d.target.y;
-      }
-      return "M" + d.source.x + "," + d.source.y + "L" + d.target.x + "," + d.target.y;
-    }
-    function redrawActiveForceLinkParticles() {
-      if (!linkParticlesRef.current) return;
-      if (!forceLinkParticlesNeedTickUpdate(selectedPathRef.current, { reducedMotion: prefersReducedMotion(), vizType: graphConfig.vizType })) return;
-      linkParticlesRef.current.filter(".is-on").attr("d", graphLinkPath);
-    }
-    function redrawGraphLinksAndNodes() {
-      if (nodesRef.current) nodesRef.current.attr("transform", function(d) {
-        return "translate(" + d.x + "," + d.y + ")";
-      });
-      if (linksRef.current) linksRef.current.attr("d", graphLinkPath);
-      redrawActiveForceLinkParticles();
-    }
-    function applyForceLinkVisuals() {
-      if (!vizUsesForceLinkParticles(graphConfig.vizType)) return;
-      var selectedPath = selectedPathRef.current || null;
-      var opts = { theme, thickness: lineThicknessRef.current, reducedMotion: prefersReducedMotion(), vizType: graphConfig.vizType };
-      if (linksRef.current) {
-        linksRef.current.each(function(d) {
-          var v = forceLinkVisual(d, selectedPath, opts);
-          d3.select(this).attr("stroke", v.stroke).attr("stroke-opacity", v.opacity).attr("stroke-width", v.width).classed("force-link-active", v.active).classed("force-link-quiet", v.role === "quiet");
-        });
-      }
-      if (linkParticlesRef.current) {
-        linkParticlesRef.current.each(function(d) {
-          var v = forceLinkVisual(d, selectedPath, opts);
-          d3.select(this).attr("d", graphLinkPath(d)).attr("stroke", v.particleStroke || v.stroke).attr("stroke-width", v.particleWidth).attr("stroke-opacity", v.particle ? 0.95 : 0).attr("stroke-dasharray", v.particle ? v.particleDash : null).classed("is-on", !!v.particle).style("display", v.particle ? null : "none");
-        });
-      }
-    }
-    applyForceLinkVisualsRef.current = applyForceLinkVisuals;
     function persistLineThickness(value) {
       var next = persistUiPrefs({ lineThickness: value }).lineThickness;
       setLineThickness(next);
     }
-    function applyLinkThickness() {
-      if (vizUsesForceLinkParticles(graphConfig.vizType)) applyForceLinkVisuals();
-      else if (linksRef.current) linksRef.current.attr("stroke-width", function(d) {
-        return graphLinkStrokeWidth(d.count, lineThicknessRef.current);
-      });
-    }
-    function refreshMinimap() {
-      var canvas = minimapCanvasRef.current;
-      if (!canvas || !vizHasCanvasMinimap(graphConfig.vizType)) return;
-      var svg = svgRef.current;
-      if (!svg) {
-        minimapModelRef.current = null;
-        clearCanvasMinimap(canvas);
-        return;
-      }
-      var mapW = canvas.clientWidth || 176;
-      var mapH = canvas.clientHeight || 118;
-      var viewW = svg.clientWidth || 800;
-      var viewH = svg.clientHeight || 600;
-      var nodes = simRef.current ? simRef.current.nodes() : [];
-      var overlay = minimapCardInputs(graphConfig.vizType, codeCardSizesRef.current, codeCardPathsRef.current);
-      var content = collectMinimapContent(nodes, overlay.sizesByPath, overlay.cardPaths, getNodeColor);
-      if (!content.world || !content.world.width) {
-        minimapModelRef.current = null;
-        clearCanvasMinimap(canvas);
-        return;
-      }
-      var transform = snapshotZoomTransform(codeZoomTransformRef.current);
-      var viewport = viewportWorldRect(transform, viewW, viewH);
-      var fit = minimapFitRect(content.world, mapW, mapH, 8);
-      var model = {
-        mapW,
-        mapH,
-        viewW,
-        viewH,
-        transform,
-        world: content.world,
-        fit,
-        viewport,
-        marks: content.marks,
-        hulls: content.hulls,
-        theme: readMinimapTheme(minimapHostRef.current || canvas)
-      };
-      minimapModelRef.current = model;
-      drawCanvasMinimap(canvas, model);
-    }
-    function scheduleMinimapDraw() {
-      if (minimapRafRef.current) return;
-      minimapRafRef.current = requestAnimationFrame(function() {
-        minimapRafRef.current = 0;
-        refreshMinimap();
-      });
-    }
-    drawMinimapRef.current = scheduleMinimapDraw;
-    function applyMinimapFocus(mx, my) {
-      var model = minimapModelRef.current;
-      if (!model || !model.fit || !zoomRef.current || !svgRef.current) return;
-      var next = zoomTransformFromMinimapPoint(mx, my, model.world, model.fit, codeZoomTransformRef.current, model.viewW, model.viewH);
-      d3.select(svgRef.current).call(zoomRef.current.transform, d3.zoomIdentity.translate(next.x, next.y).scale(next.k));
-    }
-    function handleMinimapPointerDown(e) {
-      if (e.button !== void 0 && e.button !== 0) return;
-      e.preventDefault();
-      e.stopPropagation();
-      var canvas = minimapCanvasRef.current;
-      if (!canvas) return;
-      var xy = minimapPointerXY(e.clientX, e.clientY, canvas.getBoundingClientRect());
-      minimapDragRef.current = { pointerId: e.pointerId };
-      if (e.currentTarget && e.currentTarget.setPointerCapture) {
-        try {
-          e.currentTarget.setPointerCapture(e.pointerId);
-        } catch (err) {
-        }
-      }
-      applyMinimapFocus(xy.x, xy.y);
-    }
-    function handleMinimapPointerMove(e) {
-      if (!minimapDragRef.current) return;
-      e.preventDefault();
-      var canvas = minimapCanvasRef.current;
-      if (!canvas) return;
-      var xy = minimapPointerXY(e.clientX, e.clientY, canvas.getBoundingClientRect());
-      applyMinimapFocus(xy.x, xy.y);
-    }
-    function handleMinimapPointerUp(e) {
-      if (e && e.currentTarget && e.currentTarget.releasePointerCapture && minimapDragRef.current) {
-        try {
-          e.currentTarget.releasePointerCapture(minimapDragRef.current.pointerId);
-        } catch (err) {
-        }
-      }
-      minimapDragRef.current = null;
-    }
-    function handleMinimapKeyDown(e) {
-      if (!e || e.altKey || e.ctrlKey || e.metaKey) return;
-      var model = minimapModelRef.current;
-      if (!model || !zoomRef.current || !svgRef.current) return;
-      var transform = codeZoomTransformRef.current;
-      var next = null;
-      var frac = e.shiftKey ? 0.5 : 0.25;
-      if (e.key === "ArrowLeft") next = panTransformByViewportFraction(transform, -frac, 0, model.viewW, model.viewH);
-      else if (e.key === "ArrowRight") next = panTransformByViewportFraction(transform, frac, 0, model.viewW, model.viewH);
-      else if (e.key === "ArrowUp") next = panTransformByViewportFraction(transform, 0, -frac, model.viewW, model.viewH);
-      else if (e.key === "ArrowDown") next = panTransformByViewportFraction(transform, 0, frac, model.viewW, model.viewH);
-      else if (e.key === "Home") next = panTransformToWorldMidpoint(transform, model.world, model.viewW, model.viewH);
-      else return;
-      e.preventDefault();
-      e.stopPropagation();
-      d3.select(svgRef.current).call(zoomRef.current.transform, d3.zoomIdentity.translate(next.x, next.y).scale(next.k));
-    }
-    function flyToOpenedCodeCard(place) {
-      if (!svgRef.current || !zoomRef.current || !place || !isFinite(place.x) || !isFinite(place.y)) return;
-      var w = svgRef.current.clientWidth || 800;
-      var h = svgRef.current.clientHeight || 600;
-      var t = snapshotZoomTransform(codeZoomTransformRef.current);
-      t.k = Math.min(1, Math.max(0.8, t.k));
-      var next = d3.zoomIdentity.translate(w / 2 - place.x * t.k, h / 2 - place.y * t.k).scale(t.k);
-      d3.select(svgRef.current).transition().duration(260).call(zoomRef.current.transform, next);
-    }
-    function applyOpenedCardPlacements(opts) {
-      opts = opts || {};
-      var sim = simRef.current;
-      if (!sim || graphConfig.vizType !== "code") return;
-      var sizes = currentCodeCardSizes();
-      var placements = codeCardPlacementRef.current || /* @__PURE__ */ Object.create(null);
-      var centers = codeFolderCentersRef.current || /* @__PURE__ */ Object.create(null);
-      var placeOpts = { pinnedPaths: codeCardUserPinnedRef.current, centers, gapY: 64 };
-      codeViewFiles.forEach(function(file) {
-        if (codeCardUserPinnedRef.current.has(file.path) && placements[file.path]) {
-          var live = graphNodesByIdRef.current[file.path];
-          var size = sizes[file.path] || applyCodeCardUserSize(codeCardSize(file, currentCodeCardPrefs()), codeCardUserSizeRef.current[file.path]);
-          if (live && isFinite(live.fx) && isFinite(live.fy)) {
-            placements[file.path] = {
-              left: live.fx - size.width / 2,
-              top: live.fy - size.height / 2,
-              x: live.fx,
-              y: live.fy,
-              width: size.width,
-              height: size.height,
-              folder: file.folder || placements[file.path].folder || "root"
-            };
-            return;
-          }
-        }
-        placements = appendCodeCardPlacement(placements, file, sizes[file.path] || applyCodeCardUserSize(codeCardSize(file, currentCodeCardPrefs()), codeCardUserSizeRef.current[file.path]), placeOpts);
-      });
-      var keep = codeCardPlacementKeepSet(openedCodePaths, codeViewFiles);
-      var departed = pruneCodeCardPlacements(placements, keep);
-      placements = reflowUnpinnedCodeCards(placements, codeCardUserPinnedRef.current, placeOpts);
-      codeCardPlacementRef.current = placements;
-      sim.nodes().forEach(function(node) {
-        var pos = placements[node.id];
-        if (!pos) {
-          if (departed[node.id] && !codeCardUserPinnedRef.current.has(node.id)) {
-            node.fx = null;
-            node.fy = null;
-          }
-          return;
-        }
-        if (codeCardUserPinnedRef.current.has(node.id) && isFinite(node.fx) && isFinite(node.fy)) {
-          node.x = node.fx;
-          node.y = node.fy;
-          return;
-        }
-        node.fx = pos.x;
-        node.fy = pos.y;
-        node.x = pos.x;
-        node.y = pos.y;
-      });
-      var flyPath = pendingFlyToRef.current;
-      if (flyPath && codeViewCameraReadyRef.current && !opts.skipFly) {
-        requestAnimationFrame(function() {
-          requestAnimationFrame(function() {
-            if (pendingFlyToRef.current !== flyPath) return;
-            var current = codeCardPlacementRef.current[flyPath];
-            if (current) flyToOpenedCodeCard(current);
-            pendingFlyToRef.current = null;
-          });
-        });
-      }
-    }
-    function placeRemainingCodeNodes() {
-      var sim = simRef.current;
-      if (!sim) return;
-      parkLeftoverCodeNodes(sim.nodes(), codeCardPathsRef.current, codeFolderCentersRef.current);
-      settleCodeViewAfterDrag(sim.nodes(), codeCardPathsRef.current, codeCardSizesRef.current, null, {
-        boxesByPath: readCodeCardWorldBoxes(codeCardsLayerRef.current)
-      });
-      refreshCodeCardForces();
-      redrawGraphLinksAndNodes();
-    }
-    function refreshCodeCardForces() {
-      var sim = simRef.current;
-      if (!sim) return;
-      var collide = sim.force("collision");
-      if (collide && typeof collide.radius === "function") {
-        collide.radius(function(d) {
-          return liveCodeCollideRadius(d, codeCardPathsRef.current.has(d.id) ? codeCardSizesRef.current[d.id] : null);
-        });
-      }
-      var linkForce = sim.force("link");
-      if (linkForce && typeof linkForce.distance === "function") {
-        linkForce.distance(function(d) {
-          var src = typeof d.source === "object" ? d.source.id : d.source;
-          var tgt = typeof d.target === "object" ? d.target.id : d.target;
-          var extra = codeCardPathsRef.current.has(src) || codeCardPathsRef.current.has(tgt) ? 240 : 0;
-          return (graphConfig.linkDist || 70) + extra;
-        });
-      }
-      if (nodesRef.current) {
-        var zoomK = (codeZoomTransformRef.current || {}).k;
-        var markScale = readableLabelScale(zoomK);
-        var hideChrome = zoomShowsColorBlocks(zoomK);
-        nodesRef.current.classed("has-code-card", function(d) {
-          return nodeReplacedByCard(d.id, codeCardPathsRef.current);
-        });
-        nodesRef.current.classed("code-faded", false);
-        nodesRef.current.attr("display", function(d) {
-          return nodeReplacedByCard(d.id, codeCardPathsRef.current) ? "none" : null;
-        });
-        nodesRef.current.selectAll("circle.nc").attr("transform", function(d) {
-          return nodeReplacedByCard(d.id, codeCardPathsRef.current) || hideChrome ? "" : "scale(" + markScale + ")";
-        });
-        nodesRef.current.selectAll("text.node-label").attr("transform", function(d) {
-          return nodeReplacedByCard(d.id, codeCardPathsRef.current) || hideChrome ? "" : "scale(" + markScale + ")";
-        });
-      }
-    }
-    var codeViewSymbols = useMemo(function() {
-      return collectCrossFileSymbols(codeViewFiles, data ? data.connections : []);
-    }, [codeViewFiles, data]);
     useEffect(function() {
       var missing = filesNeedingSource(codeViewFiles);
       if (!missing.length || !canReadLiveFileSource()) return;
@@ -58981,517 +60064,6 @@ This problem is likely caused by another plugin injecting
         });
       });
     }, [codeViewFiles, localSourceKind, cliStatus, repoInfo, localDirHandle, codeSourceFailed]);
-    useEffect(function() {
-      if (!data || !svgRef.current) return;
-      var svg = d3.select(svgRef.current);
-      svg.selectAll("*").remove();
-      try {
-        let getR = function(d) {
-          return Math.max(8, Math.min(24, 5 + d.fnCount * 0.8));
-        }, getC = function(d) {
-          if (colorMode === "folder") return colorMap[d.folder] || COLORS[0];
-          if (colorMode === "layer") return LAYER_COLORS[d.layer] || LAYER_COLORS["utils"];
-          if (colorMode === "churn") return colorMap[d.id] || "#22c55e";
-          return COLORS[0];
-        }, collideR = function(d) {
-          return liveCodeCollideRadius(d, keepReadable && codeCardPathsRef.current.has(d.id) ? codeCardSizesRef.current[d.id] : null);
-        }, applyCanvasColorBlocks = function(k) {
-          var on = zoomShowsColorBlocks(k);
-          var s = on ? graphColorBlockScale(k) : 1;
-          if (svgRef.current && svgRef.current.classList) {
-            if (on) svgRef.current.classList.add("color-blocks");
-            else svgRef.current.classList.remove("color-blocks");
-          }
-          if (nodesRef.current) {
-            nodesRef.current.selectAll("rect.nb").attr("display", on ? null : "none").attr("transform", on ? "scale(" + s + ")" : null);
-          }
-        }, applyReadableLabels = function(k) {
-          applyCanvasColorBlocks(k);
-          if (!keepReadable) return;
-          var s = readableLabelScale(k);
-          var blocks = zoomShowsColorBlocks(k);
-          nodeLayer.selectAll("g").each(function(d) {
-            var hidden = nodeReplacedByCard(d && d.id, codeCardPathsRef.current);
-            var sel = d3.select(this);
-            sel.classed("has-code-card", hidden);
-            sel.classed("code-faded", false);
-            sel.attr("display", hidden ? "none" : null);
-            if (hidden) return;
-            if (blocks) {
-              sel.select("circle.nc").attr("transform", null);
-              sel.select("text.node-label").attr("transform", null);
-              return;
-            }
-            sel.select("circle.nc").attr("transform", "scale(" + s + ")");
-            sel.select("text.node-label").attr("transform", "scale(" + s + ")");
-          });
-          hullLayer.selectAll("text.hull-label").attr("font-size", 11 * s + "px");
-        }, liveNodesByFolder = function() {
-          var live = simRef.current && simRef.current.nodes() || nodes;
-          var grouped = /* @__PURE__ */ Object.create(null);
-          (live || []).forEach(function(n) {
-            if (!n) return;
-            var folder = n.folder || "root";
-            if (!grouped[folder]) grouped[folder] = [];
-            grouped[folder].push(n);
-          });
-          return grouped;
-        }, updateHulls = function() {
-          hullLayer.selectAll("*").remove();
-          var grouped = liveNodesByFolder();
-          var boxesByPath = keepReadable ? readCodeCardWorldBoxes(codeCardsLayerRef.current) : null;
-          Object.keys(grouped).forEach(function(f) {
-            var fn = grouped[f];
-            if (!fn || fn.length < 1) return;
-            var cardNodes = keepReadable ? fn.filter(function(n) {
-              return codeCardPathsRef.current.has(n.id);
-            }) : [];
-            var leftover = keepReadable ? fn.filter(function(n) {
-              return !codeCardPathsRef.current.has(n.id);
-            }) : fn;
-            var color = colorMap[f] || COLORS[folders.indexOf(f) % COLORS.length];
-            if (cardNodes.length) {
-              var bounds = codeFolderHullBounds(cardNodes, leftover, codeCardSizesRef.current, 28, boxesByPath);
-              if (bounds) {
-                hullLayer.append("rect").attr("x", bounds.x).attr("y", bounds.y).attr("width", bounds.width).attr("height", bounds.height).attr("rx", 14).attr("fill", color).attr("fill-opacity", 0.06).attr("stroke", color).attr("stroke-width", 2).attr("stroke-opacity", 0.35);
-                hullLayer.append("text").attr("class", "hull-label").attr("x", bounds.x + 12).attr("y", bounds.y + 16).attr("text-anchor", "start").attr("fill", color).attr("font-size", keepReadable ? "12px" : "10px").attr("font-family", "JetBrains Mono").attr("font-weight", "600").attr("opacity", 0.9).text(f || "root");
-              }
-              return;
-            }
-            var pts = [];
-            leftover.forEach(function(n) {
-              var xy = liveGraphNodeXY(n);
-              if (!xy) return;
-              pts.push([xy.x - 30, xy.y - 30], [xy.x + 30, xy.y - 30], [xy.x - 30, xy.y + 30], [xy.x + 30, xy.y + 30]);
-            });
-            if (pts.length < 3) return;
-            var hull = d3.polygonHull(pts);
-            if (hull) {
-              hullLayer.append("path").attr("d", "M" + hull.join("L") + "Z").attr("fill", color).attr("fill-opacity", 0.04).attr("stroke", color).attr("stroke-width", 2).attr("stroke-opacity", 0.25).attr("rx", 8);
-              var cx = d3.mean(leftover, function(n) {
-                var xy = liveGraphNodeXY(n);
-                return xy ? xy.x : null;
-              }), cy = d3.min(leftover, function(n) {
-                var xy = liveGraphNodeXY(n);
-                return xy ? xy.y : null;
-              }) - 38;
-              hullLayer.append("text").attr("class", "hull-label").attr("x", cx).attr("y", cy).attr("text-anchor", "middle").attr("fill", color).attr("font-size", keepReadable ? "11px" : "10px").attr("font-family", "JetBrains Mono").attr("font-weight", "600").attr("opacity", 0.85).text(f || "root");
-            }
-          });
-        };
-        var w = svgRef.current.clientWidth;
-        var h = svgRef.current.clientHeight;
-        var filteredFiles = folderFilter ? data.files.filter(function(f) {
-          return f.folder === folderFilter || f.folder.startsWith(folderFilter + "/");
-        }) : data.files;
-        var fileIds = new Set(filteredFiles.map(function(f) {
-          return f.path;
-        }));
-        var nodes = filteredFiles.map(function(f) {
-          return { id: f.path, name: f.name, folder: f.folder, fnCount: f.functions.length, layer: f.layer, churn: f.churn || 0 };
-        });
-        var linkMap = /* @__PURE__ */ new Map();
-        data.connections.forEach(function(c) {
-          if (!fileIds.has(c.source) || !fileIds.has(c.target)) return;
-          if (c.source === c.target) return;
-          var k = JSON.stringify([c.source, c.target, c.kind || ""]);
-          if (!linkMap.has(k)) linkMap.set(k, { source: c.source, target: c.target, kind: c.kind, count: 0, fn: c.fn || null });
-          linkMap.get(k).count += c.count;
-          if (!linkMap.get(k).fn && c.fn) linkMap.get(k).fn = c.fn;
-        });
-        var links = Array.from(linkMap.values());
-        var folders = [...new Set(nodes.map(function(n) {
-          return n.folder;
-        }))];
-        var cols = Math.max(2, Math.ceil(Math.sqrt(folders.length)));
-        var cw = w / (cols + 1);
-        var ch = h / (Math.ceil(folders.length / cols) + 1);
-        var centers = {};
-        folders.forEach(function(f, i) {
-          centers[f] = { x: (i % cols + 1) * cw, y: (Math.floor(i / cols) + 1) * ch };
-        });
-        var keepReadable = graphConfig.vizType === "code";
-        if (keepReadable) {
-          codeFolderCentersRef.current = graphFolderCenters(folders, w, h, { minCellW: CODE_CARD_WIDTH + 220, minCellH: 360 });
-        }
-        var sceneKey = codeViewSceneKey(data, folderFilter, graphConfig.vizType, currentAnalysisSource());
-        if (sceneKey !== codeViewSceneRef.current) {
-          codeViewSceneRef.current = sceneKey;
-          codeViewCameraReadyRef.current = false;
-        }
-        var workspaceRestore = workspaceRestoreRef.current;
-        var restoringWorkspace = workspaceRestore && workspaceRestore.view === graphConfig.vizType && workspaceRestore.scope === (folderFilter || null);
-        if (restoringWorkspace) {
-          codeZoomTransformRef.current = workspaceRestore.camera;
-          codeViewCameraReadyRef.current = true;
-        }
-        var savedZoom = snapshotZoomTransform(codeZoomTransformRef.current);
-        var prevNodesById = /* @__PURE__ */ Object.create(null);
-        if (simRef.current) {
-          simRef.current.nodes().forEach(function(n) {
-            if (n && n.id) prevNodesById[n.id] = n;
-          });
-        }
-        if (keepReadable && codeViewCameraReadyRef.current) preserveGraphNodeState(nodes, prevNodesById);
-        if (!keepReadable && !restoringWorkspace) {
-          codeZoomTransformRef.current = { k: 1, x: 0, y: 0 };
-          codeViewCameraReadyRef.current = false;
-        }
-        graphNodesByIdRef.current = /* @__PURE__ */ Object.create(null);
-        nodes.forEach(function(n) {
-          graphNodesByIdRef.current[n.id] = n;
-        });
-        var zoom = d3.zoom().extent(function() {
-          return [[0, 0], [svgRef.current.clientWidth, svgRef.current.clientHeight]];
-        }).scaleExtent([keepReadable ? 0.08 : 0.2, 5]).filter(function(event) {
-          if (keepReadable) {
-            if (event.type === "wheel") return false;
-            return !event.button;
-          }
-          return !event.ctrlKey && !event.button;
-        }).on("zoom", function(e) {
-          container.attr("transform", e.transform);
-          codeZoomTransformRef.current = e.transform;
-          applyReadableLabels(e.transform.k);
-          if (keepReadable) syncCodeCards();
-          if (drawMinimapRef.current) drawMinimapRef.current();
-        });
-        svg.call(zoom);
-        zoomRef.current = zoom;
-        var container = svg.append("g");
-        var defs = svg.append("defs");
-        defs.append("marker").attr("id", "arr").attr("viewBox", "0 -5 10 10").attr("refX", 14).attr("markerWidth", 4).attr("markerHeight", 4).attr("orient", "auto").append("path").attr("d", "M0,-4L10,0L0,4").attr("fill", theme === "light" ? "#aaa" : "#444");
-        var hullLayer = container.append("g").attr("data-code-bg", "1").attr("pointer-events", "none");
-        var linkLayer = container.append("g");
-        var particleLayer = keepReadable ? container.append("g").attr("class", "force-link-particles").attr("pointer-events", "none") : null;
-        var nodeLayer = container.append("g");
-        var sim = d3.forceSimulation(nodes);
-        if (graphConfig.viewMode === "force") {
-          sim.force("link", d3.forceLink(links).id(function(d) {
-            return d.id;
-          }).distance(graphConfig.linkDist).strength(0.3)).force("charge", d3.forceManyBody().strength(-graphConfig.spacing).distanceMax(400)).force("collision", d3.forceCollide().radius(collideR)).force("x", d3.forceX(function(d) {
-            return centers[d.folder] ? centers[d.folder].x : w / 2;
-          }).strength(0.15)).force("y", d3.forceY(function(d) {
-            return centers[d.folder] ? centers[d.folder].y : h / 2;
-          }).strength(0.15));
-        } else if (graphConfig.viewMode === "radial") {
-          var r = Math.min(w, h) * 0.35;
-          nodes.forEach(function(n, i) {
-            n.angle = i / nodes.length * 2 * Math.PI;
-            n.targetX = w / 2 + Math.cos(n.angle) * r;
-            n.targetY = h / 2 + Math.sin(n.angle) * r;
-          });
-          sim.force("link", d3.forceLink(links).id(function(d) {
-            return d.id;
-          }).distance(graphConfig.linkDist * 0.5).strength(0.05)).force("charge", d3.forceManyBody().strength(-graphConfig.spacing * 0.3)).force("collision", d3.forceCollide().radius(collideR)).force("x", d3.forceX(function(d) {
-            return d.targetX;
-          }).strength(0.8)).force("y", d3.forceY(function(d) {
-            return d.targetY;
-          }).strength(0.8));
-        } else if (graphConfig.viewMode === "hierarchical") {
-          var layerOrder = { util: 0, model: 1, service: 2, controller: 3, view: 4, test: 5, config: 6, modules: 7, forms: 8, classes: 9 };
-          var layerGroups = {};
-          nodes.forEach(function(n) {
-            var l = n.layer || "util";
-            if (!layerGroups[l]) layerGroups[l] = [];
-            layerGroups[l].push(n);
-          });
-          var sortedLayers = Object.keys(layerGroups).sort(function(a, b) {
-            return (layerOrder[a] || 99) - (layerOrder[b] || 99);
-          });
-          sortedLayers.forEach(function(l, li) {
-            var g = layerGroups[l];
-            var colW = w / (sortedLayers.length + 1);
-            g.forEach(function(n, ni) {
-              n.targetX = (li + 1) * colW;
-              n.targetY = (ni + 1) * h / (g.length + 1);
-            });
-          });
-          sim.force("link", d3.forceLink(links).id(function(d) {
-            return d.id;
-          }).distance(graphConfig.linkDist).strength(0.1)).force("charge", d3.forceManyBody().strength(-graphConfig.spacing * 0.5).distanceMax(200)).force("collision", d3.forceCollide().radius(collideR)).force("x", d3.forceX(function(d) {
-            return d.targetX || w / 2;
-          }).strength(0.9)).force("y", d3.forceY(function(d) {
-            return d.targetY || h / 2;
-          }).strength(0.3));
-        } else if (graphConfig.viewMode === "grid") {
-          var gridCols = Math.ceil(Math.sqrt(nodes.length));
-          var cellW = w / (gridCols + 1);
-          var cellH = h / (Math.ceil(nodes.length / gridCols) + 1);
-          nodes.forEach(function(n, i) {
-            n.targetX = (i % gridCols + 1) * cellW;
-            n.targetY = (Math.floor(i / gridCols) + 1) * cellH;
-          });
-          sim.force("link", d3.forceLink(links).id(function(d) {
-            return d.id;
-          }).distance(graphConfig.linkDist * 1.5).strength(0.02)).force("collision", d3.forceCollide().radius(collideR)).force("x", d3.forceX(function(d) {
-            return d.targetX;
-          }).strength(1)).force("y", d3.forceY(function(d) {
-            return d.targetY;
-          }).strength(1));
-        } else if (graphConfig.viewMode === "metro") {
-          var metro = { lines: [], stations: {} };
-          var roots = nodes.filter(function(n) {
-            return !links.some(function(l) {
-              return (l.target.id || l.target) === n.id;
-            });
-          });
-          if (!roots.length) roots = [nodes[0]];
-          var lineY = 80, lineSpacing = Math.min(120, (h - 160) / Math.max(1, roots.length));
-          roots.forEach(function(root, li) {
-            var visited = /* @__PURE__ */ new Set(), queue = [root.id], line = [], x = 80;
-            while (queue.length) {
-              var id = queue.shift();
-              if (visited.has(id)) continue;
-              visited.add(id);
-              var node2 = nodes.find(function(n) {
-                return n.id === id;
-              });
-              if (node2) {
-                node2.targetX = x;
-                node2.targetY = lineY + li * lineSpacing;
-                node2.metroLine = li;
-                line.push(node2);
-                x += graphConfig.spacing * 0.8;
-              }
-              links.forEach(function(l) {
-                var s = l.source.id || l.source, t = l.target.id || l.target;
-                if (s === id && !visited.has(t)) queue.push(t);
-              });
-            }
-            metro.lines.push(line);
-          });
-          nodes.filter(function(n) {
-            return !n.targetX;
-          }).forEach(function(n, i) {
-            n.targetX = 80 + i * 50;
-            n.targetY = h - 80;
-            n.metroLine = roots.length;
-          });
-          sim.force("link", d3.forceLink(links).id(function(d) {
-            return d.id;
-          }).distance(graphConfig.linkDist).strength(0.05)).force("collision", d3.forceCollide().radius(collideR)).force("x", d3.forceX(function(d) {
-            return d.targetX || w / 2;
-          }).strength(0.95)).force("y", d3.forceY(function(d) {
-            return d.targetY || h / 2;
-          }).strength(0.95));
-        }
-        var isLargeGraph = nodes.length > 300;
-        var alphaDecay = isLargeGraph ? 0.08 : 0.05;
-        var velDecay = isLargeGraph ? 0.7 : 0.6;
-        sim.velocityDecay(velDecay).alphaDecay(alphaDecay);
-        simRef.current = sim;
-        var link = linkLayer.selectAll("path").data(links).join("path").attr("fill", "none").attr("stroke", theme === "light" ? "#ccc" : "#333").attr("stroke-width", function(d) {
-          return graphLinkStrokeWidth(d.count, lineThicknessRef.current);
-        }).attr("stroke-opacity", 0.4).attr("marker-end", "url(#arr)");
-        linksRef.current = link;
-        if (keepReadable && particleLayer) {
-          var particles = particleLayer.selectAll("path").data(links).join("path").attr("fill", "none").attr("class", "force-link-particle").attr("stroke-linecap", "round");
-          linkParticlesRef.current = particles;
-          applyForceLinkVisuals();
-        } else {
-          linkParticlesRef.current = null;
-        }
-        var node = nodeLayer.selectAll("g").data(nodes).join("g").style("cursor", "pointer");
-        nodesRef.current = node;
-        var codeNodeDragPrev = /* @__PURE__ */ Object.create(null);
-        node.call(d3.drag().on("start", function(e, d) {
-          d.fx = d.x;
-          d.fy = d.y;
-          if (keepReadable) {
-            codeNodeDragPrev[d.id] = { x: d.x, y: d.y };
-            return;
-          }
-          if (!e.active) sim.alphaTarget(0.1).restart();
-        }).on("drag", function(e, d) {
-          d.fx = e.x;
-          d.fy = e.y;
-          d.x = e.x;
-          d.y = e.y;
-          if (keepReadable) {
-            var prev = codeNodeDragPrev[d.id] || { x: d.x, y: d.y };
-            var dx = d.x - prev.x, dy = d.y - prev.y;
-            codeNodeDragPrev[d.id] = { x: d.x, y: d.y };
-            var siblings = translateCodeViewSiblings(sim.nodes(), d, dx, dy, codeCardPathsRef.current);
-            if (codeViewDragRefresh("move")) {
-              redrawGraphLinksAndNodes();
-              if (updateHullsRef.current) updateHullsRef.current();
-            } else {
-              redrawMovedGraphNodes([d].concat(siblings));
-            }
-            if (drawMinimapRef.current) drawMinimapRef.current();
-            return;
-          }
-        }).on("end", function(e, d) {
-          if (!keepReadable) {
-            if (!e.active) sim.alphaTarget(0);
-            d.fx = null;
-            d.fy = null;
-            return;
-          }
-          d.fx = d.x;
-          d.fy = d.y;
-          delete codeNodeDragPrev[d.id];
-          if (codeCardPathsRef.current.has(d.id)) codeCardUserPinnedRef.current.add(d.id);
-          if (codeViewDragRefresh("release")) {
-            settleCodeViewAfterDrag(sim.nodes(), codeCardPathsRef.current, codeCardSizesRef.current, d.id, {
-              boxesByPath: readCodeCardWorldBoxes(codeCardsLayerRef.current)
-            });
-            redrawGraphLinksAndNodes();
-            if (updateHullsRef.current) updateHullsRef.current();
-          }
-          if (drawMinimapRef.current) drawMinimapRef.current();
-        }));
-        node.on("click", function(e, d) {
-          e.stopPropagation();
-          if (keepReadable && openCodeFileRef.current) openCodeFileRef.current(d.id);
-          else if (selectFileRef.current) selectFileRef.current(d.id);
-        });
-        node.classed("has-code-card", function(d) {
-          return keepReadable && nodeReplacedByCard(d.id, codeCardPathsRef.current);
-        });
-        node.attr("display", function(d) {
-          return keepReadable && nodeReplacedByCard(d.id, codeCardPathsRef.current) ? "none" : null;
-        });
-        node.on("mouseenter", function(e, d) {
-          if (keepReadable && codeCardPathsRef.current.has(d.id)) return;
-          var r2 = svgRef.current.getBoundingClientRect();
-          setTooltip({ x: e.clientX - r2.left + 10, y: e.clientY - r2.top, title: d.name, content: d.fnCount + " functions\n" + d.layer + " layer\n" + d.churn + " recent commits" });
-        }).on("mouseleave", function() {
-          setTooltip(null);
-        });
-        svg.on("click", function(e) {
-          if (!isCodeCanvasDeselectTarget(e.target, svgRef.current)) return;
-          setSelected(null);
-          setBlastRadius(null);
-          setActiveSymbol(null);
-          selectedPathRef.current = null;
-          if (keepReadable) {
-            applyForceLinkVisuals();
-            return;
-          }
-          link.attr("stroke", theme === "light" ? "#ccc" : "#333").attr("stroke-opacity", 0.4);
-          node.selectAll(".nc").attr("opacity", 1).attr("fill", getC);
-          node.selectAll(".nb").attr("opacity", 1).attr("fill", function(d) {
-            return graphColorBlockFill(getC(d));
-          });
-        });
-        node.append("circle").attr("class", "nc").attr("r", getR).attr("fill", getC).attr("stroke", function(d) {
-          var c = d3.color(getC(d));
-          return c ? c.brighter(0.3) : "#fff";
-        }).attr("stroke-width", 1.5);
-        node.append("rect").attr("class", "nb").attr("x", function(d) {
-          return -graphColorBlockSize(d) / 2;
-        }).attr("y", function(d) {
-          return -graphColorBlockSize(d) / 2;
-        }).attr("width", graphColorBlockSize).attr("height", graphColorBlockSize).attr("rx", 3).attr("fill", function(d) {
-          return graphColorBlockFill(getC(d));
-        }).attr("stroke", function(d) {
-          var c = d3.color(graphColorBlockFill(getC(d)));
-          return c ? c.darker(0.35) : "#000";
-        }).attr("stroke-width", 1).attr("display", "none");
-        if (keepReadable || !isLargeGraph || graphConfig.showLabels) {
-          node.append("text").attr("class", "node-label").attr("text-anchor", "middle").attr("dy", 0).attr("fill", theme === "light" ? "#333" : "#eee").attr("font-size", function(d) {
-            return (keepReadable ? Math.max(9, Math.min(12, getR(d) * 0.7)) : Math.max(6, Math.min(10, getR(d) * 0.6))) + "px";
-          }).attr("font-family", "JetBrains Mono").attr("font-weight", "600").attr("pointer-events", "none").text(function(d) {
-            var n = d.name.replace(/\.[^.]+$/, "");
-            if (keepReadable) return n.length > 18 ? n.slice(0, 17) + "\u2026" : n;
-            var maxLen = Math.max(4, Math.floor(getR(d) / 2));
-            return n.length > maxLen + 1 ? n.slice(0, maxLen) + "\u2026" : n;
-          });
-        }
-        var hullInterval = isLargeGraph ? 5 : 1;
-        var tickCount = 0;
-        sim.on("tick", function() {
-          link.attr("d", graphLinkPath);
-          redrawActiveForceLinkParticles();
-          node.attr("transform", function(d) {
-            return "translate(" + d.x + "," + d.y + ")";
-          });
-          if (keepReadable) {
-            nodes.forEach(function(n) {
-              graphNodesByIdRef.current[n.id] = n;
-            });
-            syncCodeCards();
-          }
-          tickCount++;
-          if (tickCount % hullInterval === 0) updateHulls();
-          if (drawMinimapRef.current) drawMinimapRef.current();
-        });
-        node.selectAll("text").attr("opacity", keepReadable || graphConfig.showLabels ? 1 : 0);
-        applyCanvasColorBlocks(codeZoomTransformRef.current && codeZoomTransformRef.current.k || 1);
-        if (keepReadable) {
-          applyOpenedCardPlacements({ skipFly: true });
-          placeRemainingCodeNodes();
-          syncCodeCards();
-          applyReadableLabels(codeZoomTransformRef.current && codeZoomTransformRef.current.k || 1);
-          updateHulls();
-          if (shouldFitCodeCamera(codeViewCameraReadyRef.current, graphConfig.vizType)) {
-            var fit = computeGraphFitTransform();
-            if (fit) svg.call(zoom.transform, fit);
-            codeViewCameraReadyRef.current = true;
-          } else {
-            svg.call(zoom.transform, d3.zoomIdentity.translate(savedZoom.x, savedZoom.y).scale(savedZoom.k));
-          }
-          sim.alpha(0);
-        }
-        if (restoringWorkspace) {
-          svg.call(zoom.transform, d3.zoomIdentity.translate(savedZoom.x, savedZoom.y).scale(savedZoom.k));
-          workspaceRestoreRef.current = null;
-        }
-        updateHullsRef.current = updateHulls;
-        if (drawMinimapRef.current) drawMinimapRef.current();
-      } catch (e) {
-        console.error("Force graph error:", e);
-        svg.selectAll("*").remove();
-        svg.append("text").attr("x", 20).attr("y", 30).attr("fill", "var(--t3)").text("Graph rendering error: " + e.message);
-      }
-      return function() {
-        if (simRef.current) simRef.current.stop();
-        updateHullsRef.current = null;
-        linkParticlesRef.current = null;
-      };
-    }, [graphRebuildKey]);
-    useLayoutEffect(function() {
-      if (graphConfig.vizType !== "code") {
-        codeCardLayoutKeyRef.current = "";
-        codeViewCameraReadyRef.current = false;
-        return;
-      }
-      var layoutKey = codeViewFiles.map(function(file) {
-        return file.path;
-      }).join("|");
-      if (layoutKey !== codeCardLayoutKeyRef.current) codeCardLayoutKeyRef.current = layoutKey;
-      applyOpenedCardPlacements();
-      placeRemainingCodeNodes();
-      syncCodeCards();
-      if (updateHullsRef.current) updateHullsRef.current();
-      if (drawMinimapRef.current) drawMinimapRef.current();
-    }, [codeViewFiles, graphConfig.vizType, graphConfig.linkDist, codeViewExpand, codeViewWrap, cliLiveByPath]);
-    useEffect(function() {
-      return subscribePrefersReducedMotion(function() {
-        if (applyForceLinkVisualsRef.current) applyForceLinkVisualsRef.current();
-      });
-    }, []);
-    useEffect(function() {
-      applyLinkThickness();
-    }, [lineThickness, selected && selected.path]);
-    useEffect(function() {
-      if (!vizHasCanvasMinimap(graphConfig.vizType)) {
-        minimapModelRef.current = null;
-        if (minimapCanvasRef.current) clearCanvasMinimap(minimapCanvasRef.current);
-        return;
-      }
-      scheduleMinimapDraw();
-    }, [graphConfig.vizType, theme, colorMode, viewportWidth, sidebarWidth, rightPanelWidth]);
-    useEffect(function() {
-      return function() {
-        if (minimapRafRef.current) {
-          cancelAnimationFrame(minimapRafRef.current);
-          minimapRafRef.current = 0;
-        }
-      };
-    }, []);
     useEffect(function() {
       if (!data || !treemapRef.current || graphConfig.vizType !== "treemap") return;
       var container = d3.select(treemapRef.current);
@@ -60206,56 +60778,29 @@ This problem is likely caused by another plugin injecting
     function zoomIn() {
       if (graphConfig.vizType === "graph3d") {
         graph3dViewRef.current?.zoom(0.7);
-      } else if (zoomRef.current && svgRef.current) {
-        d3.select(svgRef.current).transition().duration(200).call(zoomRef.current.scaleBy, 1.4);
+      } else {
+        nativeCanvasRef.current?.zoomBy(1.4);
       }
     }
     function zoomOut() {
       if (graphConfig.vizType === "graph3d") {
         graph3dViewRef.current?.zoom(1.4);
-      } else if (zoomRef.current && svgRef.current) {
-        d3.select(svgRef.current).transition().duration(200).call(zoomRef.current.scaleBy, 0.7);
+      } else {
+        nativeCanvasRef.current?.zoomBy(0.7);
       }
     }
     function resetZoom() {
       if (graphConfig.vizType === "graph3d") {
         graph3dViewRef.current?.fit();
-      } else if (zoomRef.current && svgRef.current) {
-        d3.select(svgRef.current).transition().duration(300).call(zoomRef.current.transform, d3.zoomIdentity);
+      } else {
+        nativeCanvasRef.current?.resetZoom();
       }
-    }
-    function computeGraphFitTransform(paddingSlack) {
-      paddingSlack = paddingSlack == null ? 100 : paddingSlack;
-      if (!zoomRef.current || !svgRef.current || !simRef.current) return null;
-      var nodes = simRef.current.nodes();
-      if (!nodes.length) return null;
-      var w = svgRef.current.clientWidth, h = svgRef.current.clientHeight;
-      if (w < 1 || h < 1) return null;
-      if (graphConfig.vizType === "code" && codeCardPathsRef.current && codeCardPathsRef.current.size) {
-        var cardBounds = codeCardFitBounds(nodes, codeCardSizesRef.current, codeCardPathsRef.current);
-        if (cardBounds) {
-          var cardW = Math.max(1, cardBounds.maxX - cardBounds.minX + 80);
-          var cardH = Math.max(1, cardBounds.maxY - cardBounds.minY + 80);
-          var cardScale = clampCodeViewFitScale(0.88 / Math.max(cardW / w, cardH / h));
-          return d3.zoomIdentity.translate(w / 2 - cardScale * cardBounds.cx, h / 2 - cardScale * cardBounds.cy).scale(cardScale);
-        }
-      }
-      var xs = nodes.map(function(n) {
-        return n.x;
-      }), ys = nodes.map(function(n) {
-        return n.y;
-      });
-      var minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs), minY = Math.min.apply(null, ys), maxY = Math.max.apply(null, ys);
-      var scale = 0.8 / Math.max((maxX - minX + paddingSlack) / w, (maxY - minY + paddingSlack) / h);
-      return d3.zoomIdentity.translate(w / 2 - scale * (minX + maxX) / 2, h / 2 - scale * (minY + maxY) / 2).scale(Math.min(scale, 2));
     }
     function fitView() {
       if (graphConfig.vizType === "graph3d") {
         graph3dViewRef.current?.fit();
       } else {
-        var t = computeGraphFitTransform(100);
-        if (!t) return;
-        d3.select(svgRef.current).transition().duration(400).call(zoomRef.current.transform, t);
+        nativeCanvasRef.current?.fit();
       }
     }
     function getEmbeddedSvgStyle() {
@@ -60274,11 +60819,11 @@ This problem is likely caused by another plugin injecting
         showNotification("Switch to Graph view to export SVG. Code cards are HTML overlays.", "error");
         return;
       }
-      if (!svgRef.current) return;
-      var svgClone = svgRef.current.cloneNode(true);
+      if (!nativeCanvasRef.current?.svgElement) return;
+      var svgClone = nativeCanvasRef.current?.svgElement.cloneNode(true);
       svgClone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-      svgClone.setAttribute("width", svgRef.current.clientWidth);
-      svgClone.setAttribute("height", svgRef.current.clientHeight);
+      svgClone.setAttribute("width", nativeCanvasRef.current?.svgElement.clientWidth);
+      svgClone.setAttribute("height", nativeCanvasRef.current?.svgElement.clientHeight);
       var style = document.createElementNS("http://www.w3.org/2000/svg", "style");
       style.textContent = getEmbeddedSvgStyle();
       svgClone.insertBefore(style, svgClone.firstChild);
@@ -60361,11 +60906,11 @@ This problem is likely caused by another plugin injecting
     }
     function graphSvgToPngDataUrlForPdf(scale, done) {
       scale = scale || 2;
-      if (!svgRef.current) {
+      if (!nativeCanvasRef.current?.svgElement) {
         done("No graph to export");
         return;
       }
-      var svgEl = svgRef.current;
+      var svgEl = nativeCanvasRef.current?.svgElement;
       var w = svgEl.clientWidth, h = svgEl.clientHeight;
       if (w < 1 || h < 1) {
         done("Graph has zero size");
@@ -60407,7 +60952,7 @@ This problem is likely caused by another plugin injecting
       img.src = url;
     }
     function exportPDF() {
-      if (graphConfig.vizType !== "graph" || !svgRef.current) {
+      if (graphConfig.vizType !== "graph" || !nativeCanvasRef.current?.svgElement) {
         showNotification("Switch to Graph view to export PDF.", "error");
         return;
       }
@@ -60415,13 +60960,11 @@ This problem is likely caused by another plugin injecting
         showNotification("PDF library failed to load. Check your connection.", "error");
         return;
       }
-      var svgNode = svgRef.current;
-      var prevTransform = d3.zoomTransform(svgNode);
-      var fitT = computeGraphFitTransform(160);
-      if (fitT) d3.select(svgNode).call(zoomRef.current.transform, fitT);
+      var svgNode = nativeCanvasRef.current?.svgElement;
+      var restoreExportCamera = nativeCanvasRef.current.frameForExport(160);
       requestAnimationFrame(function() {
         graphSvgToPngDataUrlForPdf(2, function(err, dataUrl, w, h) {
-          d3.select(svgNode).call(zoomRef.current.transform, prevTransform);
+          restoreExportCamera();
           if (err) {
             showNotification(err, "error");
             return;
@@ -60859,7 +61402,10 @@ This problem is likely caused by another plugin injecting
         } }, "Layer"),
         React.createElement("button", { type: "button", className: "color-by-btn" + (colorMode === "churn" ? " active" : ""), onClick: function() {
           setColorMode("churn");
-        } }, "Churn")
+        } }, "Churn"),
+        React.createElement("button", { type: "button", className: "color-by-btn" + (colorMode === "findings" ? " active" : ""), onClick: function() {
+          setColorMode("findings");
+        } }, "Findings")
       );
     }
     function renderCodeViewPrefs() {
@@ -60888,20 +61434,6 @@ This problem is likely caused by another plugin injecting
         React.createElement("div", { className: "empty-desc" }, desc)
       );
     }
-    useEffect(function() {
-      var focus = pendingSourceFocusRef.current, layer = codeCardsLayerRef.current;
-      if (graphConfig.vizType !== "code" || !focus || !layer) return;
-      var card = Array.from(layer.querySelectorAll("[data-code-card]")).find(function(el) {
-        return el.dataset.codeCard === focus.path;
-      });
-      var line = card && card.querySelector('[data-line="' + focus.line + '"]'), body = card && card.querySelector(".code-card-body");
-      if (!line || !body) return;
-      var bodyBounds = body.getBoundingClientRect(), lineBounds = line.getBoundingClientRect();
-      var scale = bodyBounds.height / body.offsetHeight;
-      if (!Number.isFinite(scale) || scale <= 0) return;
-      pendingSourceFocusRef.current = null;
-      body.scrollTop += (lineBounds.top - bodyBounds.top) / scale - body.clientTop - body.clientHeight / 2 + line.offsetHeight / 2;
-    }, [sourceFocus, codeViewFiles, cliLiveByPath, graphConfig.vizType]);
     function renderOverviewPane() {
       if (!data) return renderSidebarEmpty("No Repository", "Enter a GitHub URL, open a folder, or load a ZIP archive");
       return React.createElement(
@@ -61027,341 +61559,6 @@ This problem is likely caused by another plugin injecting
             });
           } }, "Show more")
         ) : React.createElement(TreeNode, { node: data.tree, selected, onSelect: goToFile, expanded: expandedPaths, toggle: togglePath, filterFolder: filterByFolder, activeFilter: folderFilter }))
-      );
-    }
-    function beginCodeCardDrag(e, file) {
-      if (e.pointerType === "mouse" && e.button !== 0) return;
-      e.stopPropagation();
-      var node = graphNodesByIdRef.current[file.path];
-      var transform = codeZoomTransformRef.current || { k: 1, x: 0, y: 0 };
-      var k = Number(transform.k);
-      if (!isFinite(k) || k <= 0) k = 1;
-      if (!node) {
-        selectFile(file.path);
-        return;
-      }
-      var startX = e.clientX, startY = e.clientY, originX = node.x, originY = node.y, moved = false, lastX = node.x, lastY = node.y;
-      node.fx = node.x;
-      node.fy = node.y;
-      codeCardStackRef.current = raiseCodeCardStack(codeCardStackRef.current, file.path);
-      applyCodeCardStackOrder(codeCardsLayerRef.current, codeCardStackRef.current);
-      function writePlacement() {
-        var size = codeCardSizesRef.current[file.path] || codeCardSize(file, currentCodeCardPrefs());
-        var prev = codeCardPlacementRef.current[file.path] || {};
-        codeCardPlacementRef.current[file.path] = {
-          left: node.fx - size.width / 2,
-          top: node.fy - size.height / 2,
-          x: node.fx,
-          y: node.fy,
-          width: size.width,
-          height: size.height,
-          folder: file.folder || prev.folder || "root"
-        };
-      }
-      function onMove(ev) {
-        var delta = codeCardDragDelta(ev.clientX, ev.clientY, startX, startY, k, 3);
-        if (delta.moved) {
-          moved = true;
-          codeCardUserPinnedRef.current.add(file.path);
-        }
-        var nextX = originX + delta.x, nextY = originY + delta.y;
-        var dx = nextX - lastX, dy = nextY - lastY;
-        node.x = node.fx = nextX;
-        node.y = node.fy = nextY;
-        lastX = nextX;
-        lastY = nextY;
-        var siblings = translateCodeViewSiblings(simRef.current && simRef.current.nodes() || [], node, dx, dy, codeCardPathsRef.current);
-        writePlacement();
-        if (codeViewDragRefresh("move")) {
-          syncCodeCards();
-          redrawGraphLinksAndNodes();
-          if (updateHullsRef.current) updateHullsRef.current();
-        } else {
-          applyCodeCardDragFrame(codeCardsLayerRef.current, file.path, node, codeCardSizesRef.current[file.path]);
-          redrawMovedGraphNodes([node].concat(siblings));
-        }
-        if (drawMinimapRef.current) drawMinimapRef.current();
-      }
-      function onUp() {
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
-        window.removeEventListener("pointercancel", onUp);
-        var end = noteCodeCardPointerEnd(moved);
-        if (end.ignoreNextClick) {
-          codeCardIgnoreClickRef.current = true;
-          setTimeout(function() {
-            codeCardIgnoreClickRef.current = false;
-          }, 400);
-        }
-        if (moved) {
-          codeCardUserPinnedRef.current.add(file.path);
-          if (codeViewDragRefresh("release")) {
-            settleCodeViewAfterDrag(simRef.current && simRef.current.nodes() || [], codeCardPathsRef.current, codeCardSizesRef.current, file.path, {
-              boxesByPath: readCodeCardWorldBoxes(codeCardsLayerRef.current)
-            });
-          }
-          node.x = node.fx;
-          node.y = node.fy;
-          writePlacement();
-          syncCodeCards();
-          redrawGraphLinksAndNodes();
-          if (updateHullsRef.current) updateHullsRef.current();
-          if (drawMinimapRef.current) drawMinimapRef.current();
-        }
-        if (end.select) selectFile(file.path);
-      }
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onUp);
-      window.addEventListener("pointercancel", onUp);
-    }
-    function beginCodeCardResize(e, file, edge) {
-      if (e.pointerType === "mouse" && e.button !== 0) return;
-      e.stopPropagation();
-      e.preventDefault();
-      var node = graphNodesByIdRef.current[file.path];
-      var size = codeCardSizesRef.current[file.path] || applyCodeCardUserSize(codeCardSizeForDiff(file, currentCodeCardPrefs(), codeCardDiffRows(file, cliLiveByPath[file.path])), codeCardUserSizeRef.current[file.path]);
-      if (!node) return;
-      var transform = codeZoomTransformRef.current || { k: 1, x: 0, y: 0 };
-      var k = Number(transform.k);
-      if (!isFinite(k) || k <= 0) k = 1;
-      var startX = e.clientX, startY = e.clientY, startW = size.width, startH = size.height;
-      var left = node.x - size.width / 2, top = node.y - size.height / 2, moved = false;
-      function writeSize(nextSize) {
-        codeCardUserSizeRef.current[file.path] = { width: nextSize.width, height: nextSize.height };
-        codeCardSizesRef.current[file.path] = applyCodeCardUserSize(codeCardSizeForDiff(file, currentCodeCardPrefs(), codeCardDiffRows(file, cliLiveByPath[file.path])), nextSize);
-        var live = codeCardSizesRef.current[file.path];
-        node.x = node.fx = left + live.width / 2;
-        node.y = node.fy = top + live.height / 2;
-        var prev = codeCardPlacementRef.current[file.path] || {};
-        codeCardPlacementRef.current[file.path] = {
-          left,
-          top,
-          x: node.fx,
-          y: node.fy,
-          width: live.width,
-          height: live.height,
-          folder: file.folder || prev.folder || "root"
-        };
-      }
-      function onMove(ev) {
-        var delta = codeCardResizeDelta(ev.clientX, ev.clientY, startX, startY, startW, startH, k, edge);
-        if (Math.abs(delta.dx) + Math.abs(delta.dy) > 2) {
-          moved = true;
-          codeCardUserPinnedRef.current.add(file.path);
-        }
-        writeSize(clampCodeCardResize(delta.width, delta.height, currentCodeCardPrefs()));
-        if (codeViewDragRefresh("move")) {
-          syncCodeCards();
-          redrawGraphLinksAndNodes();
-          if (updateHullsRef.current) updateHullsRef.current();
-        } else {
-          applyCodeCardDragFrame(codeCardsLayerRef.current, file.path, node, codeCardSizesRef.current[file.path]);
-          applyCodeCardResizeFrame(findCodeCardElement(codeCardsLayerRef.current, file.path), codeCardSizesRef.current[file.path]);
-        }
-        if (drawMinimapRef.current) drawMinimapRef.current();
-      }
-      function onUp() {
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
-        window.removeEventListener("pointercancel", onUp);
-        if (moved) {
-          codeCardUserPinnedRef.current.add(file.path);
-          if (codeViewDragRefresh("release")) {
-            settleCodeViewAfterDrag(simRef.current && simRef.current.nodes() || [], codeCardPathsRef.current, codeCardSizesRef.current, file.path, {
-              boxesByPath: readCodeCardWorldBoxes(codeCardsLayerRef.current)
-            });
-          }
-          syncCodeCards();
-          redrawGraphLinksAndNodes();
-          if (updateHullsRef.current) updateHullsRef.current();
-          if (drawMinimapRef.current) drawMinimapRef.current();
-        }
-      }
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onUp);
-      window.addEventListener("pointercancel", onUp);
-    }
-    function renderCodeFileCard(file, isPrimary) {
-      if (!file) return null;
-      var sourceState = fileSourceDisplayState(file, canReadLiveFileSource(), codeSourceFailed);
-      var body;
-      if (sourceState === "ready") {
-        var diffRows = codeCardDiffRows(file, cliLiveByPath[file.path]);
-        if (diffRows) {
-          var diffSource = diffRows.map(function(row) {
-            return row.text;
-          }).join("\n");
-          var diffLines = asCodeLines(highlightSyntax(diffSource, file.name));
-          body = React.createElement(
-            "pre",
-            { className: "file-preview-code" },
-            diffLines.map(function(lineHtml, i) {
-              var row = diffRows[i] || { type: "same" };
-              return React.createElement(
-                "div",
-                { key: i, "data-line": row.newLine || void 0, className: "file-preview-line" + codeCardDiffClass(row) + (sourceFocus && sourceFocus.path === file.path && sourceFocus.line === row.newLine ? " highlighted" : "") },
-                React.createElement("span", { className: "file-preview-linenum" }, codeCardDiffLineNo(row)),
-                React.createElement("span", { className: "file-preview-text", onClick: data.beam && row.newLine ? function(e) {
-                  beamSourceClick(e, file.path, row.newLine - 1);
-                } : void 0, dangerouslySetInnerHTML: { __html: annotateHtmlWithSymbols(lineHtml || " ", codeViewSymbols, activeSymbol) } })
-              );
-            })
-          );
-        } else {
-          var lines = asCodeLines(highlightSyntax(file.content || "", file.name));
-          body = React.createElement(
-            "pre",
-            { className: "file-preview-code" },
-            lines.map(function(lineHtml, i) {
-              return React.createElement(
-                "div",
-                { key: i, "data-line": i + 1, className: "file-preview-line" + (sourceFocus && sourceFocus.path === file.path && sourceFocus.line === i + 1 ? " highlighted" : "") },
-                React.createElement("span", { className: "file-preview-linenum" }, i + 1),
-                React.createElement("span", { className: "file-preview-text", onClick: data.beam ? function(e) {
-                  beamSourceClick(e, file.path, i);
-                } : void 0, dangerouslySetInnerHTML: { __html: annotateHtmlWithSymbols(lineHtml || " ", codeViewSymbols, activeSymbol) } })
-              );
-            })
-          );
-        }
-      } else if (sourceState === "failed") {
-        body = React.createElement(
-          "div",
-          { className: "code-card-source-status" },
-          React.createElement("div", { className: "empty-desc" }, "Source unavailable"),
-          React.createElement("button", { className: "code-card-retry", type: "button", onClick: function(e) {
-            e.stopPropagation();
-            retryCodeSource(file.path);
-          } }, "Retry")
-        );
-      } else {
-        var message = sourceState === "skipped" ? file.analysisSkipped === "oversized" ? "Skipped during analysis (file too large)" : "File was not fetched during analysis" : sourceState === "loading" ? "Loading source..." : "Reopen this project to read source";
-        body = React.createElement("div", { className: "empty-desc", style: { padding: "12px" } }, message);
-      }
-      var cardPrefs = currentCodeCardPrefs();
-      var cardSize = applyCodeCardUserSize(codeCardSizeForDiff(file, cardPrefs, diffRows), codeCardUserSizeRef.current[file.path]);
-      var pills = isPrimary ? codeCardSymbolPills(file, data ? data.connections : [], cardPrefs, diffRows) : [];
-      var colorBlocks = codeColorBlockSections(file, data ? data.connections : [], cardPrefs, diffRows);
-      var blockLayer = colorBlocks.length ? React.createElement(
-        "div",
-        { className: "code-color-blocks" },
-        colorBlocks.map(function(block) {
-          return React.createElement("div", {
-            key: block.name + ":" + block.startLine,
-            className: "code-color-block " + block.kind,
-            title: block.name,
-            style: { top: block.top + "px", height: block.height + "px", background: block.color },
-            onMouseEnter: function(e) {
-              var host = codeCanvasRef.current;
-              if (!host) return;
-              var r = host.getBoundingClientRect();
-              setTooltip({ x: e.clientX - r.left + 10, y: e.clientY - r.top, title: block.name, content: block.kind + (block.startLine ? " \xB7 L" + block.startLine : "") });
-            },
-            onMouseLeave: function() {
-              setTooltip(null);
-            }
-          });
-        })
-      ) : null;
-      body = React.createElement("div", { className: "code-card-source" }, body, blockLayer);
-      return React.createElement(
-        "div",
-        { key: file.path, "data-code-card": file.path, className: "code-card" + (isPrimary ? " primary" : " linked") + (cardSize.clipped ? " clipped" : "") + (cardSize.expand ? " expand" : "") + (cardSize.wrap ? " wrap" : ""), onClick: function(e) {
-          var taken = consumeCodeCardClick(codeCardIgnoreClickRef.current);
-          codeCardIgnoreClickRef.current = taken.ignoreNextClick;
-          if (taken.ignore) {
-            e.stopPropagation();
-            return;
-          }
-          if (!selected || selected.path !== file.path) selectFile(file.path);
-        } },
-        React.createElement(
-          "div",
-          { className: "code-card-head", onPointerDown: function(e) {
-            beginCodeCardDrag(e, file);
-          } },
-          React.createElement(
-            "div",
-            null,
-            React.createElement("div", { className: "code-card-name" }, file.name),
-            React.createElement("div", { className: "code-card-path" }, file.path)
-          ),
-          React.createElement("span", { className: "badge badge-default" }, isPrimary ? "selected" : "open"),
-          React.createElement("button", { className: "top-btn", type: "button", "aria-label": "Close " + file.name, title: "Close file", onPointerDown: function(e) {
-            e.stopPropagation();
-          }, onClick: function(e) {
-            e.stopPropagation();
-            closeCodeCard(file.path);
-          } }, React.createElement(Icon, { name: "close", size: "s" }))
-        ),
-        React.createElement("div", { className: "code-card-body", onClick: function(e) {
-          var mark = e.target.closest ? e.target.closest("[data-sym]") : null;
-          if (mark) {
-            e.stopPropagation();
-            var name = mark.getAttribute("data-sym");
-            setActiveSymbol(function(prev) {
-              return prev === name ? null : name;
-            });
-          }
-        }, onScroll: isPrimary && cardSize.clipped ? function(e) {
-          setCodePillScroll(e.currentTarget.scrollTop);
-        } : void 0 }, body),
-        pills.map(function(pill) {
-          var top = codeCardPillViewTop(pill.top, isPrimary ? codePillScroll : 0, cardSize.height, CODE_CARD_HEAD_HEIGHT);
-          if (top == null) return null;
-          return React.createElement("button", {
-            key: pill.name + ":" + pill.line,
-            className: "code-line-pill " + pill.kind + (activeSymbol === pill.name ? " active" : ""),
-            style: { top: top + "px" },
-            title: pill.name,
-            onClick: function(e) {
-              e.stopPropagation();
-              setActiveSymbol(function(prev) {
-                return prev === pill.name ? null : pill.name;
-              });
-            }
-          }, pill.name);
-        }),
-        React.createElement("div", { className: "code-card-resize code-card-resize-e", "data-code-resize": "e", onPointerDown: function(e) {
-          beginCodeCardResize(e, file, "e");
-        } }),
-        React.createElement("div", { className: "code-card-resize code-card-resize-s", "data-code-resize": "s", onPointerDown: function(e) {
-          beginCodeCardResize(e, file, "s");
-        } }),
-        React.createElement("div", { className: "code-card-resize code-card-resize-se", "data-code-resize": "se", onPointerDown: function(e) {
-          beginCodeCardResize(e, file, "se");
-        } })
-      );
-    }
-    function renderCodeView() {
-      var primaryPath = selected && selected.path;
-      return React.createElement(
-        "div",
-        { className: "code-canvas", ref: codeCanvasRef },
-        React.createElement("svg", { ref: svgRef }),
-        React.createElement(
-          "div",
-          { className: "code-canvas-cards", ref: codeCardsLayerRef },
-          codeViewFiles.map(function(file) {
-            return renderCodeFileCard(file, file.path === primaryPath);
-          })
-        ),
-        React.createElement(
-          "div",
-          { className: "code-canvas-hud" },
-          React.createElement("div", { className: "code-canvas-hint" }, codeViewFiles.length ? "Open files from nodes or the Files tree. Open cards stay put. Wheel pans \xB7 Ctrl+wheel zooms." : "No files to open as cards."),
-          codeViewSymbols.length > 0 && React.createElement(
-            "div",
-            { className: "code-sym-list" },
-            codeViewSymbols.map(function(sym) {
-              return React.createElement("button", { key: sym.name, className: "code-sym-chip " + sym.kind + (activeSymbol === sym.name ? " active" : ""), title: sym.name, onClick: function() {
-                setActiveSymbol(function(prev) {
-                  return prev === sym.name ? null : sym.name;
-                });
-              } }, sym.name);
-            })
-          )
-        )
       );
     }
     function getArchitectureViewStats(diagram, includeTests, includeBuildOutput) {
@@ -61878,6 +62075,40 @@ This problem is likely caused by another plugin injecting
         React.createElement(
           "div",
           { className: "canvas-area" },
+          React.createElement(NativeCanvas, {
+            key: loadedSourceIdentity?.sourceType + ":" + loadedSourceIdentity?.sourceKey,
+            ref: nativeCanvasRef,
+            data,
+            active: !!data && !loading,
+            projectIdentity: loadedSourceIdentity,
+            currentHydrationId,
+            investigation,
+            graphConfig,
+            colorMap,
+            colorMode,
+            theme,
+            lineThickness,
+            codeViewExpand,
+            codeViewWrap,
+            cliLiveByPath,
+            sourceFocus,
+            codeSourceFailed,
+            canReadSource: canReadLiveFileSource(),
+            activeSymbol,
+            viewport: { width: viewportWidth, sidebarWidth, rightPanelWidth },
+            onSelect: selectFile,
+            onOpen: openCodeFile,
+            onClose: closeCodeCard,
+            onRetrySource: retryCodeSource,
+            onSourceClick: beamSourceClick,
+            onActiveSymbol: setActiveSymbol,
+            onTooltip: setTooltip,
+            getNodeColor,
+            restoredScene: restoredNativeScene,
+            onSceneRestored: () => {
+              workspaceRestoreRef.current = null;
+            }
+          }),
           loading ? React.createElement("div", { className: "loading" }, React.createElement("div", { className: "spinner" }), React.createElement("div", { className: "loading-text" }, "Analyzing..."), React.createElement("div", { className: "loading-progress" }, progress)) : !data ? React.createElement(
             "div",
             { className: "empty-state" },
@@ -61915,8 +62146,6 @@ This problem is likely caused by another plugin injecting
                 React.createElement("option", { value: "architecture" }, "Block Diagram")
               )
             ),
-            graphConfig.vizType === "graph" && React.createElement("svg", { ref: svgRef }),
-            graphConfig.vizType === "code" && renderCodeView(),
             graphConfig.vizType === "graph3d" && React.createElement(Graph3DView, { ref: graph3dViewRef, data, folderFilter, colorMap, colorMode, theme, config: graphConfig, selectedPath: selected && selected.path, blastRadius, lineThickness, onSelect: function(path) {
               if (path) selectFile(path);
               else {
@@ -62023,23 +62252,6 @@ This problem is likely caused by another plugin injecting
                 "Auto-rotate"
               )
             ),
-            vizHasCanvasMinimap(graphConfig.vizType) && React.createElement("div", {
-              className: "canvas-minimap",
-              ref: minimapHostRef,
-              tabIndex: 0,
-              role: "application",
-              "aria-label": "Canvas mini-map. Click or drag to pan. Arrow keys pan the view. Home recenters.",
-              title: "Click or drag to pan. Arrow keys pan the view.",
-              onPointerDown: handleMinimapPointerDown,
-              onPointerMove: handleMinimapPointerMove,
-              onPointerUp: handleMinimapPointerUp,
-              onPointerCancel: handleMinimapPointerUp,
-              onKeyDown: handleMinimapKeyDown,
-              onWheel: function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-              }
-            }, React.createElement("canvas", { ref: minimapCanvasRef })),
             graphConfig.vizType !== "architecture" && React.createElement(
               "div",
               { className: "canvas-info" },
@@ -62075,7 +62287,7 @@ This problem is likely caused by another plugin injecting
                 { className: "legend-header", onClick: function() {
                   setLegendCollapsed(!legendCollapsed);
                 } },
-                React.createElement("div", { className: "legend-title", style: { margin: 0 } }, colorMode === "folder" ? "Folders" : colorMode === "layer" ? "Layers" : "Churn"),
+                React.createElement("div", { className: "legend-title", style: { margin: 0 } }, colorMode === "folder" ? "Folders" : colorMode === "layer" ? "Layers" : colorMode === "findings" ? "Findings" : "Churn"),
                 React.createElement("span", { className: "legend-toggle" }, "\u25BC")
               ),
               React.createElement(
@@ -62091,6 +62303,7 @@ This problem is likely caused by another plugin injecting
                 colorMode === "layer" && Object.entries(LAYER_COLORS).map(function(e) {
                   return React.createElement("div", { key: e[0], className: "legend-item" }, React.createElement("div", { className: "legend-color", style: { background: e[1] } }), e[0] === "modules" ? "Modules" : e[0] === "forms" ? "UserForms" : e[0] === "classes" ? "Classes" : e[0]);
                 }),
+                colorMode === "findings" && [["critical", "Critical / high"], ["warning", "Warning / medium"], ["info", "Low / info"], ["none", "No recorded findings"]].map(([key, label]) => React.createElement("div", { key, className: "legend-item" }, React.createElement("div", { className: "legend-color", style: { background: FINDING_COLORS[key] } }), label)),
                 colorMode === "churn" && React.createElement(React.Fragment, null, React.createElement("div", { className: "legend-item" }, React.createElement("div", { className: "legend-color", style: { background: "#ff5f5f" } }), "High (7+ commits)"), React.createElement("div", { className: "legend-item" }, React.createElement("div", { className: "legend-color", style: { background: "#ff9f43" } }), "Medium (4-6)"), React.createElement("div", { className: "legend-item" }, React.createElement("div", { className: "legend-color", style: { background: "#22c55e" } }), "Low (0-3)"))
               )
             ),
@@ -62166,14 +62379,6 @@ This problem is likely caused by another plugin injecting
                 React.createElement("button", { className: "top-btn", style: { width: "100%", marginBottom: 12 }, onClick: function() {
                   setSelected(null);
                   setBlastRadius(null);
-                  selectedPathRef.current = null;
-                  if (nodesRef.current) {
-                    nodesRef.current.selectAll(".nc,.nb").transition().duration(200).attr("opacity", 1).attr("fill", function(n) {
-                      return d3.select(this).classed("nb") ? graphColorBlockFill(getNodeColor(n)) : getNodeColor(n);
-                    });
-                  }
-                  if (vizUsesForceLinkParticles(graphConfig.vizType)) applyForceLinkVisuals();
-                  else if (linksRef.current) linksRef.current.transition().duration(200).attr("stroke-opacity", 0.4).attr("stroke", theme === "light" ? "#ccc" : "#333");
                 } }, "\u2190 Back to Issues"),
                 React.createElement(
                   "div",
@@ -62192,6 +62397,7 @@ This problem is likely caused by another plugin injecting
                     } }, iconLabel("eye", "View Source"))
                   )
                 ),
+                React.createElement(SourceFindings, { summary: findingsByFile.get(selected.path), onOpen: openSourceLocation }),
                 data.beam && React.createElement(SourceNavigation, { path: selected.path, symbols: beamSymbols, locations: beamLocations, error: beamNavigationError, onOpen: openSourceLocation, onReferences: (path, position) => navigateBeamSymbol("references", path, position) }),
                 React.createElement(SourceProcesses, { index: runtimeIndex, path: selected.path, onSelect: (id) => {
                   runtimeInspection.setFocus(id);

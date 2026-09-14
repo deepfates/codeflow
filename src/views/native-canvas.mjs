@@ -1,5 +1,5 @@
 import {highlightSyntax} from './highlight.mjs';
-import {graphLinkStrokeWidth,prefersReducedMotion,subscribePrefersReducedMotion,forceLinkVisual,forceLinkParticlesNeedTickUpdate,readableLabelScale,zoomShowsColorBlocks,graphColorBlockSize,graphColorBlockScale,graphColorBlockFill} from './graph-style.mjs';
+import {FINDING_COLORS,graphLinkStrokeWidth,prefersReducedMotion,subscribePrefersReducedMotion,forceLinkVisual,forceLinkParticlesNeedTickUpdate,readableLabelScale,zoomShowsColorBlocks,graphColorBlockSize,graphColorBlockScale,graphColorBlockFill} from './graph-style.mjs';
 import {graphStructureKey,codeViewSceneKey} from '../project/identity.mjs';
 import {asCodeLines,fileSourceDisplayState} from '../project/source.mjs';
 import {codeCardDiffClass,codeCardDiffLineNo,codeCardDiffRows} from '../project/changes.mjs';
@@ -115,7 +115,7 @@ function updateGraphHighlight(path,blast){
         nodesRef.current.selectAll('.nc,.nb').transition().duration(200)
             .attr('opacity',function(n){if(n.id===path)return 1;if(affectedSet.has(n.id)||dependencySet.has(n.id))return 1;return path?0.15:1;})
             .attr('fill',function(n){
-                var fill=n.id===path?'#ff5f5f':affectedSet.has(n.id)?'#ff9f43':dependencySet.has(n.id)?'#4d9fff':getNodeColor(n);
+                var fill=colorMode==='findings'?getNodeColor(n):n.id===path?'#ff5f5f':affectedSet.has(n.id)?'#ff9f43':dependencySet.has(n.id)?'#4d9fff':getNodeColor(n);
                 return d3.select(this).classed('nb')?graphColorBlockFill(fill):fill;
             });
         linksRef.current.transition().duration(200)
@@ -477,6 +477,7 @@ useEffect(function(){
         function getC(d){
             if(colorMode==='folder')return colorMap[d.folder]||COLORS[0];
             if(colorMode==='layer')return LAYER_COLORS[d.layer]||LAYER_COLORS['utils'];
+            if(colorMode==='findings')return colorMap[d.id]||FINDING_COLORS.none;
             if(colorMode==='churn')return colorMap[d.id]||'#22c55e';
             return COLORS[0];
         }

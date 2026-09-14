@@ -1,3 +1,5 @@
+import {indexSourceFindings} from '../project/source-findings.mjs';
+import {sourceFindingColor,FINDING_COLORS} from '../views/graph-style.mjs';
 import {createNativeCanvas} from '../views/native-canvas.mjs';
 import {indexRuntime} from '../project/runtime-index.mjs';
 import {createInspectionPanels} from '../views/inspection.mjs';
@@ -43,7 +45,7 @@ const runAnalysisData=createAnalysisClient({analyzeFiles,yieldFn:yieldToBrowser}
 const GitHub=createGitHubAdapter({KJUR:globalThis.KJUR});
 
 const{useState,useReducer,useEffect,useLayoutEffect,useRef,useMemo,useCallback}=React;
-const {SourceNavigation,AnalysisTools,SourceProcesses,RuntimePanel}=createInspectionPanels(React);
+const {SourceNavigation,AnalysisTools,SourceProcesses,SourceFindings,RuntimePanel}=createInspectionPanels(React);
 const useRuntimeInspection=createRuntimeInspectionHook(React);
 const ArchitectureView=createArchitectureView({React,mermaid:globalThis.mermaid});
 const COLORS=['#4d9fff','#a78bfa','#22d3ee','#00ff9d','#ff9f43','#ec4899','#ff5f5f','#84cc16'];
@@ -562,6 +564,7 @@ function App(){
         return localTools.language(method,path,position);
     }
     function openSourceLocation(location){
+        if(!location.range&&Number.isInteger(location.line)&&location.line>0){const position={line:location.line-1,character:0};location={...location,range:{start:position,end:position}};}
         if(!location.path){setBeamNavigationError('Source is outside this project.');return;}
         if(!data.files.some(function(file){return file.path===location.path;})){setBeamNavigationError('Source is excluded or unavailable in this project.');return;}
         setGraphConfig(function(prev){return Object.assign({},prev,{vizType:'code'});});
@@ -1640,6 +1643,7 @@ function App(){
     function getNodeColor(d){
         if(colorMode==='folder')return colorMap[d.folder]||COLORS[0];
         if(colorMode==='layer')return LAYER_COLORS[d.layer]||LAYER_COLORS['utils'];
+        if(colorMode==='findings')return colorMap[d.id]||FINDING_COLORS.none;
         if(colorMode==='churn')return colorMap[d.id]||'#22c55e';
         return COLORS[0];
     }
@@ -1718,11 +1722,13 @@ function App(){
         }
     },[filePreview]);
 
+    const findingsByFile=useMemo(()=>indexSourceFindings(data),[data]);
     var colorMap=useMemo(function(){
         if(!data)return{};
         var m={};
         if(colorMode==='folder'){data.folders.forEach(function(f,i){m[f]=COLORS[i%COLORS.length];});m['root']=COLORS[0];}
         else if(colorMode==='layer')data.files.forEach(function(f){m[f.path]=LAYER_COLORS[f.layer]||COLORS[0];});
+        else if(colorMode==='findings')data.files.forEach(file=>{m[file.path]=sourceFindingColor(findingsByFile.get(file.path));});
         else if(colorMode==='churn'){
             var maxC=Math.max.apply(null,data.files.map(function(f){return f.churn||0;}))||1;
             data.files.forEach(function(f){var r=(f.churn||0)/maxC;m[f.path]=r>0.7?'#ff5f5f':r>0.4?'#ff9f43':'#22c55e';});
@@ -2774,7 +2780,8 @@ function App(){
             React.createElement('span',{className:'color-by-label'},'Color'),
             React.createElement('button',{type:'button',className:'color-by-btn'+(colorMode==='folder'?' active':''),onClick:function(){setColorMode('folder');}},'Folder'),
             React.createElement('button',{type:'button',className:'color-by-btn'+(colorMode==='layer'?' active':''),onClick:function(){setColorMode('layer');}},'Layer'),
-            React.createElement('button',{type:'button',className:'color-by-btn'+(colorMode==='churn'?' active':''),onClick:function(){setColorMode('churn');}},'Churn')
+            React.createElement('button',{type:'button',className:'color-by-btn'+(colorMode==='churn'?' active':''),onClick:function(){setColorMode('churn');}},'Churn'),
+            React.createElement('button',{type:'button',className:'color-by-btn'+(colorMode==='findings'?' active':''),onClick:function(){setColorMode('findings');}},'Findings')
         );
     }
     function renderCodeViewPrefs(){
@@ -3240,13 +3247,14 @@ function App(){
                     renderCodeViewPrefs(),
                     graphConfig.vizType!=='architecture'&&graphConfig.vizType!=='code'&&React.createElement('div',{className:'legend'+(legendCollapsed?' collapsed':'')+((graphConfig.vizType==='graph'||graphConfig.vizType==='graph3d')?' with-color-by':'')},
                         React.createElement('div',{className:'legend-header',onClick:function(){setLegendCollapsed(!legendCollapsed);}},
-                            React.createElement('div',{className:'legend-title',style:{margin:0}},colorMode==='folder'?'Folders':colorMode==='layer'?'Layers':'Churn'),
+                            React.createElement('div',{className:'legend-title',style:{margin:0}},colorMode==='folder'?'Folders':colorMode==='layer'?'Layers':colorMode==='findings'?'Findings':'Churn'),
                             React.createElement('span',{className:'legend-toggle'},'▼')
                         ),
                         React.createElement('div',{className:'legend-content'},
                             colorMode==='folder'&&data.folders.slice(0,12).map(function(f,i){return React.createElement('div',{key:f,className:'legend-item'+(folderFilter===f?' active':''),onClick:function(e){e.stopPropagation();filterByFolder(f);}},React.createElement('div',{className:'legend-color',style:{background:colorMap[f]||COLORS[i%COLORS.length]}}),f||'root');}),
                             colorMode==='folder'&&data.folders.length>12&&React.createElement('div',{style:{fontSize:9,color:'var(--t3)',marginTop:4}},'+',data.folders.length-12,' more'),
                             colorMode==='layer'&&Object.entries(LAYER_COLORS).map(function(e){return React.createElement('div',{key:e[0],className:'legend-item'},React.createElement('div',{className:'legend-color',style:{background:e[1]}}),e[0]=== 'modules' ? 'Modules' : e[0]=== 'forms' ? 'UserForms' : e[0]=== 'classes' ? 'Classes' : e[0]);}),
+                            colorMode==='findings'&&[['critical','Critical / high'],['warning','Warning / medium'],['info','Low / info'],['none','No recorded findings']].map(([key,label])=>React.createElement('div',{key,className:'legend-item'},React.createElement('div',{className:'legend-color',style:{background:FINDING_COLORS[key]}}),label)),
                             colorMode==='churn'&&React.createElement(React.Fragment,null,React.createElement('div',{className:'legend-item'},React.createElement('div',{className:'legend-color',style:{background:'#ff5f5f'}}),'High (7+ commits)'),React.createElement('div',{className:'legend-item'},React.createElement('div',{className:'legend-color',style:{background:'#ff9f43'}}),'Medium (4-6)'),React.createElement('div',{className:'legend-item'},React.createElement('div',{className:'legend-color',style:{background:'#22c55e'}}),'Low (0-3)'))
                         )
                     ),
@@ -3291,6 +3299,7 @@ function App(){
                                     React.createElement('button',{className:'view-file-btn',onClick:function(){openFilePreview(selected.path);}},iconLabel('eye','View Source'))
                                 )
                             ),
+                            React.createElement(SourceFindings,{summary:findingsByFile.get(selected.path),onOpen:openSourceLocation}),
                             data.beam&&React.createElement(SourceNavigation,{path:selected.path,symbols:beamSymbols,locations:beamLocations,error:beamNavigationError,onOpen:openSourceLocation,onReferences:(path,position)=>navigateBeamSymbol('references',path,position)}),
                             React.createElement(SourceProcesses,{index:runtimeIndex,path:selected.path,onSelect:id=>{runtimeInspection.setFocus(id);setRightTab('runtime');}}),
                             blastRadius&&React.createElement('div',{className:'card',style:{marginBottom:12}},

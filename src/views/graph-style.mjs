@@ -227,3 +227,11 @@ export function codeColorBlockKindColor(kind){
     if(kind==='class')return '#e5c07b';
     return '#61afef';
 }
+
+export const FINDING_COLORS={critical:'#ff5f5f',warning:'#ff9f43',info:'#4d9fff',none:'#8b9099'};
+export function sourceFindingColor(summary){
+    if(!summary?.count)return FINDING_COLORS.none;
+    if(['critical','high'].includes(summary.maxSeverity))return FINDING_COLORS.critical;
+    if(['warning','medium'].includes(summary.maxSeverity))return FINDING_COLORS.warning;
+    return FINDING_COLORS.info;
+}
