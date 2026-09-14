@@ -49,7 +49,10 @@ function enrichAnalysisFindings(data,providers){
             var location={path:finding.path||null,range:finding.range||null};
             var key=JSON.stringify([location,finding.message,finding.check||finding.code]);
             if(seen.has(key))return;seen.add(key);
-            issues.push({provider:provider.id,evidence:provider.name,type:finding.severity===1?'critical':'warning',
+            // LSP information and hints are not warnings. Keep the original
+            // diagnostic alongside the application's existing severity groups.
+            var type=({1:'critical',2:'warning',3:'info',4:'info'})[finding.severity]||'warning';
+            issues.push({provider:provider.id,evidence:provider.name,type:type,
                 title:finding.message,desc:provider.name+(finding.check?' · '+finding.check:''),
                 sourceLocation:location,finding:finding,
                 items:[{name:finding.message,file:location.path,line:location.range?location.range.start.line+1:null}]});

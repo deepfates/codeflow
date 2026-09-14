@@ -31,3 +31,13 @@ test('refresh clears only its own findings and retains failed assessment status'
   assert.equal(cleared.issues.length,1);
   assert.equal(cleared.assessments.compiler.status,'ready');
 });
+
+test('informational language diagnostics keep their severity in the shared file assessment',async()=>{
+  const {indexSourceFindings}=await import('../src/project/source-findings.mjs');
+  const native={files:[{path:'lib/info.ex'},{path:'lib/hint.ex'}],issues:[]};
+  const findings=[{path:'lib/info.ex',message:'Information',severity:3},{path:'lib/hint.ex',message:'Hint',severity:4}];
+  const result=enrichAnalysisFindings(native,[{id:'compiler',name:'ElixirLS',status:'ready',findings}]);
+  assert.deepEqual(result.issues.map(issue=>issue.type),['info','info']);
+  assert.deepEqual([...indexSourceFindings(result).values()].map(file=>file.maxSeverity),['info','info']);
+  assert.deepEqual(plain(result).issues.map(issue=>issue.finding.severity),[3,4],'original diagnostic severities remain available in exports');
+});
