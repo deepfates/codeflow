@@ -1,3 +1,4 @@
+import {sankeyCircular} from 'd3-sankey-circular';
 import {scaleStrokeWidth} from './graph-style.mjs';
 import {renderTooltipHtml} from '../browser/html.mjs';
 
@@ -294,23 +295,10 @@ export function createAlternateViews({React,d3,colors:COLORS}){
                 }
             });
             var nodes=folders.map(function(f,i){return{id:i,name:f.split('/').pop()||'root',fullPath:f,fileCount:filteredFiles.filter(function(x){return x.folder===f;}).length};});
-            // Merge bidirectional flows to avoid circular link errors
-            var linkMap={};
-            Object.entries(flowMap).forEach(function(e){
-                var parts=e[0].split('|'),val=e[1];
-                var si=folderIdx[parts[0]],ti=folderIdx[parts[1]];
-                if(si!==undefined&&ti!==undefined&&si!==ti){
-                    var key=Math.min(si,ti)+'|'+Math.max(si,ti);
-                    if(!linkMap[key])linkMap[key]={a:Math.min(si,ti),b:Math.max(si,ti),ab:0,ba:0};
-                    if(si<ti)linkMap[key].ab+=val;else linkMap[key].ba+=val;
-                }
-            });
-            var links=[];
-            Object.values(linkMap).forEach(function(l){
-                var net=l.ab-l.ba;
-                if(net>0)links.push({source:l.a,target:l.b,value:net});
-                else if(net<0)links.push({source:l.b,target:l.a,value:-net});
-                else if(l.ab>0)links.push({source:l.a,target:l.b,value:l.ab});
+            // A Sankey measures directed flow: reciprocal relationships stay separate.
+            var links=Object.entries(flowMap).flatMap(function([key,value]){
+                var [source,target]=key.split('|').map(folder=>folderIdx[folder]);
+                return source!==undefined&&target!==undefined&&source!==target?[{source,target,value}]:[];
             });
             if(links.length===0){
                 g.append('text').attr('x',w/2-20).attr('y',h/2).attr('fill','var(--t3)').attr('font-size','12px').text('No cross-folder dependencies to visualize');
@@ -318,24 +306,25 @@ export function createAlternateViews({React,d3,colors:COLORS}){
             }
             // Folder lanes keep enough space for labels even in a large project.
             var worldHeight=h-60,worldWidth=w-60;
-            var sankey=d3.sankey().nodeId(function(d){return d.id;}).nodeWidth(20).nodePadding(15).extent([[0,0],[worldWidth,worldHeight]]);
+            var sankey=sankeyCircular().nodeId(function(d){return d.id;}).nodeWidth(20).nodePaddingRatio(0.5).extent([[0,0],[worldWidth,worldHeight]]);
             var graph;
             try{
                 graph=sankey({nodes:nodes.map(function(d){return Object.assign({},d);}),links:links.map(function(d){return Object.assign({},d);})});
                 const columns=new Map();
-                graph.nodes.forEach(node=>columns.set(node.depth,(columns.get(node.depth)||0)+1));
+                graph.nodes.forEach(node=>columns.set(node.column,(columns.get(node.column)||0)+1));
                 worldHeight=Math.max(h-60,Math.max(...columns.values())*32);
                 worldWidth=Math.max(w-60,columns.size*180);
                 graph=sankey.extent([[0,0],[worldWidth,worldHeight]])(graph);
                 zoom.scaleExtent([Math.min(0.5,(h-40)/worldHeight,(w-40)/worldWidth),2]);
-                if(!cameraRef.current)svg.call(zoom.transform,d3.zoomIdentity.scale(Math.min(1,(w-40)/worldWidth,(h-40)/worldHeight)));
+                // Fit horizontal lanes; tall projects remain readable through native pan/zoom.
+                if(!cameraRef.current)svg.call(zoom.transform,d3.zoomIdentity.scale(Math.min(1,(w-40)/worldWidth)));
             }catch(e){
-                g.append('text').attr('x',w/2-20).attr('y',h/2).attr('fill','var(--t3)').attr('font-size','12px').attr('text-anchor','middle').text('Sankey diagram unavailable: dependency graph has circular references. Try the Force Graph view.');
+                g.append('text').attr('x',w/2-20).attr('y',h/2).attr('fill','var(--t3)').attr('font-size','12px').attr('text-anchor','middle').text('Unable to lay out these folder dependencies.');
                 return cleanup;
             }
             var tooltip=container.append('div').attr('class','treemap-tooltip').style('display','none').style('position','absolute');
             g.selectAll('path.sankey-link').data(graph.links).join('path').attr('class','sankey-link')
-                .attr('d',d3.sankeyLinkHorizontal()).attr('fill','none')
+                .attr('d',function(d){return d.path;}).attr('fill','none')
                 .attr('stroke',function(d){return stateRef.current.colorMap[d.source.fullPath]||COLORS[d.source.id%COLORS.length];})
                 .attr('stroke-width',function(d){return scaleStrokeWidth(Math.max(2,d.width),stateRef.current.lineThickness);}).attr('stroke-opacity',0.4)
                 .on('mouseenter',function(e,d){

@@ -25,13 +25,6 @@
       "sha256": "558a1f7f5ffe218499dcfe5e4fe28d8c890553131b2f718fd4c547be2e09c484"
     },
     {
-      "package": "d3-sankey",
-      "version": "0.12.3",
-      "file": "d3-sankey/d3-sankey.min.js",
-      "source": "https://cdnjs.cloudflare.com/ajax/libs/d3-sankey/0.12.3/d3-sankey.min.js",
-      "sha256": "8286db5d6aa049cc6e8a546708943b79dfb4daaefb0ccf42af674ec0ee4c86be"
-    },
-    {
       "package": "d3",
       "version": "7.8.5",
       "file": "d3/d3.min.js",

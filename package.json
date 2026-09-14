@@ -29,6 +29,7 @@
     "build:check": "node scripts/build.mjs --check"
   },
   "dependencies": {
+    "d3-sankey-circular": "0.34.0",
     "vscode-jsonrpc": "9.0.2"
   },
   "devDependencies": {
