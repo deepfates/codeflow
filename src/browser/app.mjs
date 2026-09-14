@@ -54,26 +54,6 @@ const NativeCanvas=createNativeCanvas({React,d3:globalThis.d3,Icon,COLORS,LAYER_
 const {TreemapView,MatrixView,DendrogramView,SankeyView,DisjointView,BundleView}=createAlternateViews({React,d3:globalThis.d3,colors:COLORS});
 const Graph3DView=createGraph3DView({React,getRuntime:()=>({ForceGraph3D:globalThis.ForceGraph3D,THREE:globalThis.THREE}),colors:COLORS,layerColors:LAYER_COLORS});
 
-// Secrets are dangerous wherever the code executes — CI workflows, hooks and
-// deploy scripts included — so the Hardcoded Secret rule exempts only
-// tests/fixtures (stub credentials) and docs (examples), NOT dev tooling.
-
-// Elixir declarations are supplied by the shared Tree-sitter analysis. These
-// enrich the same facts, blocks and exports as every other language.
-
-// One directed relationship may have several independent source/compiler
-// observations. Project those observations for views without rewriting evidence.
-
-// Enrich the shared source analysis with compiler evidence. A compiler snapshot
-// describes file references, not function liveness, and never replaces source
-// analysis or evidence from another provider.
-
-// Provider findings use the existing issue model, so navigation and exports
-// consume the same evidence. A refresh replaces only that provider's findings.
-
-// Locations own path, source range, view, scope and camera. These transitions
-// return new snapshots; UI event handlers never mutate older history entries.
-
 function calcPRRisk(prData, repoData) {
     if (!prData || !repoData) return { score: 0, level: 'low', factors: [] };
     var score = 0;

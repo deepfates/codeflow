@@ -88,7 +88,10 @@ node must already be running locally with matching distribution naming and cooki
 Refresh collects applications, supervision trees, process metrics and source links.
 Open Source on a process to inspect its implementation; the File panel links back
 to matching running processes and expands their supervision ancestry.
-It does not start the application, inspect process state or record messages.
+Failed process queries are marked unavailable; only a confirmed missing PID is
+marked exited. An incomplete process inventory is reported alongside the
+observations that were collected. It does not start the application, inspect
+process state or record messages.
 
 Compiler relationships come from Mix manifests; source-analysis relationships
 retain their own provenance. After each successful ElixirLS build, Codeflow collects its updated graph and refreshes the current view
@@ -223,13 +226,14 @@ Your GitHub token (if used) is only stored in your browser's memory and is clear
 
 ## Quick Start
 
-### Option 1: Use Online (Recommended)
-Just visit [CodeFlow](https://codeflow-five.vercel.app/) and paste any GitHub URL.
+### Option 1: Try the upstream demo
+The [upstream demo](https://codeflow-five.vercel.app/) runs the original CodeFlow.
+Use the local setup below for this fork’s Elixir analysis and runtime integration.
 
 ### Option 2: Self-Host
 ```bash
 # Clone the repo
-git clone https://github.com/braedonsaunders/codeflow.git
+git clone https://github.com/deepfates/codeflow.git
 
 # That's it! Just open index.html in your browser
 open index.html
@@ -460,6 +464,7 @@ The HTML file owns the document and styles. The application code lives in module
 - `src/investigation/`: `state.mjs` owns selection, source ranges, folder scope, view, open cards and history as one reducer. Opening, closing, Back/Forward and workspace restoration commit these changes together; the selected file is read from the current code index. Workspace, preferences and recent-analysis persistence live alongside it. Camera movement and card placement remain rendering concerns.
 - `src/views/`: `native-canvas.mjs` owns the shared Graph/Code simulation, camera, source cards, geometry and minimap. Its scene snapshot is persisted by the project workspace owner; source acquisition and investigation transitions remain outside rendering. Shared graph styling, links and source rendering helpers live alongside it. `architecture.mjs` is the Block Diagram component: it owns Mermaid rendering, selection highlighting, pan/zoom, container resizing and the rendered SVG used by exports. The app supplies the shared diagram and selection callbacks. `graph3d.mjs` owns the native WebGL renderer, camera and teardown; selection and display changes update the mounted renderer. `alternate.mjs` owns the existing Treemap, Matrix, Dendrogram, Sankey, Disjoint and Bundle components, including their SVGs, cameras, tooltips, resize handling and simulation cleanup. SVG export reads the active view through its rendering interface. `inspection.mjs` renders the source outline, tool status and runtime panels; both directions of process/source navigation use `project/runtime-index.mjs`, which retains observed process records and links only exact paths in the current code index.
 - `src/browser/project.mjs`: the active project hook composes acquisition, retained source handles, cancellation, cache restoration, source hydration and CLI/tool updates. Its named commands open or refresh projects and read sources; it exposes the current project without exposing state setters.
+- `src/browser/source-navigation.mjs`: outline, definition/reference results and errors belong to the current project and investigation. Moving to another location invalidates pending results; the hook delegates actual source opening to the shared navigation action.
 - `src/browser/app.mjs`: React composition, authentication/picker controls, investigation/workspace coordination, and remaining sidebar/inspector/modal code. `src/browser/analysis-client.mjs` owns worker transport; `src/worker/analysis-worker.mjs` and `src/node/analysis.mjs` configure the same analysis engine.
 
 `npm run build` uses pinned esbuild to produce the shipped `dist/` artifacts.

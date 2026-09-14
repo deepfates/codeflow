@@ -363,6 +363,56 @@
     }
   });
 
+  // src/browser/source-navigation.mjs
+  function createSourceNavigationHook(React2) {
+    const { useState: useState2, useRef: useRef2, useMemo: useMemo2, useEffect: useEffect2 } = React2;
+    return function useSourceNavigation2({ connection, selection, loading, language, onOpen }) {
+      const owner = useMemo2(() => ({}), [connection, selection, loading, language?.state, language?.build?.completedAt]);
+      const current = useRef2(owner), open = useRef2(onOpen), request = useRef2(null);
+      current.current = owner;
+      open.current = onOpen;
+      const [result, setResult] = useState2({ owner, symbols: [], locations: null, error: null });
+      const state = result.owner === owner ? result : { symbols: [], locations: null, error: null };
+      function update(change) {
+        if (current.current === owner) setResult((prev) => ({ ...prev, ...prev.owner === owner ? {} : { symbols: [], locations: null, error: null }, owner, ...change }));
+      }
+      useEffect2(() => {
+        current.current = owner;
+        return () => {
+          if (current.current === owner) current.current = null;
+        };
+      }, [owner]);
+      useEffect2(() => {
+        const path2 = selection.selectedPath;
+        if (loading || !connection || !path2 || !/\.exs?$/.test(path2) || language?.state !== "ready") return;
+        let cancelled = false;
+        connection.language("symbols", path2).then((symbols) => {
+          if (!cancelled) update({ symbols });
+        }).catch((error) => {
+          if (!cancelled && error.name !== "AbortError") update({ error: error.message });
+        });
+        return () => {
+          cancelled = true;
+        };
+      }, [owner, language?.state, language?.build?.completedAt]);
+      async function navigate(method, path2, position) {
+        const pending = {};
+        request.current = pending;
+        update({ error: null });
+        try {
+          if (!connection) throw new Error("Open this checkout with the CLI to use language navigation.");
+          const locations = await connection.language(method, path2, position);
+          if (current.current !== owner || request.current !== pending) return;
+          if (method === "definition" && locations.length === 1) open.current(locations[0]);
+          else update({ locations: { title: method === "references" ? "References" : "Definitions", items: locations } });
+        } catch (error) {
+          if (request.current === pending && error.name !== "AbortError") update({ error: error.message });
+        }
+      }
+      return { symbols: state.symbols, locations: state.locations, error: state.error, navigate, unavailable: (reason) => update({ error: reason }) };
+    };
+  }
+
   // src/project/loading.mjs
   function createProjectLoading() {
     let active;
@@ -2987,10 +3037,11 @@
         var key = JSON.stringify([location, finding.message, finding.check || finding.code]);
         if (seen.has(key)) return;
         seen.add(key);
+        var type = { 1: "critical", 2: "warning", 3: "info", 4: "info" }[finding.severity] || "warning";
         issues.push({
           provider: provider.id,
           evidence: provider.name,
-          type: finding.severity === 1 ? "critical" : "warning",
+          type,
           title: finding.message,
           desc: provider.name + (finding.check ? " \xB7 " + finding.check : ""),
           sourceLocation: location,
@@ -62130,6 +62181,7 @@ This problem is likely caused by another plugin injecting
   var { useState, useReducer, useEffect, useLayoutEffect, useRef, useMemo, useCallback } = React;
   var { SourceNavigation, AnalysisTools, SourceProcesses, SourceFindings, RuntimePanel } = createInspectionPanels(React);
   var useRuntimeInspection = createRuntimeInspectionHook(React);
+  var useSourceNavigation = createSourceNavigationHook(React);
   var ArchitectureView = createArchitectureView({ React, mermaid: globalThis.mermaid });
   var COLORS = ["#4d9fff", "#a78bfa", "#22d3ee", "#00ff9d", "#ff9f43", "#ec4899", "#ff5f5f", "#84cc16"];
   var LAYER_COLORS = { ui: "#4d9fff", components: "#22d3ee", services: "#a78bfa", utils: "#00ff9d", data: "#ff9f43", config: "#ec4899", test: "#f59e0b", modules: "#a78bfa", forms: "#22d3ee", classes: "#ff9f43", note: "#c084fc" };
@@ -62711,25 +62763,21 @@ This problem is likely caused by another plugin injecting
         window.removeEventListener("keydown", quickOpen);
       };
     }, [viewportWidth]);
-    var [beamSymbols, setBeamSymbols] = useState([]), [beamLocations, setBeamLocations] = useState(null);
-    var [beamNavigationError, setBeamNavigationError] = useState(null);
-    function beamLanguage(method, path2, position) {
-      if (!localTools) return Promise.reject(new Error("Open this checkout with the CLI to use language navigation."));
-      return localTools.language(method, path2, position);
-    }
+    const sourceNavigation = useSourceNavigation({ connection: localTools, selection: investigation, loading, language: beamAnalysis?.language, onOpen: openSourceLocation });
+    const { symbols: beamSymbols, locations: beamLocations, error: beamNavigationError } = sourceNavigation;
     function openSourceLocation(location) {
       if (!location.range && Number.isInteger(location.line) && location.line > 0) {
         const position = { line: location.line - 1, character: 0 };
         location = { ...location, range: { start: position, end: position } };
       }
       if (!location.path) {
-        setBeamNavigationError("Source is outside this project.");
+        sourceNavigation.unavailable("Source is outside this project.");
         return;
       }
       if (!data.files.some(function(file) {
         return file.path === location.path;
       })) {
-        setBeamNavigationError("Source is excluded or unavailable in this project.");
+        sourceNavigation.unavailable("Source is excluded or unavailable in this project.");
         return;
       }
       setGraphConfig(function(prev) {
@@ -62745,15 +62793,8 @@ This problem is likely caused by another plugin injecting
       else goToFile(location.path);
       setDrillDown(null);
     }
-    async function navigateBeamSymbol(method, path2, position) {
-      setBeamNavigationError(null);
-      try {
-        var locations = await beamLanguage(method, path2, position);
-        if (method === "definition" && locations.length === 1) openSourceLocation(locations[0]);
-        else setBeamLocations({ title: method === "references" ? "References" : "Definitions", items: locations });
-      } catch (error2) {
-        if (error2.name !== "AbortError") setBeamNavigationError(error2.message);
-      }
+    function navigateBeamSymbol(method, path2, position) {
+      return sourceNavigation.navigate(method, path2, position);
     }
     function beamSourceClick(event, path2, line) {
       if (!event.metaKey && !event.ctrlKey) return;
@@ -62909,25 +62950,6 @@ This problem is likely caused by another plugin injecting
     analysisHydrationIdRef.current = currentHydrationId;
     const runtimeInspection = useRuntimeInspection(localTools, cliStatus?.runtimeNode || "");
     const runtimeIndex = useMemo(() => indexRuntime(runtimeInspection.snapshot, data?.files || []), [runtimeInspection.snapshot, data]);
-    useEffect(function() {
-      setBeamLocations(null);
-      setBeamNavigationError(null);
-    }, [localTools]);
-    useEffect(function() {
-      setBeamSymbols([]);
-      setBeamLocations(null);
-      setBeamNavigationError(null);
-      if (loading || !localTools || !data || !data.beam || !selected || !/\.exs?$/.test(selected.path) || !beamAnalysis || beamAnalysis.language.state !== "ready") return;
-      var cancelled = false;
-      beamLanguage("symbols", selected.path).then(function(items) {
-        if (!cancelled) setBeamSymbols(items);
-      }).catch(function(error2) {
-        if (!cancelled && error2.name !== "AbortError") setBeamNavigationError(error2.message);
-      });
-      return function() {
-        cancelled = true;
-      };
-    }, [loading, localTools, selected && selected.path, beamAnalysis && beamAnalysis.language.build && beamAnalysis.language.build.completedAt, beamAnalysis && beamAnalysis.language.state]);
     function clearPendingRecentDelete() {
       if (pendingRecentDeleteTimerRef.current) {
         clearTimeout(pendingRecentDeleteTimerRef.current);
