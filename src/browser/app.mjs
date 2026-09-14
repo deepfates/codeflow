@@ -1724,12 +1724,12 @@ function App(){
         }
     },[filePreview]);
 
-    const folderColors=useMemo(()=>{const colors={root:COLORS[0]};data?.folders.forEach((folder,i)=>{colors[folder]=COLORS[i%COLORS.length];});return colors;},[data?.folders]);
+    const folderColors=useMemo(()=>{const colors={};data?.folders.forEach((folder,i)=>{colors[folder]=COLORS[i%COLORS.length];});colors.root=COLORS[0];return colors;},[data?.folders]);
     const findingsByFile=useMemo(()=>indexSourceFindings(data),[data]);
     var colorMap=useMemo(function(){
         if(!data)return{};
         var m={};
-        if(colorMode==='folder'){data.folders.forEach(function(f,i){m[f]=COLORS[i%COLORS.length];});m['root']=COLORS[0];}
+        if(colorMode==='folder')return folderColors;
         else if(colorMode==='layer')data.files.forEach(function(f){m[f.path]=LAYER_COLORS[f.layer]||COLORS[0];});
         else if(colorMode==='findings')data.files.forEach(file=>{m[file.path]=sourceFindingColor(findingsByFile.get(file.path));});
         else if(colorMode==='churn'){
@@ -1737,7 +1737,9 @@ function App(){
             data.files.forEach(function(f){var r=(f.churn||0)/maxC;m[f.path]=r>0.7?'#ff5f5f':r>0.4?'#ff9f43':'#22c55e';});
         }
         return m;
-    },[data,colorMode]);
+    },[data,colorMode,folderColors]);
+    const legendColorMode=graphConfig.vizType==='graph'||graphConfig.vizType==='graph3d'?colorMode:'folder';
+    const legendColors=graphConfig.vizType==='graph'||graphConfig.vizType==='graph3d'?colorMap:folderColors;
 
     var codeViewFiles=useMemo(function(){
         if(!data)return[];
@@ -2531,15 +2533,14 @@ function App(){
                     renderCodeViewPrefs(),
                     graphConfig.vizType!=='architecture'&&graphConfig.vizType!=='code'&&React.createElement('div',{className:'legend'+(legendCollapsed?' collapsed':'')+((graphConfig.vizType==='graph'||graphConfig.vizType==='graph3d')?' with-color-by':'')},
                         React.createElement('div',{className:'legend-header',onClick:function(){setLegendCollapsed(!legendCollapsed);}},
-                            React.createElement('div',{className:'legend-title',style:{margin:0}},colorMode==='folder'?'Folders':colorMode==='layer'?'Layers':colorMode==='findings'?'Findings':'Churn'),
+                            React.createElement('div',{className:'legend-title',style:{margin:0}},legendColorMode==='folder'?'Folders':legendColorMode==='layer'?'Layers':legendColorMode==='findings'?'Findings':'Churn'),
                             React.createElement('span',{className:'legend-toggle'},'▼')
                         ),
                         React.createElement('div',{className:'legend-content'},
-                            colorMode==='folder'&&data.folders.slice(0,12).map(function(f,i){return React.createElement('div',{key:f,className:'legend-item'+(folderFilter===f?' active':''),onClick:function(e){e.stopPropagation();filterByFolder(f);}},React.createElement('div',{className:'legend-color',style:{background:colorMap[f]||COLORS[i%COLORS.length]}}),f||'root');}),
-                            colorMode==='folder'&&data.folders.length>12&&React.createElement('div',{style:{fontSize:9,color:'var(--t3)',marginTop:4}},'+',data.folders.length-12,' more'),
-                            colorMode==='layer'&&Object.entries(LAYER_COLORS).map(function(e){return React.createElement('div',{key:e[0],className:'legend-item'},React.createElement('div',{className:'legend-color',style:{background:e[1]}}),e[0]=== 'modules' ? 'Modules' : e[0]=== 'forms' ? 'UserForms' : e[0]=== 'classes' ? 'Classes' : e[0]);}),
-                            colorMode==='findings'&&[['critical','Critical / high'],['warning','Warning / medium'],['info','Low / info'],['none','No recorded findings']].map(([key,label])=>React.createElement('div',{key,className:'legend-item'},React.createElement('div',{className:'legend-color',style:{background:FINDING_COLORS[key]}}),label)),
-                            colorMode==='churn'&&React.createElement(React.Fragment,null,React.createElement('div',{className:'legend-item'},React.createElement('div',{className:'legend-color',style:{background:'#ff5f5f'}}),'High (7+ commits)'),React.createElement('div',{className:'legend-item'},React.createElement('div',{className:'legend-color',style:{background:'#ff9f43'}}),'Medium (4-6)'),React.createElement('div',{className:'legend-item'},React.createElement('div',{className:'legend-color',style:{background:'#22c55e'}}),'Low (0-3)'))
+                            legendColorMode==='folder'&&data.folders.map(function(f,i){return React.createElement('div',{key:f,className:'legend-item'+(folderFilter===f?' active':''),onClick:function(e){e.stopPropagation();filterByFolder(f);}},React.createElement('div',{className:'legend-color',style:{background:legendColors[f]||COLORS[i%COLORS.length]}}),f||'root');}),
+                            legendColorMode==='layer'&&Object.entries(LAYER_COLORS).map(function(e){return React.createElement('div',{key:e[0],className:'legend-item'},React.createElement('div',{className:'legend-color',style:{background:e[1]}}),e[0]=== 'modules' ? 'Modules' : e[0]=== 'forms' ? 'UserForms' : e[0]=== 'classes' ? 'Classes' : e[0]);}),
+                            legendColorMode==='findings'&&[['critical','Critical / high'],['warning','Warning / medium'],['info','Low / info'],['none','No recorded findings']].map(([key,label])=>React.createElement('div',{key,className:'legend-item'},React.createElement('div',{className:'legend-color',style:{background:FINDING_COLORS[key]}}),label)),
+                            legendColorMode==='churn'&&React.createElement(React.Fragment,null,React.createElement('div',{className:'legend-item'},React.createElement('div',{className:'legend-color',style:{background:'#ff5f5f'}}),'High (7+ commits)'),React.createElement('div',{className:'legend-item'},React.createElement('div',{className:'legend-color',style:{background:'#ff9f43'}}),'Medium (4-6)'),React.createElement('div',{className:'legend-item'},React.createElement('div',{className:'legend-color',style:{background:'#22c55e'}}),'Low (0-3)'))
                         )
                     ),
                     tooltip&&React.createElement('div',{className:'tooltip',style:{left:tooltip.x,top:tooltip.y}},React.createElement('div',{className:'tooltip-title'},tooltip.title),React.createElement('div',{className:'tooltip-content'},tooltip.content))

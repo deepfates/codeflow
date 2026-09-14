@@ -26,6 +26,7 @@ test('alternate D3 views retain their camera through source selection and resize
  const mode=page.getByRole('combobox',{name:'Visualization type'});
  await mode.selectOption('graph');
  await page.waitForFunction(()=>document.querySelectorAll('circle.nc').length===3);
+ await page.getByRole('button',{name:'Findings',exact:true}).click();
  await page.getByRole('tab',{name:'Files',exact:true}).click();
  await page.locator('.tree-folder').filter({has:page.getByText('lib',{exact:true})}).locator('.tree-toggle').click();
  const choices=[['treemap','.treemap-cell-g'],['matrix','.row-label'],['dendro','.dendro-node'],['disjoint','.disjoint-node'],['bundle','.bundle-circle']];
@@ -33,6 +34,7 @@ test('alternate D3 views retain their camera through source selection and resize
   await mode.selectOption(view);
   const container=page.locator('.'+view+'-container'),svg=container.locator('svg');
   await svg.waitFor();await page.waitForTimeout(300);
+  assert.equal(await page.locator('.legend-title').textContent(),'Folders',view+' legend describes its actual folder palette');
   const bounds=await svg.boundingBox();
   await page.mouse.move(bounds.x+bounds.width/2,bounds.y+bounds.height/2);await page.mouse.wheel(0,160);await page.waitForTimeout(300);
   const camera=await svg.evaluate(el=>({x:el.__zoom.x,y:el.__zoom.y,k:el.__zoom.k}));

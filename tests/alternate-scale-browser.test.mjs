@@ -30,6 +30,7 @@ test('alternate layouts include late files and folders beyond former caps and ex
  const mode=page.getByRole('combobox',{name:'Visualization type'});
  await mode.selectOption('graph');
  await page.waitForFunction(()=>document.querySelectorAll('circle.nc').length===126);
+ assert.equal(await page.locator('.legend-item').filter({hasText:'group20'}).count(),1,'folder navigation includes folders beyond the former legend cutoff');
  async function reveal(svg,target){
   // Travel across the actual larger SVG world using its ordinary D3 pan gesture.
   for(let attempt=0;attempt<30;attempt++){

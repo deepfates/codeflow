@@ -583,12 +583,122 @@
         container.selectAll("*").remove();
         var w = size.width, h = size.height;
         var svg = container.append("svg").attr("width", w).attr("height", h);
-        var g = svg.append("g").attr("transform", "translate(100,80)");
-        var zoom = d3.zoom().scaleExtent([0.5, 3]).on("zoom", function(e) {
-          g.attr("transform", "translate(" + (100 + e.transform.x) + "," + (80 + e.transform.y) + ") scale(" + e.transform.k + ")");
+        var left = 100, top = 80;
+        var g = svg.append("g");
+        var colAxis = svg.append("g"), rowAxis = svg.append("g");
+        var files = folderFilter ? sourceFiles.filter(function(f) {
+          return f.folder === folderFilter || f.folder.startsWith(folderFilter + "/");
+        }) : sourceFiles;
+        var n = files.length;
+        var cellSize = Math.min(18, Math.max(10, Math.min(w - 120, h - 100) / Math.max(1, n)));
+        var fileIdx = new Map(files.map(function(f, i) {
+          return [f.path, i];
+        }));
+        var weights = /* @__PURE__ */ new Map(), maxVal = 1;
+        connections.forEach(function(c) {
+          var src = typeof c.source === "object" ? c.source.id : c.source;
+          var tgt = typeof c.target === "object" ? c.target.id : c.target;
+          if (!fileIdx.has(src) || !fileIdx.has(tgt)) return;
+          var key = fileIdx.get(src) * n + fileIdx.get(tgt);
+          var value = (weights.get(key) || 0) + (c.count || 1);
+          weights.set(key, value);
+          maxVal = Math.max(maxVal, value);
         });
-        svg.call(zoom);
+        var tooltip = container.append("div").attr("class", "treemap-tooltip").style("display", "none").style("position", "absolute");
+        var cells = g.selectAll("rect.matrix-cell-rect"), colLabels = colAxis.selectAll("text"), rowLabels = rowAxis.selectAll("text");
+        var frame = null, transform = cameraRef.current;
+        function clearHover() {
+          tooltip.style("display", "none");
+          cells.attr("opacity", 1).attr("stroke", "var(--bg0)").attr("stroke-width", 0.5);
+          colLabels.attr("fill", "var(--t2)").attr("font-weight", "400");
+          rowLabels.attr("fill", "var(--t2)").attr("font-weight", "400");
+        }
+        function label(f) {
+          var name = f.name.replace(/\.[^.]+$/, "");
+          return name.length > 10 ? name.slice(0, 8) + "\u2026" : name;
+        }
+        function tooltipPosition(e) {
+          var r = containerRef.current.getBoundingClientRect();
+          tooltip.style("left", e.clientX - r.left + 15 + "px").style("top", e.clientY - r.top + 15 + "px");
+        }
+        function drawViewport() {
+          frame = null;
+          var k = transform.k, x = left + transform.x, y = top + transform.y;
+          var firstCol = Math.max(0, Math.floor((left - x) / (k * cellSize)));
+          var lastCol = Math.min(n, Math.ceil((w - x) / (k * cellSize)));
+          var firstRow = Math.max(0, Math.floor((top - y) / (k * cellSize)));
+          var lastRow = Math.min(n, Math.ceil((h - y) / (k * cellSize)));
+          var cellData = [], rows = [], cols = [];
+          for (var i = firstRow; i < lastRow; i++) {
+            rows.push(files[i]);
+            for (var j = firstCol; j < lastCol; j++) cellData.push({ row: i, col: j, value: weights.get(i * n + j) || 0, source: files[i], target: files[j] });
+          }
+          for (var j = firstCol; j < lastCol; j++) cols.push(files[j]);
+          cells = g.selectAll("rect.matrix-cell-rect").data(cellData, function(d) {
+            return d.row * n + d.col;
+          }).join("rect").attr("class", "matrix-cell-rect").attr("x", function(d) {
+            return d.col * cellSize;
+          }).attr("y", function(d) {
+            return d.row * cellSize;
+          }).attr("width", cellSize - 1).attr("height", cellSize - 1).attr("rx", 2).attr("fill", function(d) {
+            return d.value > 0 ? "rgba(0,255,157," + Math.max(0.15, d.value / maxVal) + ")" : "var(--bg2)";
+          }).attr("stroke", "var(--bg0)").attr("stroke-width", 0.5).style("cursor", "pointer");
+          colLabels = colAxis.selectAll("text.col-label").data(cols, function(d) {
+            return d.path;
+          }).join("text").attr("class", "col-label").attr("transform", function(d) {
+            return "translate(" + (x + (fileIdx.get(d.path) + 0.5) * cellSize * k) + "," + (top - 8) + ") rotate(-45)";
+          }).attr("text-anchor", "start").attr("fill", "var(--t2)").attr("font-size", "9px").text(function(d) {
+            return label(d);
+          }).style("cursor", "pointer").on("click", function(e, d) {
+            stateRef.current.onSelect?.(d.path);
+          });
+          rowLabels = rowAxis.selectAll("text.row-label").data(rows, function(d) {
+            return d.path;
+          }).join("text").attr("class", "row-label").attr("x", left - 8).attr("y", function(d) {
+            return y + (fileIdx.get(d.path) + 0.5) * cellSize * k + 3;
+          }).attr("text-anchor", "end").attr("fill", "var(--t2)").attr("font-size", "9px").text(function(d) {
+            return label(d);
+          }).style("cursor", "pointer").on("click", function(e, d) {
+            stateRef.current.onSelect?.(d.path);
+          });
+          cells.on("mouseenter", function(e, d) {
+            tooltip.html(renderTooltipHtml(d.source.name + " \u2192 " + d.target.name, [{ label: "Connections", value: d.value }])).style("display", "block");
+            tooltipPosition(e);
+            cells.attr("opacity", function(c) {
+              return c.row === d.row || c.col === d.col ? 1 : 0.3;
+            });
+            colLabels.attr("fill", function(c) {
+              return fileIdx.get(c.path) === d.col ? "var(--acc)" : "var(--t2)";
+            }).attr("font-weight", function(c) {
+              return fileIdx.get(c.path) === d.col ? "600" : "400";
+            });
+            rowLabels.attr("fill", function(c) {
+              return fileIdx.get(c.path) === d.row ? "var(--acc)" : "var(--t2)";
+            }).attr("font-weight", function(c) {
+              return fileIdx.get(c.path) === d.row ? "600" : "400";
+            });
+            d3.select(this).attr("stroke", "var(--acc)").attr("stroke-width", 2);
+          }).on("mousemove", tooltipPosition).on("mouseleave", clearHover).on("click", function(e, d) {
+            e.stopPropagation();
+            stateRef.current.onSelect?.(d.source.path);
+          });
+        }
+        var clipId = "matrix-viewport-" + Math.random().toString(36).slice(2);
+        svg.append("defs").append("clipPath").attr("id", clipId).append("rect").attr("x", left).attr("y", top).attr("width", Math.max(0, w - left)).attr("height", Math.max(0, h - top));
+        var viewport = svg.insert("g", function() {
+          return g.node();
+        }).attr("clip-path", "url(#" + clipId + ")");
+        viewport.node().appendChild(g.node());
+        var zoom = d3.zoom().scaleExtent([0.5, 3]).on("zoom", function(e) {
+          transform = e.transform;
+          cameraRef.current = transform;
+          g.attr("transform", "translate(" + (left + transform.x) + "," + (top + transform.y) + ") scale(" + transform.k + ")");
+          clearHover();
+          if (frame === null) frame = requestAnimationFrame(drawViewport);
+        });
+        svg.call(zoom).call(zoom.transform, transform);
         function cleanup() {
+          if (frame !== null) cancelAnimationFrame(frame);
           cameraRef.current = d3.zoomTransform(svg.node());
           paintRef.current = null;
           svg.interrupt();
@@ -596,93 +706,6 @@
           svg.on(".zoom", null);
           container.selectAll("*").remove();
         }
-        svg.call(zoom.transform, cameraRef.current);
-        var filteredFiles = folderFilter ? sourceFiles.filter(function(f) {
-          return f.folder === folderFilter || f.folder.startsWith(folderFilter + "/");
-        }) : sourceFiles;
-        var files = filteredFiles.slice(0, 40);
-        var n = files.length;
-        var cellSize = Math.min(18, Math.max(10, Math.min(w - 120, h - 100) / n));
-        var matrix = [];
-        var fileIdx = {};
-        files.forEach(function(f, i) {
-          fileIdx[f.path] = i;
-          matrix[i] = [];
-          for (var j = 0; j < n; j++) matrix[i][j] = 0;
-        });
-        connections.forEach(function(c) {
-          var src = typeof c.source === "object" ? c.source.id : c.source;
-          var tgt = typeof c.target === "object" ? c.target.id : c.target;
-          if (fileIdx[src] !== void 0 && fileIdx[tgt] !== void 0) matrix[fileIdx[src]][fileIdx[tgt]] += c.count || 1;
-        });
-        var maxVal = 1;
-        matrix.forEach(function(row) {
-          row.forEach(function(v) {
-            if (v > maxVal) maxVal = v;
-          });
-        });
-        var colLabels = g.selectAll("text.col-label").data(files).join("text").attr("class", "col-label").attr("x", function(d, i) {
-          return i * cellSize + cellSize / 2;
-        }).attr("y", -8).attr("text-anchor", "start").attr("transform", function(d, i) {
-          return "rotate(-45," + (i * cellSize + cellSize / 2) + ",-8)";
-        }).attr("fill", "var(--t2)").attr("font-size", "9px").text(function(d) {
-          var n2 = d.name.replace(/\.[^.]+$/, "");
-          return n2.length > 10 ? n2.slice(0, 8) + "\u2026" : n2;
-        }).style("cursor", "pointer").on("click", function(e, d) {
-          if (stateRef.current.onSelect) stateRef.current.onSelect(d.path);
-        });
-        var rowLabels = g.selectAll("text.row-label").data(files).join("text").attr("class", "row-label").attr("x", -8).attr("y", function(d, i) {
-          return i * cellSize + cellSize / 2 + 3;
-        }).attr("text-anchor", "end").attr("fill", "var(--t2)").attr("font-size", "9px").text(function(d) {
-          var n2 = d.name.replace(/\.[^.]+$/, "");
-          return n2.length > 10 ? n2.slice(0, 8) + "\u2026" : n2;
-        }).style("cursor", "pointer").on("click", function(e, d) {
-          if (stateRef.current.onSelect) stateRef.current.onSelect(d.path);
-        });
-        var cellData = [];
-        files.forEach(function(f, i) {
-          files.forEach(function(g2, j) {
-            cellData.push({ row: i, col: j, value: matrix[i][j], source: f, target: g2 });
-          });
-        });
-        var tooltip = container.append("div").attr("class", "treemap-tooltip").style("display", "none").style("position", "absolute");
-        var cells = g.selectAll("rect.matrix-cell-rect").data(cellData).join("rect").attr("class", "matrix-cell-rect").attr("x", function(d) {
-          return d.col * cellSize;
-        }).attr("y", function(d) {
-          return d.row * cellSize;
-        }).attr("width", cellSize - 1).attr("height", cellSize - 1).attr("rx", 2).attr("fill", function(d) {
-          return d.value > 0 ? "rgba(0,255,157," + Math.max(0.15, d.value / maxVal) + ")" : "var(--bg2)";
-        }).attr("stroke", "var(--bg0)").attr("stroke-width", 0.5).style("cursor", "pointer");
-        cells.on("mouseenter", function(e, d) {
-          tooltip.html(renderTooltipHtml(d.source.name + " \u2192 " + d.target.name, [
-            { label: "Connections", value: d.value }
-          ])).style("display", "block").style("left", e.offsetX + 15 + "px").style("top", e.offsetY + 15 + "px");
-          g.selectAll("rect.matrix-cell-rect").attr("opacity", function(c) {
-            return c.row === d.row || c.col === d.col ? 1 : 0.3;
-          });
-          colLabels.attr("fill", function(f, i) {
-            return i === d.col ? "var(--acc)" : "var(--t2)";
-          }).attr("font-weight", function(f, i) {
-            return i === d.col ? "600" : "400";
-          });
-          rowLabels.attr("fill", function(f, i) {
-            return i === d.row ? "var(--acc)" : "var(--t2)";
-          }).attr("font-weight", function(f, i) {
-            return i === d.row ? "600" : "400";
-          });
-          d3.select(this).attr("stroke", "var(--acc)").attr("stroke-width", 2);
-        }).on("mousemove", function(e) {
-          tooltip.style("left", e.offsetX + 15 + "px").style("top", e.offsetY + 15 + "px");
-        }).on("mouseleave", function() {
-          tooltip.style("display", "none");
-          cells.attr("opacity", 1);
-          colLabels.attr("fill", "var(--t2)").attr("font-weight", "400");
-          rowLabels.attr("fill", "var(--t2)").attr("font-weight", "400");
-          d3.select(this).attr("stroke", "var(--bg0)").attr("stroke-width", 0.5);
-        }).on("click", function(e, d) {
-          e.stopPropagation();
-          if (stateRef.current.onSelect) stateRef.current.onSelect(d.source.path);
-        });
         var legend = container.append("div").attr("class", "heatmap-legend").style("position", "absolute").style("bottom", "60px").style("right", "20px");
         legend.html('<div style="font-size:9px;color:var(--t2)">Connection Strength</div><div class="heatmap-gradient"></div><div style="display:flex;justify-content:space-between;font-size:8px;color:var(--t3)"><span>0</span><span>' + maxVal + "</span></div>");
         paintRef.current?.();
@@ -721,14 +744,16 @@
         }) : sourceFiles;
         var hier = { name: "root", children: [] };
         var folderMap = {};
-        filteredFiles.slice(0, 80).forEach(function(f) {
+        filteredFiles.forEach(function(f) {
           var folder = f.folder || "root";
           if (!folderMap[folder]) folderMap[folder] = { name: folder.split("/").pop() || "root", fullPath: folder, children: [] };
           folderMap[folder].children.push({ name: f.name, path: f.path, fns: f.functions.length, lines: f.lines, folder, layer: f.layer });
         });
         hier.children = Object.values(folderMap);
         var root = d3.hierarchy(hier);
-        var treeLayout = d3.cluster().size([h - 60, w - 200]);
+        var worldHeight = Math.max(h - 60, (filteredFiles.length + hier.children.length) * 24);
+        zoom.scaleExtent([Math.min(0.3, (h - 40) / worldHeight), 3]);
+        var treeLayout = d3.cluster().size([worldHeight, Math.max(320, w - 200)]);
         treeLayout(root);
         var tooltip = container.append("div").attr("class", "treemap-tooltip").style("display", "none").style("position", "absolute");
         g.selectAll("path.dendro-link").data(root.links()).join("path").attr("class", "dendro-link").attr("d", function(d) {
@@ -786,7 +811,7 @@
       return React2.createElement("div", { ref: containerRef, className: "dendro-container", style: { width: "100%", height: "100%", position: "relative", overflow: "hidden" } });
     });
     const SankeyView2 = React2.forwardRef(function SankeyView3({ files: sourceFiles, connections, folderFilter, colorMap, lineThickness, onScope }, ref) {
-      const containerRef = useRef2(null), cameraRef = useRef2(d3.zoomIdentity), paintRef = useRef2(null), stateRef = useRef2(null);
+      const containerRef = useRef2(null), cameraRef = useRef2(null), paintRef = useRef2(null), stateRef = useRef2(null);
       stateRef.current = { onScope, colorMap, lineThickness };
       useImperativeHandle(ref, () => ({ get svgElement() {
         return containerRef.current?.querySelector("svg") || null;
@@ -810,13 +835,13 @@
           svg.on(".zoom", null);
           container.selectAll("*").remove();
         }
-        svg.call(zoom.transform, cameraRef.current);
+        svg.call(zoom.transform, cameraRef.current || d3.zoomIdentity);
         var filteredFiles = folderFilter ? sourceFiles.filter(function(f) {
           return f.folder === folderFilter || f.folder.startsWith(folderFilter + "/");
         }) : sourceFiles;
         var folders = [...new Set(filteredFiles.map(function(f) {
           return f.folder || "root";
-        }))].slice(0, 15);
+        }))];
         var folderIdx = {};
         folders.forEach(function(f, i) {
           folderIdx[f] = i;
@@ -867,9 +892,10 @@
           g.append("text").attr("x", w / 2 - 20).attr("y", h / 2).attr("fill", "var(--t3)").attr("font-size", "12px").text("No cross-folder dependencies to visualize");
           return cleanup;
         }
+        var worldHeight = h - 60, worldWidth = w - 60;
         var sankey = d3.sankey().nodeId(function(d) {
           return d.id;
-        }).nodeWidth(20).nodePadding(15).extent([[0, 0], [w - 60, h - 60]]);
+        }).nodeWidth(20).nodePadding(15).extent([[0, 0], [worldWidth, worldHeight]]);
         var graph;
         try {
           graph = sankey({ nodes: nodes.map(function(d) {
@@ -877,6 +903,13 @@
           }), links: links.map(function(d) {
             return Object.assign({}, d);
           }) });
+          const columns = /* @__PURE__ */ new Map();
+          graph.nodes.forEach((node2) => columns.set(node2.depth, (columns.get(node2.depth) || 0) + 1));
+          worldHeight = Math.max(h - 60, Math.max(...columns.values()) * 32);
+          worldWidth = Math.max(w - 60, columns.size * 180);
+          graph = sankey.extent([[0, 0], [worldWidth, worldHeight]])(graph);
+          zoom.scaleExtent([Math.min(0.5, (h - 40) / worldHeight, (w - 40) / worldWidth), 2]);
+          if (!cameraRef.current) svg.call(zoom.transform, d3.zoomIdentity.scale(Math.min(1, (w - 40) / worldWidth, (h - 40) / worldHeight)));
         } catch (e) {
           g.append("text").attr("x", w / 2 - 20).attr("y", h / 2).attr("fill", "var(--t3)").attr("font-size", "12px").attr("text-anchor", "middle").text("Sankey diagram unavailable: dependency graph has circular references. Try the Force Graph view.");
           return cleanup;
@@ -908,11 +941,11 @@
           return stateRef.current.colorMap[d.fullPath] || COLORS2[d.id % COLORS2.length];
         }).attr("rx", 3);
         node.append("text").attr("x", function(d) {
-          return d.x0 < w / 2 ? d.x1 + 8 : d.x0 - 8;
+          return d.x0 < worldWidth / 2 ? d.x1 + 8 : d.x0 - 8;
         }).attr("y", function(d) {
           return (d.y0 + d.y1) / 2;
         }).attr("dy", "0.35em").attr("text-anchor", function(d) {
-          return d.x0 < w / 2 ? "start" : "end";
+          return d.x0 < worldWidth / 2 ? "start" : "end";
         }).attr("fill", "var(--t1)").attr("font-size", "10px").attr("font-weight", "500").text(function(d) {
           return d.name + " (" + d.fileCount + ")";
         });
@@ -943,7 +976,7 @@
       return React2.createElement("div", { ref: containerRef, className: "sankey-container", style: { width: "100%", height: "100%", position: "relative", overflow: "hidden" } });
     });
     const DisjointView2 = React2.forwardRef(function DisjointView3({ files: sourceFiles, connections, folderFilter, colorMap, lineThickness, onSelect }, ref) {
-      const containerRef = useRef2(null), cameraRef = useRef2(d3.zoomIdentity), paintRef = useRef2(null), stateRef = useRef2(null);
+      const containerRef = useRef2(null), cameraRef = useRef2(null), paintRef = useRef2(null), stateRef = useRef2(null);
       stateRef.current = { onSelect, colorMap, lineThickness };
       useImperativeHandle(ref, () => ({ get svgElement() {
         return containerRef.current?.querySelector("svg") || null;
@@ -968,11 +1001,11 @@
           container.selectAll("*").remove();
           sim?.stop();
         }
-        svg.call(zoom.transform, cameraRef.current);
+        svg.call(zoom.transform, cameraRef.current || d3.zoomIdentity);
         var filteredFiles = folderFilter ? sourceFiles.filter(function(f) {
           return f.folder === folderFilter || f.folder.startsWith(folderFilter + "/");
         }) : sourceFiles;
-        var files = filteredFiles.slice(0, 100);
+        var files = filteredFiles;
         var fileIdx = {};
         files.forEach(function(f, i) {
           fileIdx[f.path] = i;
@@ -980,11 +1013,26 @@
         var folders = [...new Set(files.map(function(f) {
           return f.folder || "root";
         }))];
-        var cols = Math.ceil(Math.sqrt(folders.length));
-        var cellW = w / cols, cellH = h / Math.ceil(folders.length / cols);
+        var cols = Math.max(1, Math.ceil(Math.sqrt(folders.length)));
+        var rows = Math.max(1, Math.ceil(folders.length / cols));
+        var population = new Map(folders.map((folder) => [folder, 0]));
+        files.forEach((file) => population.set(file.folder || "root", population.get(file.folder || "root") + 1));
+        var clusterSize = (folder) => Math.max(180, Math.ceil(Math.sqrt(population.get(folder))) * 44 + 60);
+        var columnWidths = Array.from({ length: cols }, () => 180), rowHeights = Array.from({ length: rows }, () => 180);
+        folders.forEach((folder, i) => {
+          columnWidths[i % cols] = Math.max(columnWidths[i % cols], clusterSize(folder));
+          rowHeights[Math.floor(i / cols)] = Math.max(rowHeights[Math.floor(i / cols)], clusterSize(folder));
+        });
+        var offsets = (values) => values.map((_, i) => values.slice(0, i).reduce((sum, value) => sum + value, 0));
+        var columnX = offsets(columnWidths), rowY = offsets(rowHeights);
+        var worldWidth = Math.max(w, columnWidths.reduce((sum, value) => sum + value, 0));
+        var worldHeight = Math.max(h, rowHeights.reduce((sum, value) => sum + value, 0));
+        zoom.scaleExtent([Math.min(0.2, w / worldWidth, h / worldHeight), 4]);
+        if (!cameraRef.current) svg.call(zoom.transform, d3.zoomIdentity.scale(Math.min(1, (w - 40) / worldWidth, (h - 40) / worldHeight)));
+        var bounds = folders.map((folder, i) => ({ x: columnX[i % cols], y: rowY[Math.floor(i / cols)], width: columnWidths[i % cols], height: rowHeights[Math.floor(i / cols)] }));
         var centers = {};
         folders.forEach(function(f, i) {
-          centers[f] = { x: (i % cols + 0.5) * cellW, y: (Math.floor(i / cols) + 0.5) * cellH };
+          centers[f] = { x: bounds[i].x + bounds[i].width / 2, y: bounds[i].y + bounds[i].height / 2 };
         });
         var nodes = files.map(function(f) {
           return { id: f.path, name: f.name, folder: f.folder || "root", fns: f.functions.length, lines: f.lines, layer: f.layer, cx: centers[f.folder || "root"].x, cy: centers[f.folder || "root"].y };
@@ -1003,18 +1051,18 @@
           return d.cy;
         }).strength(0.15)).force("collide", d3.forceCollide(15));
         g.selectAll("rect.cluster-bg").data(folders).join("rect").attr("class", "cluster-bg").attr("x", function(d, i) {
-          return i % cols * cellW + 10;
+          return bounds[i].x + 10;
         }).attr("y", function(d, i) {
-          return Math.floor(i / cols) * cellH + 10;
-        }).attr("width", cellW - 20).attr("height", cellH - 20).attr("rx", 12).attr("fill", function(d) {
+          return bounds[i].y + 10;
+        }).attr("width", (d, i) => bounds[i].width - 20).attr("height", (d, i) => bounds[i].height - 20).attr("rx", 12).attr("fill", function(d) {
           return stateRef.current.colorMap[d] || COLORS2[folders.indexOf(d) % COLORS2.length];
         }).attr("opacity", 0.08).attr("stroke", function(d) {
           return stateRef.current.colorMap[d] || COLORS2[folders.indexOf(d) % COLORS2.length];
         }).attr("stroke-width", 1).attr("stroke-opacity", 0.3);
         g.selectAll("text.cluster-label").data(folders).join("text").attr("class", "cluster-label").attr("x", function(d, i) {
-          return i % cols * cellW + 20;
+          return bounds[i].x + 20;
         }).attr("y", function(d, i) {
-          return Math.floor(i / cols) * cellH + 28;
+          return bounds[i].y + 28;
         }).attr("fill", "var(--t2)").attr("font-size", "11px").attr("font-weight", "600").text(function(d) {
           return d.split("/").pop() || "root";
         });
@@ -1090,7 +1138,7 @@
       return React2.createElement("div", { ref: containerRef, className: "disjoint-container", style: { width: "100%", height: "100%", position: "relative", overflow: "hidden" } });
     });
     const BundleView2 = React2.forwardRef(function BundleView3({ files: sourceFiles, connections, folderFilter, colorMap, selectedPath, blastRadius, lineThickness, onSelect, onScope }, ref) {
-      const containerRef = useRef2(null), cameraRef = useRef2(d3.zoomIdentity), paintRef = useRef2(null), stateRef = useRef2(null);
+      const containerRef = useRef2(null), cameraRef = useRef2(null), paintRef = useRef2(null), stateRef = useRef2(null);
       stateRef.current = { onSelect, onScope, colorMap, selected: selectedPath ? { path: selectedPath } : null, blastRadius, lineThickness };
       useImperativeHandle(ref, () => ({ get svgElement() {
         return containerRef.current?.querySelector("svg") || null;
@@ -1114,12 +1162,15 @@
           svg.on(".zoom", null);
           container.selectAll("*").remove();
         }
-        svg.call(zoom.transform, cameraRef.current);
+        svg.call(zoom.transform, cameraRef.current || d3.zoomIdentity);
         var radius = Math.min(w, h) / 2 - 100;
         var filteredFiles = folderFilter ? sourceFiles.filter(function(f) {
           return f.folder === folderFilter || f.folder.startsWith(folderFilter + "/");
         }) : sourceFiles;
-        var files = filteredFiles.slice(0, 70);
+        var files = filteredFiles;
+        radius = Math.max(radius, files.length * 20 / (2 * Math.PI));
+        zoom.scaleExtent([Math.min(0.4, Math.min(w, h) / (2 * (radius + 140))), 3]);
+        if (!cameraRef.current) svg.call(zoom.transform, d3.zoomIdentity.scale(Math.min(1, (Math.min(w, h) - 80) / (2 * (radius + 140)))));
         var fileIdx = {};
         files.forEach(function(f, i) {
           fileIdx[f.path] = i;
@@ -61105,22 +61156,19 @@ This problem is likely caused by another plugin injecting
       }
     }, [filePreview]);
     const folderColors = useMemo(() => {
-      const colors = { root: COLORS[0] };
+      const colors = {};
       data?.folders.forEach((folder, i) => {
         colors[folder] = COLORS[i % COLORS.length];
       });
+      colors.root = COLORS[0];
       return colors;
     }, [data?.folders]);
     const findingsByFile = useMemo(() => indexSourceFindings(data), [data]);
     var colorMap = useMemo(function() {
       if (!data) return {};
       var m = {};
-      if (colorMode === "folder") {
-        data.folders.forEach(function(f, i) {
-          m[f] = COLORS[i % COLORS.length];
-        });
-        m["root"] = COLORS[0];
-      } else if (colorMode === "layer") data.files.forEach(function(f) {
+      if (colorMode === "folder") return folderColors;
+      else if (colorMode === "layer") data.files.forEach(function(f) {
         m[f.path] = LAYER_COLORS[f.layer] || COLORS[0];
       });
       else if (colorMode === "findings") data.files.forEach((file) => {
@@ -61136,7 +61184,9 @@ This problem is likely caused by another plugin injecting
         });
       }
       return m;
-    }, [data, colorMode]);
+    }, [data, colorMode, folderColors]);
+    const legendColorMode = graphConfig.vizType === "graph" || graphConfig.vizType === "graph3d" ? colorMode : "folder";
+    const legendColors = graphConfig.vizType === "graph" || graphConfig.vizType === "graph3d" ? colorMap : folderColors;
     var codeViewFiles = useMemo(function() {
       if (!data) return [];
       return filesForOpenedCodePaths(openedCodePaths, data, folderFilter);
@@ -62519,24 +62569,23 @@ This problem is likely caused by another plugin injecting
                 { className: "legend-header", onClick: function() {
                   setLegendCollapsed(!legendCollapsed);
                 } },
-                React.createElement("div", { className: "legend-title", style: { margin: 0 } }, colorMode === "folder" ? "Folders" : colorMode === "layer" ? "Layers" : colorMode === "findings" ? "Findings" : "Churn"),
+                React.createElement("div", { className: "legend-title", style: { margin: 0 } }, legendColorMode === "folder" ? "Folders" : legendColorMode === "layer" ? "Layers" : legendColorMode === "findings" ? "Findings" : "Churn"),
                 React.createElement("span", { className: "legend-toggle" }, "\u25BC")
               ),
               React.createElement(
                 "div",
                 { className: "legend-content" },
-                colorMode === "folder" && data.folders.slice(0, 12).map(function(f, i) {
+                legendColorMode === "folder" && data.folders.map(function(f, i) {
                   return React.createElement("div", { key: f, className: "legend-item" + (folderFilter === f ? " active" : ""), onClick: function(e) {
                     e.stopPropagation();
                     filterByFolder(f);
-                  } }, React.createElement("div", { className: "legend-color", style: { background: colorMap[f] || COLORS[i % COLORS.length] } }), f || "root");
+                  } }, React.createElement("div", { className: "legend-color", style: { background: legendColors[f] || COLORS[i % COLORS.length] } }), f || "root");
                 }),
-                colorMode === "folder" && data.folders.length > 12 && React.createElement("div", { style: { fontSize: 9, color: "var(--t3)", marginTop: 4 } }, "+", data.folders.length - 12, " more"),
-                colorMode === "layer" && Object.entries(LAYER_COLORS).map(function(e) {
+                legendColorMode === "layer" && Object.entries(LAYER_COLORS).map(function(e) {
                   return React.createElement("div", { key: e[0], className: "legend-item" }, React.createElement("div", { className: "legend-color", style: { background: e[1] } }), e[0] === "modules" ? "Modules" : e[0] === "forms" ? "UserForms" : e[0] === "classes" ? "Classes" : e[0]);
                 }),
-                colorMode === "findings" && [["critical", "Critical / high"], ["warning", "Warning / medium"], ["info", "Low / info"], ["none", "No recorded findings"]].map(([key, label]) => React.createElement("div", { key, className: "legend-item" }, React.createElement("div", { className: "legend-color", style: { background: FINDING_COLORS[key] } }), label)),
-                colorMode === "churn" && React.createElement(React.Fragment, null, React.createElement("div", { className: "legend-item" }, React.createElement("div", { className: "legend-color", style: { background: "#ff5f5f" } }), "High (7+ commits)"), React.createElement("div", { className: "legend-item" }, React.createElement("div", { className: "legend-color", style: { background: "#ff9f43" } }), "Medium (4-6)"), React.createElement("div", { className: "legend-item" }, React.createElement("div", { className: "legend-color", style: { background: "#22c55e" } }), "Low (0-3)"))
+                legendColorMode === "findings" && [["critical", "Critical / high"], ["warning", "Warning / medium"], ["info", "Low / info"], ["none", "No recorded findings"]].map(([key, label]) => React.createElement("div", { key, className: "legend-item" }, React.createElement("div", { className: "legend-color", style: { background: FINDING_COLORS[key] } }), label)),
+                legendColorMode === "churn" && React.createElement(React.Fragment, null, React.createElement("div", { className: "legend-item" }, React.createElement("div", { className: "legend-color", style: { background: "#ff5f5f" } }), "High (7+ commits)"), React.createElement("div", { className: "legend-item" }, React.createElement("div", { className: "legend-color", style: { background: "#ff9f43" } }), "Medium (4-6)"), React.createElement("div", { className: "legend-item" }, React.createElement("div", { className: "legend-color", style: { background: "#22c55e" } }), "Low (0-3)"))
               )
             ),
             tooltip && React.createElement("div", { className: "tooltip", style: { left: tooltip.x, top: tooltip.y } }, React.createElement("div", { className: "tooltip-title" }, tooltip.title), React.createElement("div", { className: "tooltip-content" }, tooltip.content))

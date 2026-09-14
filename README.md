@@ -46,6 +46,10 @@ Browser libraries and built application bundles are checked in under `vendor/` a
 `dist/`; running the app needs no frontend build.
 
 Graph keeps Codeflow's file nodes, connections, layouts and folder filtering.
+Matrix retains every file while rendering cells in the visible viewport. Dendrogram,
+Bundle and Disjoint allocate a larger pan/zoom world for large inventories; Flow
+no longer limits folder count, though its current Sankey layout cannot draw cyclic
+dependencies. These views no longer take fixed-size file samples.
 Compiler references enrich the same graph alongside source-analysis relationships,
 including links from tests, documentation and other languages. Mix dependency and
 build directories (`deps`, `_build`, `.elixir_ls`) are excluded by default, including
