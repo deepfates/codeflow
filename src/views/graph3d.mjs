@@ -5,21 +5,25 @@ import {graph3dLinkWidth,FINDING_COLORS} from './graph-style.mjs';
 export function createGraph3DView({React,getRuntime,colors:COLORS,layerColors:LAYER_COLORS}){
     const {useEffect,useRef,useImperativeHandle}=React;
     return React.forwardRef(function Graph3DView({data,folderFilter,colorMap,colorMode,theme,config,selectedPath,blastRadius,lineThickness,onSelect},ref){
-    const graph3dRef=useRef(null),graph3dInstanceRef=useRef(null),onSelectRef=useRef(onSelect);
+    const graph3dRef=useRef(null),graph3dInstanceRef=useRef(null),onSelectRef=useRef(onSelect),physicsReadyRef=useRef(false);
     onSelectRef.current=onSelect;
     useImperativeHandle(ref,()=>({
         zoom(factor){const graph=graph3dInstanceRef.current;if(!graph)return;const pos=graph.cameraPosition();graph.cameraPosition({x:pos.x*factor,y:pos.y*factor,z:pos.z*factor},null,400);},
         fit(){graph3dInstanceRef.current?.zoomToFit(600);}
     }),[]);
-    // 3D Force Graph Hook
     useEffect(function(){
-        if(!data||!graph3dRef.current)return;
-        const {ForceGraph3D,THREE}=getRuntime();
-        if(typeof ForceGraph3D==='undefined'){
-            console.warn('3d-force-graph library not loaded');
-            return;
-        }
-        var w=graph3dRef.current.clientWidth||800,h=graph3dRef.current.clientHeight||600;
+        const {ForceGraph3D}=getRuntime();
+        if(!ForceGraph3D)return;
+        const container=graph3dRef.current;
+        graph3dInstanceRef.current=ForceGraph3D({controlType:'orbit'})(container)
+            .width(container.clientWidth||800).height(container.clientHeight||600)
+            .onEngineTick(()=>{physicsReadyRef.current=true;});
+    },[]);
+
+    // Source topology owns graphData; assessment/color changes do not restart it.
+    useEffect(function(){
+        const graph=graph3dInstanceRef.current;
+        if(!graph||!data)return;
         var filteredFiles=folderFilter?data.files.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}):data.files;
         var fileIds=new Set(filteredFiles.map(function(f){return f.path;}));
 
@@ -57,6 +61,74 @@ export function createGraph3DView({React,getRuntime,colors:COLORS,layerColors:LA
         });
         var links=Array.from(linkMap.values());
 
+        graph.graphData({nodes:nodes,links:links});
+    },[data?.files,data?.connections,folderFilter]);
+
+    // Only layout inputs update forces. Palette and selection changes are style.
+    useEffect(function(){
+        const graph=graph3dInstanceRef.current;
+        if(!graph||!data)return;
+        const filteredFiles=folderFilter?data.files.filter(f=>f.folder===folderFilter||f.folder.startsWith(folderFilter+'/')):data.files;
+        var linkForce=graph.d3Force('link');
+        if(linkForce)linkForce.distance(config.linkDist||70);
+        var chargeForce=graph.d3Force('charge');
+        if(chargeForce)chargeForce.strength(-(config.spacing||200));
+
+        // Folder organization is physical layout, independent of the color legend.
+        var groups=Array.from(new Set(filteredFiles.map(function(f){return f.folder;})));
+
+        var centers={};
+        if(groups.length>0){
+            var nG=groups.length;
+            groups.forEach(function(g,i){
+                // Distribute cluster centers uniformly on a 3D sphere using Fibonacci distribution
+                var phi=Math.acos(1-2*(i+0.5)/nG);
+                var theta=Math.PI*(1+Math.sqrt(5))*(i+0.5);
+                var radius=180; // Distance of clusters from center
+                centers[g]={
+                    x:radius*Math.sin(phi)*Math.cos(theta),
+                    y:radius*Math.sin(phi)*Math.sin(theta),
+                    z:radius*Math.cos(phi)
+                };
+            });
+        }
+
+        function customForce(axis,targetSelector,strength){
+            var nodes;
+            function force(alpha){
+                var prop=axis;
+                var velProp='v'+axis;
+                for(var i=0;i<nodes.length;i++){
+                    var node=nodes[i];
+                    var target=targetSelector(node);
+                    node[velProp]+=(target-node[prop])*strength*alpha;
+                }
+            }
+            force.initialize=function(_){nodes=_;};
+            return force;
+        }
+
+        if(groups.length>0){
+            var targetProp='folder';
+            var forceStrength=0.15; // Moderate grouping force to allow link connections to stretch organic shapes
+            graph.d3Force('x',customForce('x',function(d){return centers[d[targetProp]]?centers[d[targetProp]].x:0;},forceStrength));
+            graph.d3Force('y',customForce('y',function(d){return centers[d[targetProp]]?centers[d[targetProp]].y:0;},forceStrength));
+            graph.d3Force('z',customForce('z',function(d){return centers[d[targetProp]]?centers[d[targetProp]].z:0;},forceStrength));
+        }else{
+            // No folder groups remain when the scoped project is empty
+            graph.d3Force('x',null);
+            graph.d3Force('y',null);
+            graph.d3Force('z',null);
+        }
+
+        // The first graphData initializes physics asynchronously. Later layout
+        // settings should wake a settled simulation, while palette changes never do.
+        if(physicsReadyRef.current)graph.d3ReheatSimulation();
+    },[data?.files,folderFilter,config.linkDist,config.spacing]);
+
+    useEffect(function(){
+        if(!graph3dInstanceRef.current)return;
+        const {THREE}=getRuntime();
         // Color resolution helper for WebGL (which doesn't understand CSS var(--xxx) variables)
         function resolveHex(colorStr){
             if(!colorStr)return'#888888';
@@ -119,20 +191,10 @@ export function createGraph3DView({React,getRuntime,colors:COLORS,layerColors:LA
             return resolveHex(baseColor);
         }
 
-        var graph;
-        if(!graph3dInstanceRef.current){
-            graph=ForceGraph3D({controlType:'orbit'})(graph3dRef.current);
-            graph3dInstanceRef.current=graph;
-        }else{
-            graph=graph3dInstanceRef.current;
-        }
-
+        const graph=graph3dInstanceRef.current;
         graph
-            .width(w)
-            .height(h)
             .backgroundColor(theme==='light'?'#ffffff':'#0a0a0c')
             .showNavInfo(false)
-            .graphData({nodes:nodes,links:links})
             .nodeResolution(24)
             .nodeVal(getR)
             .nodeColor(getC)
@@ -295,70 +357,14 @@ export function createGraph3DView({React,getRuntime,colors:COLORS,layerColors:LA
             }
         },100);
 
-        var linkForce=graph.d3Force('link');
-        if(linkForce)linkForce.distance(config.linkDist||70);
-        var chargeForce=graph.d3Force('charge');
-        if(chargeForce)chargeForce.strength(-(config.spacing||200));
-
-        // Dynamic 3D Clustering Force by Color Category (Folder or Layer)
-        var groups=[];
-        if(colorMode==='folder'){
-            groups=Array.from(new Set(filteredFiles.map(function(f){return f.folder;})));
-        }else if(colorMode==='layer'){
-            groups=Array.from(new Set(filteredFiles.map(function(f){return f.layer;})));
-        }
-
-        var centers={};
-        if(groups.length>0){
-            var nG=groups.length;
-            groups.forEach(function(g,i){
-                // Distribute cluster centers uniformly on a 3D sphere using Fibonacci distribution
-                var phi=Math.acos(1-2*(i+0.5)/nG);
-                var theta=Math.PI*(1+Math.sqrt(5))*(i+0.5);
-                var radius=180; // Distance of clusters from center
-                centers[g]={
-                    x:radius*Math.sin(phi)*Math.cos(theta),
-                    y:radius*Math.sin(phi)*Math.sin(theta),
-                    z:radius*Math.cos(phi)
-                };
-            });
-        }
-
-        function customForce(axis,targetSelector,strength){
-            var nodes;
-            function force(alpha){
-                var prop=axis;
-                var velProp='v'+axis;
-                for(var i=0;i<nodes.length;i++){
-                    var node=nodes[i];
-                    var target=targetSelector(node);
-                    node[velProp]+=(target-node[prop])*strength*alpha;
-                }
-            }
-            force.initialize=function(_){nodes=_;};
-            return force;
-        }
-
-        if(groups.length>0){
-            var targetProp=colorMode==='folder'?'folder':'layer';
-            var forceStrength=0.15; // Moderate grouping force to allow link connections to stretch organic shapes
-            graph.d3Force('x',customForce('x',function(d){return centers[d[targetProp]]?centers[d[targetProp]].x:0;},forceStrength));
-            graph.d3Force('y',customForce('y',function(d){return centers[d[targetProp]]?centers[d[targetProp]].y:0;},forceStrength));
-            graph.d3Force('z',customForce('z',function(d){return centers[d[targetProp]]?centers[d[targetProp]].z:0;},forceStrength));
-        }else{
-            // Clear clustering forces when not in folder/layer mode
-            graph.d3Force('x',null);
-            graph.d3Force('y',null);
-            graph.d3Force('z',null);
-        }
-
         return function(){clearTimeout(rotationTimer);};
-    },[data,colorMap,colorMode,theme,folderFilter,selectedPath,blastRadius,config.linkDist,config.spacing,config.showLabels,config.curvedLinks,config.autoRotate,lineThickness]);
+    },[colorMap,colorMode,theme,selectedPath,blastRadius,config.showLabels,config.curvedLinks,config.autoRotate,lineThickness]);
 
     useEffect(function(){
         const observer=new ResizeObserver(function(){
             const graph=graph3dInstanceRef.current,container=graph3dRef.current;
-            if(graph&&container)graph.width(container.clientWidth||800).height(container.clientHeight||600);
+            if(graph&&container)graph.width(container.clientWidth||800).height(container.clientHeight||600)
+            .onEngineTick(()=>{physicsReadyRef.current=true;});
         });
         observer.observe(graph3dRef.current);
         return function(){
