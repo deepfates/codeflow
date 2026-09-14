@@ -1,3 +1,4 @@
+import {createProjectHook,parseUrl,buildAppUrl} from './project.mjs';
 import {createAlternateViews} from '../views/alternate.mjs';
 import {indexSourceFindings} from '../project/source-findings.mjs';
 import {sourceFindingColor,FINDING_COLORS} from '../views/graph-style.mjs';
@@ -7,20 +8,16 @@ import {createInspectionPanels} from '../views/inspection.mjs';
 import {createRuntimeInspectionHook} from './runtime-inspection.mjs';
 import {createGraph3DView} from '../views/graph3d.mjs';
 import {createArchitectureView} from '../views/architecture.mjs';
-import {createProjectLoading} from '../project/loading.mjs';
-import {createLocalTools} from '../project/local-tools.mjs';
-import {createProjectSource} from '../project/access.mjs';
-import {subscribeCliAnalysis} from '../project/cli-analysis.mjs';
+
 import {exportAnalysis} from '../project/export.mjs';
 import {generateAnalysisReport} from '../project/reports.mjs';
 import {highlightSyntax} from '../views/highlight.mjs';
 import {createInvestigationState,reduceInvestigation} from '../investigation/state.mjs';
 import {LINE_THICKNESS_MIN,LINE_THICKNESS_MAX,readUiPrefs,persistUiPrefs} from '../investigation/preferences.mjs';
-import {newLocalSelectionId,localFolderCacheMeta,cliWatchCacheMeta,zipArchiveCacheMeta,retainedFolderMatchesRecord,cliRecordMatchesStatus,zipFileIdentity,retainedZipMatchesRecord,githubCacheSourceKey,githubSourceKeyForLoadedAnalysis,cachedAnalysisMatchesExcludes,githubZipDownloadUrl,analysisCacheKey,analysisGraphKey,analysisHydrationIdFromParts,loadedAnalysisSourceIdentity} from '../project/identity.mjs';
-import {asCodeLines,nextCodeSourceReads,fileHasLoadedSource,clearCodeSourceFailure,recordCodeSourceFailureIfCurrent,clearCodeSourceFailureIfCurrent,filesNeedingSource,mergeHydratedFileSources} from '../project/source.mjs';
-import {CLI_WATCH_DIFF_MS,normalizeCliWatchPath,noteCliWatchPath,noteCliWatchDuringEvent,cliWatchSnapRevFromResponse,forgetCliWatchPath,analyzedFileForCliWatchPath,cliWatchLiveClearsDirty,mergeCliLiveContents,cliWatchDiffPaths,startedCliWatchDiffPaths,bumpCliWatchDiffEpoch,cliWatchDiffRequestIsCurrent,retainCliWatchPathsAfterAnalysis,cliWatchLiveRejectsOversized,cliWatchLiveFromResponse,shouldApplyCliWatchLive,pendingCliWatchDiffPaths,cliWatchAppliesToAnalysis} from '../project/changes.mjs';
+import {githubZipDownloadUrl,analysisCacheKey} from '../project/identity.mjs';
+import {asCodeLines,fileHasLoadedSource} from '../project/source.mjs';
 
-import {formatRecentTime,armRecentDelete,buildRecentAnalysisRecord,compactAnalysisForCache,listRecentAnalyses,getRecentAnalysis,deleteRecentAnalysis,saveRecentAnalysis} from '../investigation/recent-analyses.mjs';
+import {formatRecentTime,armRecentDelete} from '../investigation/recent-analyses.mjs';
 import {searchProject,folderFilterAfterCodeNav,filesForOpenedCodePaths} from '../investigation/navigation.mjs';
 import {restoreWorkspace} from '../investigation/workspace.mjs';
 import {codeFileNavOpensCard,graphSvgExportEnabled,vizUsesLineThickness,vizHasGraphToolbar} from '../views/capabilities.mjs';
@@ -28,11 +25,11 @@ import {codeFileNavOpensCard,graphSvgExportEnabled,vizUsesLineThickness,vizHasGr
 import {snapshotZoomTransform} from '../views/camera.mjs';
 
 import {groupArchitectureRelationships,findBlockById,getVisibleArchitectureBlocks,computeArchitectureStats,groupBlocksByArchitectureGroup,generateMermaidBlockDiagram} from '../analysis/architecture.mjs';
-import {buildBeamAnalysisData,enrichAnalysisFindings} from '../analysis/evidence.mjs';
+
 import {calcBlast,calcHealth} from '../analysis/metrics.mjs';
-import {DEFAULT_EXCLUDE_CHIPS,parseExcludePatterns,compileExcludePatterns,filterAnalyzableLocalFiles} from '../project/exclusions.mjs';
+import {DEFAULT_EXCLUDE_CHIPS,parseExcludePatterns,compileExcludePatterns} from '../project/exclusions.mjs';
 import {countFiles} from '../project/tree.mjs';
-import {collectDirectory,collectSelectedFiles,collectArchive,readCollectedFiles} from '../project/collection.mjs';
+
 import {yieldToBrowser} from './scheduling.mjs';
 import {createParser} from '../analysis/parser.mjs';
 import {createProjectAnalyzer} from '../analysis/project.mjs';
@@ -43,6 +40,7 @@ const Parser=createParser(browserSyntaxRuntime({TreeSitter:globalThis.TreeSitter
 const {analyzeFiles}=createProjectAnalyzer(Parser);
 const runAnalysisData=createAnalysisClient({analyzeFiles,yieldFn:yieldToBrowser});
 const GitHub=createGitHubAdapter({KJUR:globalThis.KJUR});
+const useProject=createProjectHook({React,runAnalysisData,GitHub,JSZip:globalThis.JSZip});
 
 const{useState,useReducer,useEffect,useLayoutEffect,useRef,useMemo,useCallback}=React;
 const {SourceNavigation,AnalysisTools,SourceProcesses,SourceFindings,RuntimePanel}=createInspectionPanels(React);
@@ -53,8 +51,6 @@ const LAYER_COLORS={ui:'#4d9fff',components:'#22d3ee',services:'#a78bfa',utils:'
 const NativeCanvas=createNativeCanvas({React,d3:globalThis.d3,Icon,COLORS,LAYER_COLORS});
 const {TreemapView,MatrixView,DendrogramView,SankeyView,DisjointView,BundleView}=createAlternateViews({React,d3:globalThis.d3,colors:COLORS});
 const Graph3DView=createGraph3DView({React,getRuntime:()=>({ForceGraph3D:globalThis.ForceGraph3D,THREE:globalThis.THREE}),colors:COLORS,layerColors:LAYER_COLORS});
-
-const ANALYSIS_LIMITS={repoSoft:300,localSoft:500};
 
 // Secrets are dangerous wherever the code executes — CI workflows, hooks and
 // deploy scripts included — so the Hardcoded Secret rule exempts only
@@ -395,14 +391,6 @@ function getFilePreviewIconName(filename){
         },extra||{});
     }
 
-function buildAppUrl(repo,autoRun){
-    var url=new URL(window.location.href);
-    url.search='';
-    if(repo)url.searchParams.set('repo',repo);
-    if(autoRun&&repo)url.searchParams.set('run','1');
-    return url.toString();
-}
-
 function getDialogTone(tone){
     if(tone==='danger')return{
         color:'var(--red)',
@@ -477,8 +465,7 @@ function HealthRing(props){
 function App(){
     const nativeCanvasRef=useRef(null);
     const [restoredNativeScene,setRestoredNativeScene]=useState(null);
-    const projectLoading=useMemo(createProjectLoading,[]);
-    useEffect(()=>()=>projectLoading.dispose(),[projectLoading]);
+
     var _a=useState(window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'),theme=_a[0],setTheme=_a[1];
     var _b=useState(''),repoUrl=_b[0],setRepoUrl=_b[1];
     var _c=useState(''),token=_c[0],setToken=_c[1];
@@ -486,17 +473,25 @@ function App(){
     var _appId=useState(''),appId=_appId[0],setAppId=_appId[1];
     var _privateKey=useState(''),privateKey=_privateKey[0],setPrivateKey=_privateKey[1];
     var _showKeyModal=useState(false),showKeyModal=_showKeyModal[0],setShowKeyModal=_showKeyModal[1];
-    var _d=useState(false),loading=_d[0],setLoading=_d[1];
-    var _e=useState(''),progress=_e[0],setProgress=_e[1];
-    var _f=useState(null),error=_f[0],setError=_f[1];
-    var _g=useState(null),data=_g[0],setData=_g[1];
+    var _ai=useState(''),excludePatternInput=_ai[0],setExcludePatternInput=_ai[1];
+    var activeExcludePatterns=useMemo(function(){return compileExcludePatterns(excludePatternInput);},[excludePatternInput]);
+    const project=useProject({repoUrl,auth:{authMethod,token,appId,privateKey},excludePatterns:activeExcludePatterns,confirm:requestConfirm,notify:showNotification,onReset:resetProjectPresentation,onRepositoryURL:setRepoUrl});
+    const {data,repoInfo,localSourceKind,loading,progress,recentAnalyses,cachedFromId,cliStatus,cliDirty,cliLiveByPath,beamAnalysis,localTools,codeSourceFailed}=project;
+    const [pickerError,setPickerError]=useState(null);
+    const error=pickerError||project.error;
+    const analyze=()=>{setPickerError(null);return project.openGitHub(repoUrl);};
+    const refreshAnalysis=project.refresh,reanalyzeRecent=project.refreshRecent,removeRecentAnalysis=project.removeRecent;
+    function loadRecentAnalysis(id){clearPendingRecentDelete();return project.openRecent(id);}
+    function currentAnalysisSource(){return project.source;}
+    function readLiveFileSource(path){return project.readSource(path);}
+    function resetProjectPresentation({cached=false}={}){setPickerError(null);setSelected(null);setBlastRadius(null);setOwnership(null);setFolderFilter(null);setPrData(null);setFilePreview(null);setMobilePanel(null);setShowGraphConfig(false);setActiveSymbol(null);setExpandedPaths(new Set(['']));if(cached)setGraphConfig(cfg=>({...cfg,vizType:cfg.vizType==='architecture'?'graph':cfg.vizType}));}
+
     const [investigation,dispatchInvestigation]=useReducer((state,action)=>reduceInvestigation(state,action,data),undefined,createInvestigationState);
     const selected=useMemo(()=>data&&data.files.find(file=>file.path===investigation.selectedPath)||null,[data,investigation.selectedPath]);
     const folderFilter=investigation.scope,openedCodePaths=investigation.openedPaths,navigation=investigation.navigation;
     function setSelected(file){dispatchInvestigation({type:'select',path:file?file.path:null,record:false});}
     function setFolderFilter(scope){dispatchInvestigation({type:'scope',scope:typeof scope==='function'?scope(folderFilter):scope});}
 
-    var _h=useState(null),repoInfo=_h[0],setRepoInfo=_h[1];
     var _i=useState('folder'),colorMode=_i[0],setColorMode=_i[1];
     var _k=useState(new Set([''])),expandedPaths=_k[0],setExpandedPaths=_k[1];
     var _l=useState(new Set(['blast','fns'])),expandedCards=_l[0],setExpandedCards=_l[1];
@@ -528,10 +523,10 @@ function App(){
     var _ad=useState(360),rightPanelWidth=_ad[0],setRightPanelWidth=_ad[1];
     var _ae=useState(true),legendCollapsed=_ae[0],setLegendCollapsed=_ae[1];
     var _af=useState(null),filePreview=_af[0],setFilePreview=_af[1];// {path, content, line, filename, loading, error}
-    var _ag=useState(null),localDirHandle=_ag[0],setLocalDirHandle=_ag[1];
-    var _ap=useState(null),localSourceKind=_ap[0],setLocalSourceKind=_ap[1];// null | 'folder' | 'zip'
+
+    // null | 'folder' | 'zip'
     var _ah=useState(false),showExcludeModal=_ah[0],setShowExcludeModal=_ah[1];
-    var _ai=useState(''),excludePatternInput=_ai[0],setExcludePatternInput=_ai[1];
+
     var _aj=useState(''),excludePatternDraft=_aj[0],setExcludePatternDraft=_aj[1];
     var _al=useState(null),confirmDialog=_al[0],setConfirmDialog=_al[1];
     var _am=useState(window.innerWidth),viewportWidth=_am[0],setViewportWidth=_am[1];
@@ -540,11 +535,10 @@ function App(){
     var _archTests=useState(false),architectureIncludeTests=_archTests[0],setArchitectureIncludeTests=_archTests[1];
     var _archBuild=useState(false),architectureIncludeBuildOutput=_archBuild[0],setArchitectureIncludeBuildOutput=_archBuild[1];
     var [selectedArchitectureBlock,setSelectedArchitectureBlock]=useState(null);
-    var _recents=useState([]),recentAnalyses=_recents[0],setRecentAnalyses=_recents[1];
-    var _cachedId=useState(null),cachedFromId=_cachedId[0],setCachedFromId=_cachedId[1];
+
     var _activeSym=useState(null),activeSymbol=_activeSym[0],setActiveSymbol=_activeSym[1];
     var _pendingDel=useState(null),pendingRecentDelete=_pendingDel[0],setPendingRecentDelete=_pendingDel[1];
-    var _cli=useState(null),cliStatus=_cli[0],setCliStatus=_cli[1];
+
     var [fileQuery,setFileQuery]=useState(''),[searchLimit,setSearchLimit]=useState(40);
     var projectSearchResults=useMemo(function(){return data?searchProject(data,fileQuery):[];},[data,fileQuery]);
     var fileSearchRef=useRef(null);
@@ -557,7 +551,7 @@ function App(){
         }}
         window.addEventListener('keydown',quickOpen);return function(){window.removeEventListener('keydown',quickOpen);};
     },[viewportWidth]);
-    var [beamAnalysis,setBeamAnalysis]=useState(null);
+
     var [beamSymbols,setBeamSymbols]=useState([]),[beamLocations,setBeamLocations]=useState(null);
     var [beamNavigationError,setBeamNavigationError]=useState(null);
     function beamLanguage(method,path,position){
@@ -596,8 +590,7 @@ function App(){
         var range=document.createRange();range.selectNodeContents(event.currentTarget);range.setEnd(node,offset);
         navigateBeamSymbol(event.shiftKey?'references':'definition',path,{line:line,character:range.toString().length});
     }
-    var _cliDirty=useState([]),cliDirty=_cliDirty[0],setCliDirty=_cliDirty[1];
-    var _cliLive=useState(Object.create(null)),cliLiveByPath=_cliLive[0],setCliLiveByPath=_cliLive[1];
+
     var isMobile=viewportWidth<=980;
 
     var graph3dViewRef=useRef(null);
@@ -606,42 +599,22 @@ function App(){
     var filePreviewRef=useRef(null);
     var architectureViewRef=useRef(null);
 
-
     var openedSceneRef=useRef('');
     var workspaceKeyRef=useRef(null),workspaceRestoreRef=useRef(null);
 
-    var codeSourceInFlightRef=useRef(Object.create(null));
-
     var analysisHydrationIdRef=useRef('');
-    var dataRef=useRef(null);
-    dataRef.current=data;
-    var enqueueCliWatchDiffRef=useRef(null);
-    var cliDiffTimerRef=useRef(null);
-    var cliDiffPendingRef=useRef([]);
-    var cliDiffGenRef=useRef(Object.create(null));
-    var cliDiffEpochRef=useRef(1);
-    var cliAnalyzingRef=useRef(false);
-    var cliWatchDuringRef=useRef([]);
-    var cliWatchReadRef=useRef(Object.create(null));
-    var cliWatchSnapRevRef=useRef(Object.create(null));
-    var _sourceFailed=useState(Object.create(null)),codeSourceFailed=_sourceFailed[0],setCodeSourceFailed=_sourceFailed[1];
+
     var _codeExpand=useState(false),codeViewExpand=_codeExpand[0],setCodeViewExpand=_codeExpand[1];
     var _codeWrap=useState(true),codeViewWrap=_codeWrap[0],setCodeViewWrap=_codeWrap[1];
     var _lineThick=useState(readUiPrefs().lineThickness),lineThickness=_lineThick[0],setLineThickness=_lineThick[1];
     var pendingRecentDeleteTimerRef=useRef(null);
     var zipInputRef=useRef(null);
-    var zipArchiveRef=useRef(null);
-    var zipFileRef=useRef(null);
+
     var folderInputRef=useRef(null);
-    var localFilesRef=useRef(null);
-    var localFolderKeyRef=useRef(null);
-    var localFolderSelectionRef=useRef(null);
-    var zipKeyRef=useRef(null);
+
     var pendingExcludePatternsRef=useRef(null);
     var confirmResolverRef=useRef(null);
-    var forceRefreshRef=useRef(false);
-    var persistTimerRef=useRef(null);
-    var activeExcludePatterns=useMemo(function(){return compileExcludePatterns(excludePatternInput);},[excludePatternInput]);
+
     var customExcludeCount=activeExcludePatterns.length;
 
     useEffect(function(){
@@ -750,69 +723,18 @@ function App(){
                 setTimeout(function(){var btn=document.getElementById('analyze-btn');if(btn)btn.click();},500);
             }
         }
-        refreshRecentList();
-        return probeCodeflowCli();
+
     },[]);
 
-    function parseUrl(url){
-        if(!url||typeof url!=='string')return null;
-        url=url.trim();
-        if(url.length>200||url.includes('{')|| url.includes('"'))return null;
-        var m=url.match(/^(?:https?:\/\/)?(?:www\.)?github\.com\/([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)/);
-        if(m)return{owner:m[1],repo:m[2].replace(/\.git$/,'')};
-        var simple=url.match(/^([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)$/);
-        if(simple)return{owner:simple[1],repo:simple[2]};
-        return null;
-    }
-
-    function currentAnalysisSource(){
-        if(localSourceKind==='folder')return{sourceType:'folder',sourceKey:(repoInfo&&(repoInfo.folderKey||repoInfo.name))||'local-folder',title:(repoInfo&&repoInfo.name)||'Local Folder',repoUrl:'',localSourceKind:'folder'};
-        if(localSourceKind==='zip')return{sourceType:'zip',sourceKey:(repoInfo&&(repoInfo.zipKey||repoInfo.name))||'zip',title:(repoInfo&&repoInfo.name)||'ZIP Archive',repoUrl:'',localSourceKind:'zip'};
-        if(localSourceKind==='cli')return{sourceType:'cli',sourceKey:(repoInfo&&repoInfo.cliRoot)||(cliStatus&&cliStatus.root)||'cli',title:(cliStatus&&cliStatus.name)||(repoInfo&&repoInfo.name)||'Local watch',repoUrl:'',localSourceKind:'cli'};
-        if(repoInfo&&repoInfo.owner&&repoInfo.repo&&repoInfo.owner!=='local')return{sourceType:'github',sourceKey:githubSourceKeyForLoadedAnalysis(repoInfo.owner,repoInfo.repo,data,activeExcludePatterns),title:repoInfo.owner+'/'+repoInfo.repo,repoUrl:repoInfo.owner+'/'+repoInfo.repo,localSourceKind:null};
-        var parsed=parseUrl(repoUrl);
-        if(parsed)return{sourceType:'github',sourceKey:githubSourceKeyForLoadedAnalysis(parsed.owner,parsed.repo,data,activeExcludePatterns),title:parsed.owner+'/'+parsed.repo,repoUrl:parsed.owner+'/'+parsed.repo,localSourceKind:null};
-        if(cliStatus&&cliStatus.ok)return{sourceType:'cli',sourceKey:cliStatus.root||'cli',title:cliStatus.name||'Local watch',repoUrl:'',localSourceKind:'cli'};
-        return null;
-    }
-    var analysisGraphIdentity=useMemo(function(){return analysisGraphKey(data);},[data]);
-    var loadedSourceIdentity=useMemo(function(){
-        var parsed=parseUrl(repoUrl);
-        var githubOwner=repoInfo&&repoInfo.owner&&repoInfo.owner!=='local'?repoInfo.owner:(parsed&&parsed.owner);
-        var githubRepo=repoInfo&&repoInfo.owner&&repoInfo.owner!=='local'?repoInfo.repo:(parsed&&parsed.repo);
-        return loadedAnalysisSourceIdentity({
-            localSourceKind:localSourceKind,
-            folderKey:repoInfo&&(repoInfo.folderKey||repoInfo.name),
-            zipKey:repoInfo&&(repoInfo.zipKey||repoInfo.name),
-            cliRoot:(repoInfo&&repoInfo.cliRoot)||(cliStatus&&cliStatus.root),
-            cliOk:!!(cliStatus&&cliStatus.ok),
-            githubOwner:githubOwner,
-            githubRepo:githubRepo,
-            githubKey:githubOwner&&githubRepo?githubSourceKeyForLoadedAnalysis(githubOwner,githubRepo,data,activeExcludePatterns):null
-        });
-    },[localSourceKind,repoInfo,repoUrl,data,cliStatus]);
-    var currentHydrationId=useMemo(function(){
-        return analysisHydrationIdFromParts(loadedSourceIdentity,analysisGraphIdentity);
-    },[loadedSourceIdentity,analysisGraphIdentity]);
+    var currentHydrationId=project.hydrationId;
+    const loadedSourceIdentity=project.identity;
     analysisHydrationIdRef.current=currentHydrationId;
-    var localTools=useMemo(function(){return createLocalTools({identity:loadedSourceIdentity,status:cliStatus});},
-        [loadedSourceIdentity&&loadedSourceIdentity.sourceType,loadedSourceIdentity&&loadedSourceIdentity.sourceKey,cliStatus&&cliStatus.root,cliStatus&&cliStatus.ok]);
     const runtimeInspection=useRuntimeInspection(localTools,cliStatus?.runtimeNode||'');
     const runtimeIndex=useMemo(()=>indexRuntime(runtimeInspection.snapshot,data?.files||[]),[runtimeInspection.snapshot,data]);
     useEffect(function(){
-        setBeamAnalysis(null);setBeamLocations(null);setBeamNavigationError(null);
-        return function(){if(localTools)localTools.dispose();};
+        setBeamLocations(null);setBeamNavigationError(null);
     },[localTools]);
 
-    useEffect(function(){
-        if(loading||!data||!data.beam||!localTools)return;
-
-        return subscribeCliAnalysis({onUpdate:function(update){
-            if(update.analysis)setBeamAnalysis(update.analysis);
-            if(update.diagnostics)setData(function(prev){return prev?enrichAnalysisFindings(prev,update.diagnostics):prev;});
-            if(update.graph)setData(function(prev){return prev&&prev.beam?buildBeamAnalysisData({data:prev,snapshot:update.graph}):prev;});
-        }});
-    },[loading,localTools,!!(data&&data.beam)]);
     useEffect(function(){
         setBeamSymbols([]);setBeamLocations(null);setBeamNavigationError(null);
         if(loading||!localTools||!data||!data.beam||!selected||!/\.exs?$/.test(selected.path)||!beamAnalysis||beamAnalysis.language.state!=='ready')return;
@@ -821,116 +743,12 @@ function App(){
         return function(){cancelled=true;};
     },[loading,localTools,selected&&selected.path,beamAnalysis&&beamAnalysis.language.build&&beamAnalysis.language.build.completedAt,beamAnalysis&&beamAnalysis.language.state]);
 
-    function refreshRecentList(){
-        listRecentAnalyses().then(function(rows){
-            setRecentAnalyses((rows||[]).map(function(row){
-                return{
-                    id:row.id,
-                    title:row.title,
-                    sourceType:row.sourceType,
-                    sourceKey:row.sourceKey,
-                    repoUrl:row.repoUrl,
-                    fileCount:row.fileCount,
-                    savedAt:row.savedAt
-                };
-            }));
-        }).catch(function(){});
-    }
-
-    function persistCurrentAnalysis(dataObj,meta){
-        if(!dataObj)return;
-        var source=meta||currentAnalysisSource();
-        if(!source)return;
-        var record=buildRecentAnalysisRecord({
-            sourceType:source.sourceType,
-            sourceKey:source.sourceKey,
-            title:source.title,
-            repoUrl:source.repoUrl,
-            data:compactAnalysisForCache(dataObj),
-            repoInfo:source.repoInfo||repoInfo,
-            localSourceKind:source.localSourceKind
-        });
-        if(persistTimerRef.current)clearTimeout(persistTimerRef.current);
-        persistTimerRef.current=setTimeout(function(){
-            saveRecentAnalysis(record).then(function(ok){if(ok)refreshRecentList();});
-        },80);
-    }
-
-    function applyCachedAnalysis(record){
-        if(!record||!record.data)return;
-        projectLoading.begin();
-        setLoading(false);setError(null);cliAnalyzingRef.current=false;
-        setData(compactAnalysisForCache(record.data));
-        setExpandedPaths(new Set(['']));
-        setSelected(null);
-        setBlastRadius(null);
-        setOwnership(null);
-        setFolderFilter(null);
-        setCachedFromId(record.id);
-        setActiveSymbol(null);
-        setCliDirty([]);
-        clearCliLiveDiffs();
-        if(record.repoInfo)setRepoInfo(record.repoInfo);
-        if(record.repoUrl)setRepoUrl(record.repoUrl);
-        var folderMatches=record.sourceType==='folder'&&retainedFolderMatchesRecord(record,{sourceKey:localFolderKeyRef.current});
-        var zipMatches=record.sourceType==='zip'&&retainedZipMatchesRecord(record,{
-            sourceKey:zipKeyRef.current,
-            identity:zipFileIdentity(zipFileRef.current)
-        });
-        if(!folderMatches){
-            setLocalDirHandle(null);
-            localFolderKeyRef.current=null;
-            localFolderSelectionRef.current=null;
-            localFilesRef.current=null;
-        }
-        if(!zipMatches){
-            zipArchiveRef.current=null;
-            zipFileRef.current=null;
-            zipKeyRef.current=null;
-        }
-        if(record.sourceType==='github'||record.sourceType==='cli'){
-            setLocalSourceKind(record.sourceType==='cli'?'cli':null);
-            setLocalDirHandle(null);
-        }else{
-            setLocalSourceKind(record.localSourceKind||record.sourceType);
-        }
-        setGraphConfig(function(cfg){return Object.assign({},cfg,{vizType:cfg.vizType==='architecture'?'graph':cfg.vizType});});
-        showNotification('Loaded cached analysis. Re-analyze to refresh.','success');
-    }
-
-    function loadRecentAnalysis(id){
-        const selectionSignal=projectLoading.begin();
-        clearPendingRecentDelete();
-        return getRecentAnalysis(id).then(function(record){
-            if(selectionSignal.aborted)return null;
-            if(!record){showNotification('That analysis is no longer cached.','warning');refreshRecentList();return null;}
-            applyCachedAnalysis(record);
-            return record;
-        }).catch(function(){if(selectionSignal.aborted)return null;showNotification('Could not open cached analysis.','error');return null;});
-    }
-
-    function reanalyzeRecent(id){
-        const selectionSignal=projectLoading.begin();
-        return getRecentAnalysis(id).then(function(record){
-            if(selectionSignal.aborted)return null;
-            if(!record){showNotification('That analysis is no longer cached.','warning');refreshRecentList();return;}
-            refreshAnalysis(record);
-        }).catch(function(){if(selectionSignal.aborted)return null;showNotification('Could not open cached analysis.','error');});
-    }
-
     function clearPendingRecentDelete(){
         if(pendingRecentDeleteTimerRef.current){
             clearTimeout(pendingRecentDeleteTimerRef.current);
             pendingRecentDeleteTimerRef.current=null;
         }
         setPendingRecentDelete(null);
-    }
-
-    function removeRecentAnalysis(id){
-        deleteRecentAnalysis(id).then(function(){
-            if(cachedFromId===id)setCachedFromId(null);
-            refreshRecentList();
-        }).catch(function(){});
     }
 
     function requestRecentDelete(id,e){
@@ -962,201 +780,6 @@ function App(){
         var parsed=parseUrl(repoUrl)||(repoInfo&&repoInfo.owner&&repoInfo.repo?{owner:repoInfo.owner,repo:repoInfo.repo}:null);
         if(!parsed){showNotification('Enter a GitHub URL first.','warning');return;}
         startGithubZipDownload(parsed.owner,parsed.repo);
-    }
-
-    function clearCliLiveDiffs(){
-        cliDiffEpochRef.current=bumpCliWatchDiffEpoch(cliDiffEpochRef.current);
-        cliDiffPendingRef.current=[];
-        cliDiffGenRef.current=Object.create(null);
-        if(cliDiffTimerRef.current){
-            clearTimeout(cliDiffTimerRef.current);
-            cliDiffTimerRef.current=null;
-        }
-        setCliLiveByPath(Object.create(null));
-    }
-
-    function flushCliWatchDiffs(paths){
-        if(!cliWatchAppliesToAnalysis(localSourceKind,cliStatus,currentAnalysisSource()))return;
-        var wanted=cliWatchDiffPaths(dataRef.current&&dataRef.current.files,paths);
-        if(!wanted.length)return;
-        wanted.forEach(function(path){
-            var epoch=cliDiffEpochRef.current;
-            var gen=(cliDiffGenRef.current[path]||0)+1;
-            cliDiffGenRef.current[path]=gen;
-            readCliWatchLiveSource(path).then(function(result){
-                if(!cliWatchDiffRequestIsCurrent(cliDiffEpochRef.current,epoch,cliDiffGenRef.current,path,gen))return;
-                if(!shouldApplyCliWatchLive(result))return;
-                var live=result.kind==='missing'?'':result.content;
-                var file=analyzedFileForCliWatchPath(dataRef.current&&dataRef.current.files,path);
-                if(cliWatchLiveClearsDirty(file,live,result.kind)){
-                    setCliLiveByPath(function(prev){return mergeCliLiveContents(prev,[{path:path,content:null}]);});
-                    setCliDirty(function(prev){return forgetCliWatchPath(prev,path);});
-                    return;
-                }
-                setCliLiveByPath(function(prev){return mergeCliLiveContents(prev,[{path:path,content:live}]);});
-            });
-        });
-    }
-
-    function enqueueCliWatchDiff(path,rev){
-        var next=normalizeCliWatchPath(path);
-        if(!next)return;
-        if(cliAnalyzingRef.current)cliWatchDuringRef.current=noteCliWatchDuringEvent(cliWatchDuringRef.current,next,rev);
-        if(!cliWatchAppliesToAnalysis(localSourceKind,cliStatus,currentAnalysisSource()))return;
-        setCliDirty(function(prev){return noteCliWatchPath(prev,next);});
-        cliDiffPendingRef.current=noteCliWatchPath(cliDiffPendingRef.current,next);
-        if(cliDiffTimerRef.current)clearTimeout(cliDiffTimerRef.current);
-        cliDiffTimerRef.current=setTimeout(function(){
-            var pending=cliDiffPendingRef.current;
-            cliDiffPendingRef.current=[];
-            cliDiffTimerRef.current=null;
-            flushCliWatchDiffs(pending);
-        },CLI_WATCH_DIFF_MS);
-    }
-    enqueueCliWatchDiffRef.current=enqueueCliWatchDiff;
-
-    function probeCodeflowCli(){
-        const probeSignal=projectLoading.begin();
-        let src;
-        fetch('/__codeflow/status',{signal:probeSignal}).then(function(res){return res.ok?res.json():null;}).then(function(status){
-            if(probeSignal.aborted||!status||!status.ok)return;
-            setCliStatus(status);
-            if(!window.location.search||window.location.search.indexOf('repo=')<0){
-                analyzeFromCli(false,status);
-            }
-            if(window.EventSource){
-                src=new EventSource('/__codeflow/events');
-                src.onmessage=function(ev){
-                    try{
-                        var payload=JSON.parse(ev.data||'{}');
-                        if(payload.path&&enqueueCliWatchDiffRef.current)enqueueCliWatchDiffRef.current(payload.path,payload.rev);
-                    }catch(e){}
-                };
-            }
-        }).catch(function(){});
-        return function(){src?.close();};
-    }
-
-    useEffect(function(){
-        if(!cliWatchAppliesToAnalysis(localSourceKind,cliStatus,currentAnalysisSource()))return;
-        if(!data||!data.files||!cliDirty.length)return;
-        var started=startedCliWatchDiffPaths(cliDiffPendingRef.current,cliDiffGenRef.current);
-        var missing=pendingCliWatchDiffPaths(cliDirty,cliLiveByPath,started);
-        if(!missing.length)return;
-        flushCliWatchDiffs(missing);
-    },[currentHydrationId,cliDirty,localSourceKind,cliStatus,cliLiveByPath]);
-
-    async function analyzeFromCli(force,statusHint,wantedRoot){
-        const selectionSignal=projectLoading.begin();
-        var status=statusHint||cliStatus;
-        if(!status||!status.ok){
-            try{
-                var statusRes=await fetch('/__codeflow/status',{signal:selectionSignal});
-                if(statusRes.ok){
-                    var nextStatus=await statusRes.json();
-                    if(nextStatus&&nextStatus.ok)status=nextStatus;
-                }
-            }catch(e){}
-            if((!status||!status.ok)&&!force)return;
-        }
-        if(selectionSignal.aborted)return;
-        if(wantedRoot&&!cliRecordMatchesStatus({sourceKey:wantedRoot},status)){
-            showNotification('Restart the CLI in that folder to re-analyze it.','warning');
-            return false;
-        }
-        if(status&&status.ok)setCliStatus(status);
-        var cliMeta=cliWatchCacheMeta(status);
-        cliWatchDuringRef.current=[];
-        cliWatchReadRef.current=Object.create(null);
-        cliWatchSnapRevRef.current=Object.create(null);
-        resetAnalysisState();
-        cliAnalyzingRef.current=true;
-        const loadSignal=projectLoading.signal;
-        setLocalDirHandle(null);
-        localFolderKeyRef.current=null;
-        localFolderSelectionRef.current=null;
-        setLocalSourceKind('cli');
-        zipArchiveRef.current=null;
-        zipFileRef.current=null;
-        zipKeyRef.current=null;
-        setLoading(true);
-        setProgress('Reading local folder from CLI...');
-        try{
-
-            var listRes=await fetch('/__codeflow/files',{signal:loadSignal});
-            if(!listRes.ok)throw new Error('CLI file list failed');
-            var list=await listRes.json();
-            var files=filterAnalyzableLocalFiles(list&&list.files?list.files:[],activeExcludePatterns);
-            if(!files.length)throw new Error(activeExcludePatterns.length?'No code files found in the watched folder after applying exclude patterns':'No code files found in the watched folder');
-            const analyzed=await readCollectedFiles(files.map(file=>({...file,read:async()=>{
-                const response=await fetch('/__codeflow/file?path='+encodeURIComponent(file.path),{signal:loadSignal});
-                if(!response.ok)throw new Error('CLI source request failed');
-                loadSignal.throwIfAborted();
-                const path=normalizeCliWatchPath(file.path);
-                cliWatchReadRef.current[path]=true;
-                const revision=cliWatchSnapRevFromResponse(response);
-                if(revision!=null)cliWatchSnapRevRef.current[path]=revision;
-                return response.text();
-            }})),{signal:loadSignal,progress:message=>{if(!loadSignal.aborted)setProgress(message);},yieldFn:yieldToBrowser});
-            var snapshot=null;
-            if(status.beam){
-                var beamRes=await fetch('/__codeflow/beam',{signal:loadSignal});
-                if(!beamRes.ok)throw new Error('Compiler snapshot request failed');
-                snapshot=await beamRes.json();
-            }
-            var dataObj=await runAnalysisData({
-                signal:loadSignal,
-                files:analyzed,
-                excludePatterns:activeExcludePatterns.map(function(x){return x.raw;}),
-                progress:function(message){if(!loadSignal.aborted)setProgress(message);},
-                yieldFn:yieldToBrowser
-            });
-            if(loadSignal.aborted)return;
-            if(status.beam)dataObj=buildBeamAnalysisData({data:dataObj,snapshot:snapshot});
-            var cliInfo={owner:'local',repo:'cli',name:cliMeta.title,cliRoot:cliMeta.sourceKey};
-            var keep=retainCliWatchPathsAfterAnalysis(cliWatchDuringRef.current,cliWatchReadRef.current,cliWatchSnapRevRef.current);
-            cliAnalyzingRef.current=false;
-            cliWatchDuringRef.current=[];
-            cliWatchReadRef.current=Object.create(null);
-            cliWatchSnapRevRef.current=Object.create(null);
-            if(loadSignal.aborted)return;
-            setData(dataObj);
-            setExpandedPaths(new Set(['']));
-            setRepoInfo(cliInfo);
-            setCachedFromId(null);
-            setCliDirty(keep);
-            clearCliLiveDiffs();
-            persistCurrentAnalysis(dataObj,{sourceType:'cli',sourceKey:cliMeta.sourceKey,title:cliMeta.title,repoUrl:'',repoInfo:cliInfo,localSourceKind:'cli'});
-            setLoading(false);
-            return true;
-        }catch(err){
-            if(loadSignal.aborted)return;
-            cliAnalyzingRef.current=false;
-            cliWatchDuringRef.current=[];
-            cliWatchReadRef.current=Object.create(null);
-            cliWatchSnapRevRef.current=Object.create(null);
-            setError('CLI analysis failed: '+(err.message||err));
-            setLoading(false);
-        }
-    }
-
-    function resetAnalysisState(){
-        projectLoading.begin();
-        cliAnalyzingRef.current=false;
-        setError(null);
-        setData(null);
-        setSelected(null);
-        setBlastRadius(null);
-        setOwnership(null);
-        setFolderFilter(null);
-        setPrData(null);
-        setFilePreview(null);
-        setMobilePanel(null);
-        setShowGraphConfig(false);
-        setCachedFromId(null);
-        setActiveSymbol(null);
-        setCliDirty([]);
-        clearCliLiveDiffs();
     }
 
     function openExcludeModal(){
@@ -1203,176 +826,6 @@ function App(){
         setMobilePanel(function(prev){return prev===panel?null:panel;});
     }
 
-    function analyze(forceRefresh,explicitUrl){
-        var p=parseUrl(explicitUrl||repoUrl);
-        if(!p){setError('Invalid URL. Use format: owner/repo');return;}
-        if(explicitUrl)setRepoUrl(explicitUrl);
-        var shouldForce=forceRefresh===true||forceRefreshRef.current;
-        forceRefreshRef.current=false;
-        var githubKey=githubCacheSourceKey(p.owner,p.repo,activeExcludePatterns);
-        var cacheId=analysisCacheKey('github',githubKey);
-        if(!shouldForce){
-            const cacheSignal=projectLoading.begin();
-            getRecentAnalysis(cacheId).then(function(record){
-                if(cacheSignal.aborted)return;
-                if(record&&record.data&&cachedAnalysisMatchesExcludes(record,activeExcludePatterns)){
-                    applyCachedAnalysis(record);
-                    return;
-                }
-                analyze(true,p.owner+'/'+p.repo);
-            }).catch(function(){if(!cacheSignal.aborted)analyze(true,p.owner+'/'+p.repo);});
-            return;
-        }
-        var currentExcludePatterns=activeExcludePatterns;
-
-        // Validate authentication inputs
-        if(authMethod==='pat'&&!token){
-            setError('Please enter a Personal Access Token');return;
-        }
-        if(authMethod==='github_app'){
-            if(!appId){setError('Please enter the GitHub App ID');return;}
-            if(!privateKey){setError('Please set the GitHub App private key');return;}
-        }
-
-        resetAnalysisState();
-        const loadSignal=projectLoading.signal;
-        setLocalDirHandle(null);
-        setLocalSourceKind(null);
-        zipArchiveRef.current=null;
-        zipFileRef.current=null;
-        setLoading(true);
-        setProgress('Initializing...');
-
-        // Configure GitHub authentication based on method
-        GitHub.token=null;
-        GitHub.appId=null;
-        GitHub.privateKey=null;
-        GitHub.installationToken=null;
-
-        if(authMethod==='pat'){
-            GitHub.token=token;
-        }else if(authMethod==='github_app'){
-            GitHub.appId=appId;
-            GitHub.privateKey=privateKey;
-        }
-
-        setRepoInfo(p);
-
-        // Authentication promise - resolve immediately for no auth/PAT, authenticate for GitHub App
-        var authPromise;
-        if(authMethod==='github_app'){
-            setProgress('Authenticating with GitHub App...');
-            authPromise=GitHub.authenticateApp(p.owner,p.repo,loadSignal).catch(function(err){
-                throw new Error('GitHub App authentication failed: '+err.message);
-            });
-        }else{
-            authPromise=Promise.resolve();
-        }
-
-        authPromise.then(function(){loadSignal.throwIfAborted();
-            setProgress('Checking rate limit...');
-            return GitHub.getRateLimit(loadSignal);
-        }).then(function(rl){loadSignal.throwIfAborted();
-            var hasAuth=!!GitHub.token||authMethod==='github_app';
-            var estimatedRequests=50;// Conservative estimate for a small-medium repo
-
-            // Warn if rate limit is very low and no authentication
-            if(!hasAuth&&rl.remaining<estimatedRequests){
-                var resetTime=new Date(rl.reset*1000).toLocaleTimeString();
-                return requestConfirm({
-                    tone:'warning',
-                    icon:'warning',
-                    title:'GitHub API rate limit is low',
-                    message:
-                        'Remaining requests: '+rl.remaining+'/'+rl.limit+'\n'+
-                        'Resets at: '+resetTime+'\n\n'+
-                        'The folder picker is faster when the API is rate-limited. Open Folder and analyze locally, or download a ZIP and use Open ZIP.\n\n'+
-                        'Without authentication, you only get 60 requests per hour.\n'+
-                        'Adding a token or GitHub App raises that to 5,000 requests per hour.\n\n'+
-                        'Token (PAT): GitHub Settings -> Developer Settings -> Personal access tokens\n'+
-                        'GitHub App: use App ID + Private Key for organization access\n\n'+
-                        'Continue anyway with the remaining requests?',
-                    confirmLabel:'Continue anyway'
-                }).then(function(proceed){loadSignal.throwIfAborted();
-                    if(!proceed){
-                        setLoading(false);
-                        return Promise.reject('cancelled');
-                    }
-                    setProgress('Scanning repository...');
-                    return GitHub.scan(p.owner,p.repo,function(message){if(!loadSignal.aborted)setProgress(message);},currentExcludePatterns,loadSignal);
-                });
-            }
-
-            setProgress('Scanning repository...');
-            return GitHub.scan(p.owner,p.repo,function(message){if(!loadSignal.aborted)setProgress(message);},currentExcludePatterns,loadSignal);
-        }).then(function(files){loadSignal.throwIfAborted();
-            if(!files)return;// Cancelled
-            if(!files.length)throw new Error(currentExcludePatterns.length?'No code files found after applying exclude patterns':'No code files found');
-            var SOFT_LIMIT=ANALYSIS_LIMITS.repoSoft;
-            async function beginRepoAnalysis(){
-                const analyzed=await readCollectedFiles(files.map(file=>({...file,read:async()=>{
-                    const [content,commits]=await Promise.all([
-                        GitHub.getFile(p.owner,p.repo,file.path,loadSignal),
-                        Parser.isCode(file.name)?GitHub.getCommits(p.owner,p.repo,file.path,10,loadSignal):Promise.resolve([])
-                    ]);
-                    if(typeof content!=='string')throw new Error('GitHub source request failed');
-                    return {content,churn:Array.isArray(commits)?commits.length:0};
-                }})),{signal:loadSignal,progress:message=>{if(!loadSignal.aborted)setProgress(message);},yieldFn:yieldToBrowser});
-                async function finishAnalysis(){
-                    if(loadSignal.aborted)return;
-                    try{
-                        var dataObj=await runAnalysisData({
-                            signal:loadSignal,
-                            files:analyzed,
-                            excludePatterns:currentExcludePatterns.map(function(x){return x.raw;}),
-                            progress:function(message){if(!loadSignal.aborted)setProgress(message);},
-                            yieldFn:yieldToBrowser
-                        });
-                        var failedCount=analyzed.filter(function(af){return af.analysisSkipped==='fetch-failed';}).length;
-                        if(failedCount>0){
-                            showNotification(failedCount+' of '+analyzed.length+' files could not be fetched (GitHub rate limit?). Results are PARTIAL — add a token or use Open ZIP for full analysis.','warning');
-                        }
-                        if(loadSignal.aborted)return;
-                        setData(dataObj);
-                        setExpandedPaths(new Set(['']));
-                        setCachedFromId(null);
-                        persistCurrentAnalysis(dataObj,{sourceType:'github',sourceKey:githubKey,title:p.owner+'/'+p.repo,repoUrl:p.owner+'/'+p.repo,repoInfo:p,localSourceKind:null});
-                        window.history.replaceState({},'',buildAppUrl(p.owner+'/'+p.repo,false));
-                        setLoading(false);
-                    }catch(err){
-                        if(loadSignal.aborted)return;
-                        setError('Analysis failed: '+(err.message||err)+'. Try a smaller repository.');
-                        setLoading(false);
-                    }
-                }
-
-                await finishAnalysis();
-            }
-
-            if(files.length>SOFT_LIMIT){
-                return requestConfirm({
-                    tone:'warning',
-                    icon:'warning',
-                    title:'Analyze a large repository?',
-                    message:
-                        'This repository has '+files.length+' files.\n\n'+
-                        'Analyzing larger repositories can take longer and may hit GitHub API rate limits.\n\n'+
-                        'The folder picker is faster when the API is rate-limited. You can also download a ZIP and use Open ZIP.\n\n'+
-                        'Tip: add a token or GitHub App for higher limits.',
-                    confirmLabel:'Analyze repository'
-                }).then(function(proceed){loadSignal.throwIfAborted();
-                    if(!proceed){
-                        setLoading(false);
-                        return Promise.reject('cancelled');
-                    }
-                    return beginRepoAnalysis();
-                });
-            }
-
-            return beginRepoAnalysis();
-        }).catch(function(e){if(!loadSignal.aborted&&e!=='cancelled'){setError(e.message||e);setLoading(false);}});
-    }
-
     function launchLocalFolderPicker(compiledPatterns){
         pendingExcludePatternsRef.current=compiledPatterns||activeExcludePatterns;
         if(!window.showDirectoryPicker){
@@ -1383,20 +836,10 @@ function App(){
             return;
         }
         window.showDirectoryPicker().then(function(dirHandle){
-            resetAnalysisState();
-            setRepoInfo(null);
-            localFolderKeyRef.current=null;
-            localFolderSelectionRef.current=newLocalSelectionId();
-            setLocalDirHandle(dirHandle);
-            setLocalSourceKind('folder');
-            zipArchiveRef.current=null;
-            zipFileRef.current=null;
-            setLoading(true);
-            setProgress('Reading local folder...');
-            readLocalFolder(dirHandle,compiledPatterns||activeExcludePatterns);
+            project.openFolder(dirHandle,compiledPatterns||activeExcludePatterns);
         }).catch(function(e){
             if(e.name!=='AbortError'){
-                setError('Failed to open folder: '+(e.message||e));
+                setPickerError('Failed to open folder: '+(e.message||e));
             }
         });
     }
@@ -1407,7 +850,7 @@ function App(){
 
     function openLocalZip(){
         if(!window.JSZip){
-            setError('ZIP support failed to load. Check your network connection and try again.');
+            setPickerError('ZIP support failed to load. Check your network connection and try again.');
             return;
         }
         if(zipInputRef.current){
@@ -1419,159 +862,13 @@ function App(){
     function handleZipSelected(e){
         var file=e.target.files&&e.target.files[0];
         if(!file)return;
-        resetAnalysisState();
-        setRepoInfo(null);
-        setLocalDirHandle(null);
-        setLocalSourceKind('zip');
-        zipArchiveRef.current=null;
-        zipFileRef.current=file;
-        zipKeyRef.current=null;
-        setLoading(true);
-        setProgress('Reading ZIP archive...');
-        readZipArchive(file,activeExcludePatterns);
+        project.openArchive(file);
     }
 
     function handleFolderSelected(e){
         var fileList=e.target.files;
         if(!fileList||fileList.length===0)return;
-        var files=Array.from(fileList);
-        localFilesRef.current=files;
-        resetAnalysisState();
-        setRepoInfo(null);
-        localFolderKeyRef.current=null;
-        localFolderSelectionRef.current=newLocalSelectionId();
-        setLocalDirHandle(null);
-        setLocalSourceKind('folder');
-        zipArchiveRef.current=null;
-        zipFileRef.current=null;
-        setLoading(true);
-        setProgress('Reading local folder...');
-        readLocalFolderFromFiles(files,pendingExcludePatternsRef.current||activeExcludePatterns);
-    }
-
-    function refreshAnalysis(record){
-        var source=record&&record.sourceType?record:null;
-        var kind=source?source.sourceType:(localSourceKind||(parseUrl(repoUrl)?'github':null));
-        var githubUrl=source?(source.repoUrl||source.sourceKey):repoUrl;
-        setCachedFromId(null);
-        if(kind==='cli'||(!source&&cliStatus&&cliStatus.ok&&localSourceKind==='cli')){
-            var wantedRoot=source&&source.sourceType==='cli'?source.sourceKey:'';
-            if(wantedRoot&&cliStatus&&cliStatus.ok&&!cliRecordMatchesStatus(source,cliStatus)){
-                applyCachedAnalysis(source);
-                showNotification('Restart the CLI in that folder to re-analyze it.','warning');
-                return;
-            }
-            Promise.resolve(analyzeFromCli(true,cliStatus,wantedRoot||null)).then(function(ok){
-                if(ok===false&&source)applyCachedAnalysis(source);
-            });
-            return;
-        }
-        if(kind==='folder'){
-            var retained={sourceKey:localFolderKeyRef.current};
-            var handleMatches=!source||retainedFolderMatchesRecord(source,retained);
-            if(localDirHandle&&handleMatches){
-                resetAnalysisState();
-                setLoading(true);
-                setProgress('Reading local folder...');
-                readLocalFolder(localDirHandle,activeExcludePatterns);
-                return;
-            }
-            if(localFilesRef.current&&handleMatches){
-                resetAnalysisState();
-                setLoading(true);
-                setProgress('Reading local folder...');
-                readLocalFolderFromFiles(localFilesRef.current,activeExcludePatterns);
-                return;
-            }
-            if(source)applyCachedAnalysis(source);
-            showNotification('Open Folder again to re-analyze this local tree.','warning');
-            return;
-        }
-        if(kind==='zip'){
-            var zipMatches=!source||retainedZipMatchesRecord(source,{
-                sourceKey:zipKeyRef.current,
-                identity:zipFileIdentity(zipFileRef.current)
-            });
-            if(!zipFileRef.current||!zipMatches){
-                if(source)applyCachedAnalysis(source);
-                showNotification('Open ZIP again to re-analyze this archive.','warning');
-                return;
-            }
-            resetAnalysisState();
-            setLocalDirHandle(null);
-            setLocalSourceKind('zip');
-            zipArchiveRef.current=null;
-            setLoading(true);
-            setProgress('Reading ZIP archive...');
-            readZipArchive(zipFileRef.current,activeExcludePatterns);
-            return;
-        }
-        if(kind==='github'||parseUrl(githubUrl)){
-            analyze(true,githubUrl);
-            return;
-        }
-        analyze(true);
-    }
-
-    function readLocalFolder(dirHandle,patterns){
-        return loadLocalCollection({kind:'folder',patterns,title:dirHandle.name,
-            collect:options=>collectDirectory(dirHandle,options)});
-    }
-    function readLocalFolderFromFiles(fileObjs,patterns){
-        return loadLocalCollection({kind:'folder',patterns,
-            collect:options=>collectSelectedFiles(fileObjs,options)});
-    }
-    function readZipArchive(zipFile,patterns){
-        return loadLocalCollection({kind:'zip',patterns,zipFile,
-            collect:async options=>{
-                if(!window.JSZip)throw new Error('ZIP support failed to load');
-                const zip=await JSZip.loadAsync(zipFile);
-                options.signal.throwIfAborted();
-                return {...await collectArchive(zip,options),zip};
-            }});
-    }
-    async function loadLocalCollection({kind,patterns=activeExcludePatterns,title,zipFile,collect}){
-        const signal=projectLoading.signal;
-        const progress=message=>{if(!signal.aborted)setProgress(message);};
-        const archive=kind==='zip';
-        const label=archive?'ZIP archive':'selected folder';
-        try{
-            progress(archive?'Reading ZIP archive...':'Scanning local folder...');
-            const collection=await collect({patterns,signal,progress});
-            signal.throwIfAborted();
-            if(!collection.files.length)throw new Error('No code files found in the '+label+(patterns.length?' after applying exclude patterns':''));
-            if(collection.files.length>ANALYSIS_LIMITS.localSoft){
-                const proceed=await requestConfirm({tone:'warning',icon:archive?'archive':'folder',
-                    title:'Analyze '+collection.files.length+' files?',
-                    message:'CodeFlow will analyze every eligible file. Large '+(archive?'archives':'folders')+' can take minutes and use significant browser memory.',
-                    confirmLabel:'Analyze all files'});
-                signal.throwIfAborted();
-                if(!proceed){if(archive){setLocalSourceKind(null);zipFileRef.current=null;}setLoading(false);return;}
-            }
-            const files=await readCollectedFiles(collection.files,{signal,progress,yieldFn:yieldToBrowser});
-            const dataObj=await runAnalysisData({signal,files,excludePatterns:patterns.map(x=>x.raw),progress,yieldFn:yieldToBrowser});
-            signal.throwIfAborted();
-            let meta,info;
-            if(archive){
-                meta=zipArchiveCacheMeta({name:zipFile.name,size:zipFile.size,lastModified:zipFile.lastModified,paths:files.map(f=>f.path)});
-                info={owner:'local',repo:'zip',name:meta.title,zipKey:meta.sourceKey};
-                zipArchiveRef.current={zip:collection.zip,entriesByPath:collection.entriesByPath,name:zipFile.name};
-                zipFileRef.current=zipFile;zipKeyRef.current=meta.sourceKey;
-                setLocalDirHandle(null);setLocalSourceKind('zip');
-            }else{
-                if(!localFolderSelectionRef.current)localFolderSelectionRef.current=newLocalSelectionId();
-                meta=localFolderCacheMeta({title,rootPrefix:collection.rootPrefix,paths:files.map(f=>f.path),selectionId:localFolderSelectionRef.current});
-                info={owner:'local',repo:'folder',name:meta.title,folderKey:meta.sourceKey,folderSelectionId:meta.selectionId};
-                localFolderKeyRef.current=meta.sourceKey;
-            }
-            setData(dataObj);setExpandedPaths(new Set(['']));setRepoInfo(info);setCachedFromId(null);
-            persistCurrentAnalysis(dataObj,{sourceType:kind,sourceKey:meta.sourceKey,title:meta.title,repoUrl:'',repoInfo:info,localSourceKind:kind});
-            setLoading(false);
-        }catch(error){
-            if(signal.aborted)return;
-            if(archive){setLocalSourceKind(null);zipArchiveRef.current=null;}
-            setError('Failed to analyze '+label+': '+(error.message||error));setLoading(false);
-        }
+        project.openSelectedFiles(Array.from(fileList),pendingExcludePatternsRef.current||activeExcludePatterns);
     }
 
     var hadAnalysisRef=useRef(false);
@@ -1621,8 +918,7 @@ function App(){
     }
     function retryCodeSource(path){
         if(!path)return;
-        delete codeSourceInFlightRef.current[path];
-        setCodeSourceFailed(function(prev){return clearCodeSourceFailure(prev,path);});
+        project.retrySource(path);
     }
 
     function revealGraphFile(path,camera){nativeCanvasRef.current?.reveal(path,camera);}
@@ -1653,39 +949,7 @@ function App(){
     var toggleCard=useCallback(function(id){setExpandedCards(function(prev){var n=new Set(prev);if(n.has(id))n.delete(id);else n.add(id);return n;});},[]);
     var toggleFn=useCallback(function(name){setExpandedFns(function(prev){var n=new Set(prev);if(n.has(name))n.delete(name);else n.add(name);return n;});},[]);
 
-    const projectSource=createProjectSource({
-        identity:currentAnalysisSource(),cli:cliStatus,
-        folder:{handle:localDirHandle,sourceKey:localFolderKeyRef.current},
-        archive:{entriesByPath:zipArchiveRef.current&&zipArchiveRef.current.entriesByPath,
-            sourceKey:zipKeyRef.current,file:zipFileRef.current},
-        github:repoInfo?{owner:repoInfo.owner,repo:repoInfo.repo,client:GitHub}:null
-    });
-
-    function canReadLiveFileSource(){return !!projectSource;}
-
-    function readCliWatchLiveSource(path){
-        if(!path)return Promise.resolve({kind:'error'});
-        return fetch('/__codeflow/file?path='+encodeURIComponent(path)).then(function(res){
-            var length=Number(res.headers&&res.headers.get?res.headers.get('content-length'):NaN);
-            if(cliWatchLiveRejectsOversized(length)){
-                if(res.body&&typeof res.body.cancel==='function')res.body.cancel();
-                return{kind:'error'};
-            }
-            if(res.ok)return res.text().then(function(text){return cliWatchLiveFromResponse(res.status,text,true,length);});
-            return cliWatchLiveFromResponse(res.status,'',false);
-        }).catch(function(){return{kind:'error'};});
-    }
-
-    async function readLiveFileSource(path){
-        if(!projectSource)return null;
-        const result=await projectSource.read(path);
-        return result.status==='ready'?result.content:null;
-    }
-
-    function rememberHydratedSources(updates){
-        if(!updates||!updates.length)return;
-        setData(function(prev){return mergeHydratedFileSources(prev,updates,analysisHydrationIdRef.current);});
-    }
+    function canReadLiveFileSource(){return project.sourceAvailable;}
 
     // Open file preview
     function openFilePreview(path,line){
@@ -1706,7 +970,6 @@ function App(){
             if(analysisHydrationIdRef.current!==previewId)return;
             if(typeof content==='string'){
                 setFilePreview({path:path,filename:filename,content:content,line:line||null,loading:false,error:null});
-                rememberHydratedSources([{path:path,content:content,hydrationId:previewId}]);
                 return;
             }
             setFilePreview({path:path,filename:filename,content:null,line:line||null,loading:false,error:canReadLiveFileSource()?'Could not load file content':'Reopen this project to preview source'});
@@ -1752,8 +1015,6 @@ function App(){
         openedSceneRef.current=sceneIdentity;
         dispatchInvestigation({type:'reset',view:graphConfig.vizType});setSelectedArchitectureBlock(null);setFileQuery('');
         setRestoredNativeScene(null);
-        codeSourceInFlightRef.current=Object.create(null);
-        setCodeSourceFailed(Object.create(null));
         nativeCanvasRef.current?.focus(null);
     },[currentHydrationId]);
     useEffect(function(){
@@ -1797,26 +1058,7 @@ function App(){
         setLineThickness(next);
     }
 
-    useEffect(function(){
-        var missing=filesNeedingSource(codeViewFiles);
-        if(!missing.length||!canReadLiveFileSource())return;
-        var inflight=codeSourceInFlightRef.current;
-        var hydrationId=analysisHydrationIdRef.current;
-        nextCodeSourceReads(missing.map(function(file){return file.path;}),inflight,codeSourceFailed).forEach(function(path){
-            inflight[path]=true;
-            readLiveFileSource(path).then(function(content){
-                if(typeof content==='string'){
-                    rememberHydratedSources([{path:path,content:content,hydrationId:hydrationId}]);
-                    setCodeSourceFailed(function(prev){return clearCodeSourceFailureIfCurrent(prev,path,hydrationId,analysisHydrationIdRef.current);});
-                    return;
-                }
-                setCodeSourceFailed(function(prev){return recordCodeSourceFailureIfCurrent(prev,path,hydrationId,analysisHydrationIdRef.current);});
-            }).then(function(){delete inflight[path];},function(){
-                delete inflight[path];
-                setCodeSourceFailed(function(prev){return recordCodeSourceFailureIfCurrent(prev,path,hydrationId,analysisHydrationIdRef.current);});
-            });
-        });
-    },[codeViewFiles,localSourceKind,cliStatus,repoInfo,localDirHandle,codeSourceFailed]);
+    useEffect(()=>{project.ensureSources(openedCodePaths);},[codeViewFiles,project.codeSourceFailed,project.sourceAvailable]);
 
     function zoomIn(){
         if(graphConfig.vizType==='graph3d'){
@@ -2038,8 +1280,7 @@ function App(){
         navigator.clipboard.writeText(shareUrl).then(function(){showNotification('Link copied to clipboard!');}).catch(function(){showNotification('Failed to copy link','error');});
     }
     function analyzePR(){if(!prUrl||!repoInfo)return;var m=prUrl.match(/\/pull\/(\d+)/);if(!m){showNotification('Invalid PR URL','error');return;}GitHub.getPR(repoInfo.owner,repoInfo.repo,m[1]).then(function(pr){if(pr)setPrData(pr);else showNotification('Could not load PR','error');});}
-    function resetAnalysis(){
-        projectLoading.dispose();setLoading(false);setError(null);cliAnalyzingRef.current=false;setData(null);setSelected(null);setBlastRadius(null);setOwnership(null);setRepoInfo(null);setRepoUrl('');setPrData(null);setFolderFilter(null);setLocalDirHandle(null);setLocalSourceKind(null);setArchitectureIncludeTests(false);setArchitectureIncludeBuildOutput(false);setCachedFromId(null);setActiveSymbol(null);setCliDirty([]);clearCliLiveDiffs();localFolderKeyRef.current=null;localFolderSelectionRef.current=null;localFilesRef.current=null;zipKeyRef.current=null;zipArchiveRef.current=null;zipFileRef.current=null;window.history.replaceState({},'',window.location.pathname);}
+    function resetAnalysis(){project.clear();resetProjectPresentation();setRepoUrl('');setArchitectureIncludeTests(false);setArchitectureIncludeBuildOutput(false);window.history.replaceState({},'',window.location.pathname);}
     function filterByFolder(path){setFolderFilter(function(prev){return prev===path?null:path;});}
     function renderRecentsList(){
         return React.createElement('div',{className:'sidebar-scroll'},
@@ -3325,7 +2566,7 @@ function App(){
                 )
             )
         ),
-        error&&React.createElement('div',{style:{position:'fixed',bottom:20,right:20,background:'var(--red)',color:'white',padding:'12px 20px',borderRadius:8,zIndex:1000,maxWidth:350},'role':'alert'},[error,React.createElement('button',{'aria-label':'Dismiss error','onClick':function(){setError(null);},style:{marginLeft:12,background:'none',border:'none',color:'white',cursor:'pointer',fontSize:16}},'×')])
+        error&&React.createElement('div',{style:{position:'fixed',bottom:20,right:20,background:'var(--red)',color:'white',padding:'12px 20px',borderRadius:8,zIndex:1000,maxWidth:350},'role':'alert'},[error,React.createElement('button',{'aria-label':'Dismiss error','onClick':function(){project.dismissError();setPickerError(null);},style:{marginLeft:12,background:'none',border:'none',color:'white',cursor:'pointer',fontSize:16}},'×')])
     );
 }
 
