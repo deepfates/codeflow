@@ -1,3 +1,6 @@
+import {indexRuntime} from '../project/runtime-index.mjs';
+import {createInspectionPanels} from '../views/inspection.mjs';
+import {createRuntimeInspectionHook} from './runtime-inspection.mjs';
 import {createArchitectureView} from '../views/architecture.mjs';
 import {createProjectLoading} from '../project/loading.mjs';
 import {createLocalTools} from '../project/local-tools.mjs';
@@ -42,6 +45,8 @@ const runAnalysisData=createAnalysisClient({analyzeFiles,yieldFn:yieldToBrowser}
 const GitHub=createGitHubAdapter({KJUR:globalThis.KJUR});
 
 const{useState,useReducer,useEffect,useLayoutEffect,useRef,useMemo,useCallback}=React;
+const {SourceNavigation,AnalysisTools,SourceProcesses,RuntimePanel}=createInspectionPanels(React);
+const useRuntimeInspection=createRuntimeInspectionHook(React);
 const ArchitectureView=createArchitectureView({React,mermaid:globalThis.mermaid});
 const COLORS=['#4d9fff','#a78bfa','#22d3ee','#00ff9d','#ff9f43','#ec4899','#ff5f5f','#84cc16'];
 const LAYER_COLORS={ui:'#4d9fff',components:'#22d3ee',services:'#a78bfa',utils:'#00ff9d',data:'#ff9f43',config:'#ec4899',test:'#f59e0b',modules:'#a78bfa',forms:'#22d3ee',classes:'#ff9f43',note:'#c084fc'};
@@ -551,8 +556,6 @@ function App(){
     var [beamAnalysis,setBeamAnalysis]=useState(null);
     var [beamSymbols,setBeamSymbols]=useState([]),[beamLocations,setBeamLocations]=useState(null);
     var [beamNavigationError,setBeamNavigationError]=useState(null);
-    var [runtimeFocus,setRuntimeFocus]=useState(null);
-    var [runtimeNode,setRuntimeNode]=useState(''),[runtimeSnapshot,setRuntimeSnapshot]=useState(null),[runtimeBusy,setRuntimeBusy]=useState(false);
     function beamLanguage(method,path,position){
         if(!localTools)return Promise.reject(new Error('Open this checkout with the CLI to use language navigation.'));
         return localTools.language(method,path,position);
@@ -584,14 +587,6 @@ function App(){
         var range=document.createRange();range.selectNodeContents(event.currentTarget);range.setEnd(node,offset);
         navigateBeamSymbol(event.shiftKey?'references':'definition',path,{line:line,character:range.toString().length});
     }
-    async function connectBeamRuntime(event){
-        if(event)event.preventDefault();
-        if(!localTools){setRuntimeSnapshot({status:'unavailable',reason:'Open this checkout with the CLI to inspect its runtime.'});return;}
-        setRuntimeBusy(true);
-        try{setRuntimeSnapshot(await localTools.runtime(runtimeNode));setRuntimeBusy(false);}
-        catch(error){if(error.name!=='AbortError'){setRuntimeSnapshot({status:'unavailable',reason:error.message});setRuntimeBusy(false);}}
-    }
-
     var _cliDirty=useState([]),cliDirty=_cliDirty[0],setCliDirty=_cliDirty[1];
     var _cliLive=useState(Object.create(null)),cliLiveByPath=_cliLive[0],setCliLiveByPath=_cliLive[1];
     var isMobile=viewportWidth<=980;
@@ -831,15 +826,16 @@ function App(){
     analysisHydrationIdRef.current=currentHydrationId;
     var localTools=useMemo(function(){return createLocalTools({identity:loadedSourceIdentity,status:cliStatus});},
         [loadedSourceIdentity&&loadedSourceIdentity.sourceType,loadedSourceIdentity&&loadedSourceIdentity.sourceKey,cliStatus&&cliStatus.root,cliStatus&&cliStatus.ok]);
+    const runtimeInspection=useRuntimeInspection(localTools,cliStatus?.runtimeNode||'');
+    const runtimeIndex=useMemo(()=>indexRuntime(runtimeInspection.snapshot,data?.files||[]),[runtimeInspection.snapshot,data]);
     useEffect(function(){
-        setRuntimeSnapshot(null);setRuntimeFocus(null);setRuntimeBusy(false);
         setBeamAnalysis(null);setBeamLocations(null);setBeamNavigationError(null);
         return function(){if(localTools)localTools.dispose();};
     },[localTools]);
 
     useEffect(function(){
         if(loading||!data||!data.beam||!localTools)return;
-        setRuntimeNode(cliStatus.runtimeNode||'');
+
         return subscribeCliAnalysis({onUpdate:function(update){
             if(update.analysis)setBeamAnalysis(update.analysis);
             if(update.diagnostics)setData(function(prev){return prev?enrichAnalysisFindings(prev,update.diagnostics):prev;});
@@ -3972,31 +3968,6 @@ function App(){
             React.createElement('div',{className:'empty-desc'},desc)
         );
     }
-    function renderBeamSymbols(items){
-        return items.map(function(symbol,i){return React.createElement('div',{key:i,style:{paddingLeft:8}},
-            React.createElement('div',{style:{display:'flex',gap:6,marginBottom:4}},
-                React.createElement('button',{className:'top-btn',style:{flex:1,textAlign:'left',overflowWrap:'anywhere'},onClick:function(){openSourceLocation({path:selected.path,range:symbol.selectionRange||symbol.range});}},symbol.name),
-                React.createElement('button',{className:'top-btn',title:'Find references',onClick:function(){navigateBeamSymbol('references',selected.path,(symbol.selectionRange||symbol.range).start);}},'Refs')),
-            symbol.children&&renderBeamSymbols(symbol.children));});
-    }
-    function renderBeamNavigation(){
-        return React.createElement(React.Fragment,null,
-            beamNavigationError&&React.createElement('p',{role:'status'},beamNavigationError),
-            beamSymbols.length>0&&React.createElement('div',{className:'card'},React.createElement('div',{className:'card-header'},'Outline'),React.createElement('div',{className:'card-body'},renderBeamSymbols(beamSymbols))),
-            beamLocations&&React.createElement('div',{className:'card'},React.createElement('div',{className:'card-header'},beamLocations.title),React.createElement('div',{className:'card-body'},
-                beamLocations.items.length===0?'No locations found.':beamLocations.items.map(function(location,i){return React.createElement('button',{key:i,className:'top-btn',style:{display:'block',width:'100%',textAlign:'left',marginBottom:5},onClick:function(){openSourceLocation(location);}},(location.path||location.uri)+':'+(location.range.start.line+1));}))));
-    }
-    function renderAnalysisProviders(){
-        return Object.keys(data.assessments||{}).map(function(id){var provider=data.assessments[id];
-            return React.createElement('details',{key:id,style:{marginBottom:8}},
-                React.createElement('summary',null,provider.name+' · '+provider.status),
-                provider.reason&&React.createElement('pre',{style:{whiteSpace:'pre-wrap'}},provider.reason));
-        });
-    }
-    useEffect(function(){
-        if(rightTab!=='runtime'||!runtimeFocus)return;
-        requestAnimationFrame(function(){var row=Array.from(document.querySelectorAll('[data-process-id]')).find(function(el){return el.dataset.processId===runtimeFocus;});if(row)row.scrollIntoView({block:'center'});});
-    },[rightTab,runtimeFocus]);
     useEffect(function(){
         var focus=pendingSourceFocusRef.current,layer=codeCardsLayerRef.current;
         if(graphConfig.vizType!=='code'||!focus||!layer)return;
@@ -4006,36 +3977,6 @@ function App(){
         pendingSourceFocusRef.current=null;
         body.scrollTop+=line.getBoundingClientRect().top-body.getBoundingClientRect().top-body.clientHeight/2+line.clientHeight/2;
     },[sourceFocus,codeViewFiles,cliLiveByPath,graphConfig.vizType]);
-    function renderSourceProcesses(){
-        if(!selected||!runtimeSnapshot)return null;
-        var processes=(runtimeSnapshot.processes||[]).filter(function(process){return process.sourcePath===selected.path;});
-        return processes.length>0&&React.createElement('div',{className:'card'},
-            React.createElement('div',{className:'card-header'},'Running processes'),
-            React.createElement('div',{className:'card-body'},processes.map(function(process){return React.createElement('button',{key:process.id,className:'top-btn',onClick:function(){setRuntimeFocus(process.id);setRightTab('runtime');}},process.label||process.module, ' ',process.pid);})));
-    }
-    function renderBeamRuntime(){
-        var snapshot=runtimeSnapshot,processes=new Map((snapshot&&snapshot.processes||[]).map(function(p){return[p.id,p];}));
-        var focusAncestors=new Set(),focus=runtimeFocus;while(focus&&!focusAncestors.has(focus)){focusAncestors.add(focus);focus=processes.get(focus)&&processes.get(focus).parentId;}
-        function processTree(id,seen){
-            var process=processes.get(id);if(!process||seen.has(id))return null;
-            var next=new Set(seen);next.add(id);
-            return React.createElement('details',{key:id,'data-process-id':id,open:process.type==='supervisor'||focusAncestors.has(id),style:{margin:'8px 0 8px 10px',outline:id===runtimeFocus?'1px solid var(--acc)':undefined}},
-                React.createElement('summary',null,process.label||process.module||process.pid),
-                React.createElement('div',{style:{color:'var(--t3)',margin:'6px 0'}},process.pid,' · ',process.metrics&&process.metrics.status,' · queue ',process.metrics&&process.metrics.messageQueueLength,' · ',process.metrics&&process.metrics.memory,' B · ',process.metrics&&process.metrics.reductions,' reductions'),
-                process.sourcePath&&data.files.some(function(f){return f.path===process.sourcePath;})&&React.createElement('button',{className:'top-btn',onClick:function(){openSourceLocation({path:process.sourcePath});}},'Source'),
-                (process.children||[]).map(function(child){return processTree(child,next);}));
-        }
-        return React.createElement(React.Fragment,null,
-            React.createElement('form',{onSubmit:connectBeamRuntime,style:{display:'flex',gap:6,marginBottom:12}},
-                React.createElement('input',{value:runtimeNode,onChange:function(e){setRuntimeNode(e.target.value);},placeholder:'name@hostname','aria-label':'BEAM node',style:{minWidth:0,flex:1}}),
-                React.createElement('button',{className:'top-btn',disabled:runtimeBusy||!runtimeNode.trim(),type:'submit'},runtimeBusy?'Connecting…':snapshot&&snapshot.status==='ready'?'Refresh':'Connect')),
-            snapshot&&snapshot.status!=='ready'&&React.createElement('p',{role:'status'},snapshot.reason||snapshot.error||(snapshot.warnings||[]).join(' ')||'Runtime unavailable'),
-            snapshot&&snapshot.status==='ready'&&React.createElement(React.Fragment,null,
-                React.createElement('div',{style:{color:'var(--t3)'}},'Snapshot · '+new Date(snapshot.collectedAt).toLocaleTimeString()),
-                (snapshot.applications||[]).slice().sort(function(a,b){function local(app){var p=processes.get(app.rootId);return p&&p.sourcePath?1:0;}return local(b)-local(a)||a.name.localeCompare(b.name);}).map(function(app){return React.createElement('details',{key:app.name,open:focusAncestors.has(app.rootId)},React.createElement('summary',{style:{padding:'8px 0'}},app.name),processTree(app.rootId,new Set()));}),
-                React.createElement('details',{open:(snapshot.processes||[]).some(function(p){return !p.parentId&&!p.application&&focusAncestors.has(p.id);})},React.createElement('summary',{style:{padding:'8px 0'}},'Other processes'),(snapshot.processes||[]).filter(function(p){return !p.parentId&&!p.application;}).map(function(p){return processTree(p.id,new Set());})),
-                (snapshot.warnings||[]).map(function(warning,i){return React.createElement('p',{key:i,role:'status'},warning);})));
-    }
     function renderOverviewPane(){
         if(!data)return renderSidebarEmpty('No Repository','Enter a GitHub URL, open a folder, or load a ZIP archive');
         return React.createElement('div',{className:'sidebar-scroll'},
@@ -4799,7 +4740,7 @@ function App(){
                         React.createElement('button',{className:'panel-tab'+(rightTab==='suggestions'?' active':''),onClick:function(){setRightTab('suggestions');setDrillDown(null);}},iconLabel('action','ACTIONS'),data.suggestions&&data.suggestions.length>0&&React.createElement('span',{className:'panel-tab-pill alert'},data.suggestions.length))
                     ),
                     React.createElement('div',{className:'panel-content'},
-                        data.beam&&rightTab==='runtime'&&renderBeamRuntime(),
+                        data.beam&&rightTab==='runtime'&&React.createElement(RuntimePanel,{index:runtimeIndex,inspection:runtimeInspection,onOpen:openSourceLocation}),
                         rightTab==='details'&&(selected?React.createElement(React.Fragment,null,
                             React.createElement('button',{className:'top-btn',style:{width:'100%',marginBottom:12},onClick:function(){setSelected(null);setBlastRadius(null);selectedPathRef.current=null;if(nodesRef.current){nodesRef.current.selectAll('.nc,.nb').transition().duration(200).attr('opacity',1).attr('fill',function(n){return d3.select(this).classed('nb')?graphColorBlockFill(getNodeColor(n)):getNodeColor(n);});}if(vizUsesForceLinkParticles(graphConfig.vizType))applyForceLinkVisuals();else if(linksRef.current)linksRef.current.transition().duration(200).attr('stroke-opacity',0.4).attr('stroke',theme==='light'?'#ccc':'#333');}},'← Back to Issues'),
                             React.createElement('div',{className:'panel-header',style:{margin:'0 -12px 12px',padding:12}},
@@ -4811,8 +4752,8 @@ function App(){
                                     React.createElement('button',{className:'view-file-btn',onClick:function(){openFilePreview(selected.path);}},iconLabel('eye','View Source'))
                                 )
                             ),
-                            data.beam&&renderBeamNavigation(),
-                            renderSourceProcesses(),
+                            data.beam&&React.createElement(SourceNavigation,{path:selected.path,symbols:beamSymbols,locations:beamLocations,error:beamNavigationError,onOpen:openSourceLocation,onReferences:(path,position)=>navigateBeamSymbol('references',path,position)}),
+                            React.createElement(SourceProcesses,{index:runtimeIndex,path:selected.path,onSelect:id=>{runtimeInspection.setFocus(id);setRightTab('runtime');}}),
                             blastRadius&&React.createElement('div',{className:'card',style:{marginBottom:12}},
                                 React.createElement('div',{className:'card-header',onClick:function(){toggleCard('blast');}},React.createElement('div',{className:'card-title'},React.createElement('span',{className:'card-toggle'+(expandedCards.has('blast')?' open':'')},'▶'),React.createElement(Icon,{name:'impact',size:'s'}),' Impact Analysis'),React.createElement('span',{className:'badge badge-'+(blastRadius.level==='low'?'success':blastRadius.level==='medium'?'warning':'danger')},blastRadius.level.toUpperCase())),
                                 expandedCards.has('blast')&&React.createElement('div',{className:'card-body'},
@@ -4968,7 +4909,7 @@ function App(){
                                 )
                             )
                         ):graphConfig.vizType==='architecture'?renderArchitectureSummary():React.createElement(React.Fragment,null,
-                            renderAnalysisProviders(),
+                            React.createElement(AnalysisTools,{assessments:data.assessments}),
                             React.createElement('div',{style:{fontSize:12,fontWeight:600,marginBottom:12}},React.createElement(Icon,{name:'search',size:'m'}),' Architecture Issues (',data.issues.length,')'),
                             data.issues.length===0?React.createElement('div',{style:{textAlign:'center',padding:20}},React.createElement(Icon,{name:'spark',size:'xxl',className:'empty-icon'}),React.createElement('div',{style:{color:'var(--green)'}},'No issues detected!')):
                             data.issues.map(function(issue,i){return React.createElement('div',{key:i,className:'security-item '+(issue.type==='critical'?'high':'medium'),style:{cursor:'pointer'},onClick:function(){if(issue.sourceLocation&&issue.sourceLocation.path)openSourceLocation(issue.sourceLocation);else setDrillDown({type:'issue',data:issue});}},

@@ -281,6 +281,11 @@ Process.sleep(:infinity)
  await search.fill('OtherWorker.run/0');await search.press('Enter');
  await page.locator('[data-code-card="worker.exs"] [data-line="2"].highlighted').waitFor();
  assert.equal(await page.locator('.card').filter({hasText:'Running processes'}).count(),0,'the previous project runtime must not attach to this source');
+ await page.getByRole('tab',{name:'Recents',exact:true}).click();
+ await page.locator('.recent-item').filter({has:page.locator('.recent-item-meta').filter({hasText:/^cli ·/})}).click();
+ await page.getByRole('button',{name:'RUNTIME',exact:true}).click();
+ assert.equal(await page.getByRole('textbox',{name:'BEAM node'}).inputValue(),'','reopening a project restores its default node rather than the previous connection input');
+ assert.equal(await page.locator('[data-process-id]').count(),0,'reopening requires a fresh runtime snapshot');
  assert.deepEqual(errors,[]);
 });
 

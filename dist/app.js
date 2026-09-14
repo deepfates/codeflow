@@ -131,6 +131,200 @@
     }
   });
 
+  // src/project/runtime-index.mjs
+  function indexRuntime(snapshot, files = []) {
+    const processesById = /* @__PURE__ */ new Map(), processesBySource = /* @__PURE__ */ new Map();
+    if (snapshot?.status !== "ready") return { processesById, processesBySource, applications: [], roots: [] };
+    const paths = new Set(files.map((file) => file.path));
+    const processes = snapshot.processes || [];
+    for (const process of processes) {
+      processesById.set(process.id, process);
+      if (!process.sourcePath || !paths.has(process.sourcePath)) continue;
+      if (!processesBySource.has(process.sourcePath)) processesBySource.set(process.sourcePath, []);
+      processesBySource.get(process.sourcePath).push(process);
+    }
+    const local = (application) => {
+      const process = processesById.get(application.rootId);
+      return process && paths.has(process.sourcePath) ? 1 : 0;
+    };
+    const applications = (snapshot.applications || []).slice().sort((a, b) => local(b) - local(a) || a.name.localeCompare(b.name));
+    return { processesById, processesBySource, applications, roots: processes.filter((process) => !process.parentId && !process.application) };
+  }
+  function runtimeAncestors(index, id) {
+    const ancestors = /* @__PURE__ */ new Set();
+    while (id && !ancestors.has(id)) {
+      const process = index.processesById.get(id);
+      if (!process) break;
+      ancestors.add(id);
+      id = process.parentId;
+    }
+    return ancestors;
+  }
+
+  // src/views/inspection.mjs
+  function createInspectionPanels(React2) {
+    const { useRef: useRef2, useEffect: useEffect2 } = React2;
+    function Symbols({ items, path, onOpen, onReferences }) {
+      return items.map(function(symbol, i) {
+        return React2.createElement(
+          "div",
+          { key: i, style: { paddingLeft: 8 } },
+          React2.createElement(
+            "div",
+            { style: { display: "flex", gap: 6, marginBottom: 4 } },
+            React2.createElement("button", { className: "top-btn", style: { flex: 1, textAlign: "left", overflowWrap: "anywhere" }, onClick: function() {
+              onOpen({ path, range: symbol.selectionRange || symbol.range });
+            } }, symbol.name),
+            React2.createElement("button", { className: "top-btn", title: "Find references", onClick: function() {
+              onReferences(path, (symbol.selectionRange || symbol.range).start);
+            } }, "Refs")
+          ),
+          symbol.children && React2.createElement(Symbols, { items: symbol.children, path, onOpen, onReferences })
+        );
+      });
+    }
+    function SourceNavigation2({ path, symbols, locations, error, onOpen, onReferences }) {
+      return React2.createElement(
+        React2.Fragment,
+        null,
+        error && React2.createElement("p", { role: "status" }, error),
+        symbols.length > 0 && React2.createElement("div", { className: "card" }, React2.createElement("div", { className: "card-header" }, "Outline"), React2.createElement("div", { className: "card-body" }, React2.createElement(Symbols, { items: symbols, path, onOpen, onReferences }))),
+        locations && React2.createElement("div", { className: "card" }, React2.createElement("div", { className: "card-header" }, locations.title), React2.createElement(
+          "div",
+          { className: "card-body" },
+          locations.items.length === 0 ? "No locations found." : locations.items.map(function(location, i) {
+            return React2.createElement("button", { key: i, className: "top-btn", style: { display: "block", width: "100%", textAlign: "left", marginBottom: 5 }, onClick: function() {
+              onOpen(location);
+            } }, (location.path || location.uri) + ":" + (location.range.start.line + 1));
+          })
+        ))
+      );
+    }
+    function AnalysisTools2({ assessments }) {
+      return Object.keys(assessments || {}).map(function(id) {
+        var tool = assessments[id];
+        return React2.createElement(
+          "details",
+          { key: id, style: { marginBottom: 8 } },
+          React2.createElement("summary", null, tool.name + " \xB7 " + tool.status),
+          tool.reason && React2.createElement("pre", { style: { whiteSpace: "pre-wrap" } }, tool.reason)
+        );
+      });
+    }
+    function SourceProcesses2({ index, path, onSelect }) {
+      const processes = index.processesBySource.get(path) || [];
+      return processes.length > 0 && React2.createElement(
+        "div",
+        { className: "card" },
+        React2.createElement("div", { className: "card-header" }, "Running processes"),
+        React2.createElement("div", { className: "card-body" }, processes.map(function(process) {
+          return React2.createElement("button", { key: process.id, className: "top-btn", onClick: function() {
+            onSelect(process.id);
+          } }, process.label || process.module, " ", process.pid);
+        }))
+      );
+    }
+    function RuntimePanel2({ index, inspection, onOpen }) {
+      const { snapshot, node, busy, focus } = inspection;
+      const processes = index.processesById, focusAncestors = runtimeAncestors(index, focus);
+      const panel = useRef2(null);
+      useEffect2(() => {
+        if (!focus) return;
+        const frame = requestAnimationFrame(() => {
+          const row = Array.from(panel.current?.querySelectorAll("[data-process-id]") || []).find((el) => el.dataset.processId === focus);
+          row?.scrollIntoView({ block: "center" });
+        });
+        return () => cancelAnimationFrame(frame);
+      }, [focus, index]);
+      function processTree(id, seen) {
+        var process = processes.get(id);
+        if (!process || seen.has(id)) return null;
+        var next = new Set(seen);
+        next.add(id);
+        return React2.createElement(
+          "details",
+          { key: id, "data-process-id": id, open: process.type === "supervisor" || focusAncestors.has(id), style: { margin: "8px 0 8px 10px", outline: id === focus ? "1px solid var(--acc)" : void 0 } },
+          React2.createElement("summary", null, process.label || process.module || process.pid),
+          React2.createElement("div", { style: { color: "var(--t3)", margin: "6px 0" } }, process.pid, " \xB7 ", process.metrics && process.metrics.status, " \xB7 queue ", process.metrics && process.metrics.messageQueueLength, " \xB7 ", process.metrics && process.metrics.memory, " B \xB7 ", process.metrics && process.metrics.reductions, " reductions"),
+          index.processesBySource.has(process.sourcePath) && React2.createElement("button", { className: "top-btn", onClick: function() {
+            onOpen({ path: process.sourcePath });
+          } }, "Source"),
+          (process.children || []).map(function(child) {
+            return processTree(child, next);
+          })
+        );
+      }
+      return React2.createElement(
+        "div",
+        { ref: panel },
+        React2.createElement(
+          "form",
+          { onSubmit: function(event) {
+            event.preventDefault();
+            inspection.connect();
+          }, style: { display: "flex", gap: 6, marginBottom: 12 } },
+          React2.createElement("input", { value: node, onChange: function(e) {
+            inspection.setNode(e.target.value);
+          }, placeholder: "name@hostname", "aria-label": "BEAM node", style: { minWidth: 0, flex: 1 } }),
+          React2.createElement("button", { className: "top-btn", disabled: busy || !node.trim(), type: "submit" }, busy ? "Connecting\u2026" : snapshot && snapshot.status === "ready" ? "Refresh" : "Connect")
+        ),
+        snapshot && snapshot.status !== "ready" && React2.createElement("p", { role: "status" }, snapshot.reason || snapshot.error || (snapshot.warnings || []).join(" ") || "Runtime unavailable"),
+        snapshot && snapshot.status === "ready" && React2.createElement(
+          React2.Fragment,
+          null,
+          React2.createElement("div", { style: { color: "var(--t3)" } }, "Snapshot \xB7 " + new Date(snapshot.collectedAt).toLocaleTimeString()),
+          index.applications.map(function(app) {
+            return React2.createElement("details", { key: app.name, open: focusAncestors.has(app.rootId) }, React2.createElement("summary", { style: { padding: "8px 0" } }, app.name), processTree(app.rootId, /* @__PURE__ */ new Set()));
+          }),
+          React2.createElement("details", { open: index.roots.some((p) => focusAncestors.has(p.id)) }, React2.createElement("summary", { style: { padding: "8px 0" } }, "Other processes"), index.roots.map(function(p) {
+            return processTree(p.id, /* @__PURE__ */ new Set());
+          })),
+          (snapshot.warnings || []).map(function(warning, i) {
+            return React2.createElement("p", { key: i, role: "status" }, warning);
+          })
+        )
+      );
+    }
+    return { SourceNavigation: SourceNavigation2, AnalysisTools: AnalysisTools2, SourceProcesses: SourceProcesses2, RuntimePanel: RuntimePanel2 };
+  }
+
+  // src/browser/runtime-inspection.mjs
+  function createRuntimeInspectionHook(React2) {
+    const { useState: useState2, useRef: useRef2, useEffect: useEffect2 } = React2;
+    return function useRuntimeInspection2(connection, defaultNode = "") {
+      const [node, setNode] = useState2(defaultNode);
+      const [result, setResult] = useState2({ connection, snapshot: null, busy: false, focus: null });
+      const current = useRef2(connection);
+      current.current = connection;
+      useEffect2(() => {
+        current.current = connection;
+        setResult({ connection, snapshot: null, busy: false, focus: null });
+        return () => {
+          if (current.current === connection) current.current = null;
+        };
+      }, [connection]);
+      useEffect2(() => setNode(defaultNode), [connection, defaultNode]);
+      const state = result.connection === connection ? result : { snapshot: null, busy: false, focus: null };
+      async function connect() {
+        if (!connection) {
+          setResult({ connection, snapshot: { status: "unavailable", reason: "Open this checkout with the CLI to inspect its runtime." }, busy: false, focus: null });
+          return;
+        }
+        setResult((previous) => ({ ...previous, connection, busy: true }));
+        try {
+          const snapshot = await connection.runtime(node);
+          if (current.current === connection) setResult((previous) => ({ ...previous, connection, snapshot, busy: false }));
+        } catch (error) {
+          if (current.current === connection && error.name !== "AbortError") setResult((previous) => ({ ...previous, connection, snapshot: { status: "unavailable", reason: error.message }, busy: false }));
+        }
+      }
+      function setFocus(focus) {
+        setResult((previous) => ({ ...previous, connection, focus }));
+      }
+      return { ...state, node, setNode, connect, setFocus };
+    };
+  }
+
   // src/analysis/file-types.mjs
   var codeExts = [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".py", ".pyw", ".pyi", ".java", ".go", ".rb", ".php", ".rs", ".c", ".cpp", ".cc", ".h", ".hpp", ".cs", ".swift", ".kt", ".kts", ".scala", ".clj", ".ex", ".exs", ".erl", ".hs", ".lua", ".r", ".R", ".jl", ".dart", ".elm", ".fs", ".fsx", ".ml", ".pl", ".pm", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".psm1", ".groovy", ".gradle", ".vba", ".bas", ".cls", ".xlsm", ".xlam", ".xlsb", ".xla", ".xlw", ".pas", ".pp", ".dpr", ".dpk", ".lpr", ".inc"];
   var scriptContainerExts = [".html", ".htm", ".xhtml", ".vue", ".svelte"];
@@ -56025,6 +56219,8 @@ This problem is likely caused by another plugin injecting
   var runAnalysisData = createAnalysisClient({ analyzeFiles, yieldFn: yieldToBrowser });
   var GitHub = createGitHubAdapter({ KJUR: globalThis.KJUR });
   var { useState, useReducer, useEffect, useLayoutEffect, useRef, useMemo, useCallback } = React;
+  var { SourceNavigation, AnalysisTools, SourceProcesses, RuntimePanel } = createInspectionPanels(React);
+  var useRuntimeInspection = createRuntimeInspectionHook(React);
   var ArchitectureView = createArchitectureView({ React, mermaid: globalThis.mermaid });
   var COLORS = ["#4d9fff", "#a78bfa", "#22d3ee", "#00ff9d", "#ff9f43", "#ec4899", "#ff5f5f", "#84cc16"];
   var LAYER_COLORS = { ui: "#4d9fff", components: "#22d3ee", services: "#a78bfa", utils: "#00ff9d", data: "#ff9f43", config: "#ec4899", test: "#f59e0b", modules: "#a78bfa", forms: "#22d3ee", classes: "#ff9f43", note: "#c084fc" };
@@ -56592,8 +56788,6 @@ This problem is likely caused by another plugin injecting
     var [beamAnalysis, setBeamAnalysis] = useState(null);
     var [beamSymbols, setBeamSymbols] = useState([]), [beamLocations, setBeamLocations] = useState(null);
     var [beamNavigationError, setBeamNavigationError] = useState(null);
-    var [runtimeFocus, setRuntimeFocus] = useState(null);
-    var [runtimeNode, setRuntimeNode] = useState(""), [runtimeSnapshot, setRuntimeSnapshot] = useState(null), [runtimeBusy, setRuntimeBusy] = useState(false);
     function beamLanguage(method, path, position) {
       if (!localTools) return Promise.reject(new Error("Open this checkout with the CLI to use language navigation."));
       return localTools.language(method, path, position);
@@ -56643,23 +56837,6 @@ This problem is likely caused by another plugin injecting
       range.selectNodeContents(event.currentTarget);
       range.setEnd(node, offset);
       navigateBeamSymbol(event.shiftKey ? "references" : "definition", path, { line, character: range.toString().length });
-    }
-    async function connectBeamRuntime(event) {
-      if (event) event.preventDefault();
-      if (!localTools) {
-        setRuntimeSnapshot({ status: "unavailable", reason: "Open this checkout with the CLI to inspect its runtime." });
-        return;
-      }
-      setRuntimeBusy(true);
-      try {
-        setRuntimeSnapshot(await localTools.runtime(runtimeNode));
-        setRuntimeBusy(false);
-      } catch (error2) {
-        if (error2.name !== "AbortError") {
-          setRuntimeSnapshot({ status: "unavailable", reason: error2.message });
-          setRuntimeBusy(false);
-        }
-      }
     }
     var _cliDirty = useState([]), cliDirty = _cliDirty[0], setCliDirty = _cliDirty[1];
     var _cliLive = useState(/* @__PURE__ */ Object.create(null)), cliLiveByPath = _cliLive[0], setCliLiveByPath = _cliLive[1];
@@ -56911,10 +57088,9 @@ This problem is likely caused by another plugin injecting
       },
       [loadedSourceIdentity && loadedSourceIdentity.sourceType, loadedSourceIdentity && loadedSourceIdentity.sourceKey, cliStatus && cliStatus.root, cliStatus && cliStatus.ok]
     );
+    const runtimeInspection = useRuntimeInspection(localTools, cliStatus?.runtimeNode || "");
+    const runtimeIndex = useMemo(() => indexRuntime(runtimeInspection.snapshot, data?.files || []), [runtimeInspection.snapshot, data]);
     useEffect(function() {
-      setRuntimeSnapshot(null);
-      setRuntimeFocus(null);
-      setRuntimeBusy(false);
       setBeamAnalysis(null);
       setBeamLocations(null);
       setBeamNavigationError(null);
@@ -56924,7 +57100,6 @@ This problem is likely caused by another plugin injecting
     }, [localTools]);
     useEffect(function() {
       if (loading || !data || !data.beam || !localTools) return;
-      setRuntimeNode(cliStatus.runtimeNode || "");
       return subscribeCliAnalysis({ onUpdate: function(update) {
         if (update.analysis) setBeamAnalysis(update.analysis);
         if (update.diagnostics) setData(function(prev) {
@@ -60714,62 +60889,6 @@ This problem is likely caused by another plugin injecting
         React.createElement("div", { className: "empty-desc" }, desc)
       );
     }
-    function renderBeamSymbols(items) {
-      return items.map(function(symbol, i) {
-        return React.createElement(
-          "div",
-          { key: i, style: { paddingLeft: 8 } },
-          React.createElement(
-            "div",
-            { style: { display: "flex", gap: 6, marginBottom: 4 } },
-            React.createElement("button", { className: "top-btn", style: { flex: 1, textAlign: "left", overflowWrap: "anywhere" }, onClick: function() {
-              openSourceLocation({ path: selected.path, range: symbol.selectionRange || symbol.range });
-            } }, symbol.name),
-            React.createElement("button", { className: "top-btn", title: "Find references", onClick: function() {
-              navigateBeamSymbol("references", selected.path, (symbol.selectionRange || symbol.range).start);
-            } }, "Refs")
-          ),
-          symbol.children && renderBeamSymbols(symbol.children)
-        );
-      });
-    }
-    function renderBeamNavigation() {
-      return React.createElement(
-        React.Fragment,
-        null,
-        beamNavigationError && React.createElement("p", { role: "status" }, beamNavigationError),
-        beamSymbols.length > 0 && React.createElement("div", { className: "card" }, React.createElement("div", { className: "card-header" }, "Outline"), React.createElement("div", { className: "card-body" }, renderBeamSymbols(beamSymbols))),
-        beamLocations && React.createElement("div", { className: "card" }, React.createElement("div", { className: "card-header" }, beamLocations.title), React.createElement(
-          "div",
-          { className: "card-body" },
-          beamLocations.items.length === 0 ? "No locations found." : beamLocations.items.map(function(location, i) {
-            return React.createElement("button", { key: i, className: "top-btn", style: { display: "block", width: "100%", textAlign: "left", marginBottom: 5 }, onClick: function() {
-              openSourceLocation(location);
-            } }, (location.path || location.uri) + ":" + (location.range.start.line + 1));
-          })
-        ))
-      );
-    }
-    function renderAnalysisProviders() {
-      return Object.keys(data.assessments || {}).map(function(id) {
-        var provider = data.assessments[id];
-        return React.createElement(
-          "details",
-          { key: id, style: { marginBottom: 8 } },
-          React.createElement("summary", null, provider.name + " \xB7 " + provider.status),
-          provider.reason && React.createElement("pre", { style: { whiteSpace: "pre-wrap" } }, provider.reason)
-        );
-      });
-    }
-    useEffect(function() {
-      if (rightTab !== "runtime" || !runtimeFocus) return;
-      requestAnimationFrame(function() {
-        var row = Array.from(document.querySelectorAll("[data-process-id]")).find(function(el) {
-          return el.dataset.processId === runtimeFocus;
-        });
-        if (row) row.scrollIntoView({ block: "center" });
-      });
-    }, [rightTab, runtimeFocus]);
     useEffect(function() {
       var focus = pendingSourceFocusRef.current, layer = codeCardsLayerRef.current;
       if (graphConfig.vizType !== "code" || !focus || !layer) return;
@@ -60781,90 +60900,6 @@ This problem is likely caused by another plugin injecting
       pendingSourceFocusRef.current = null;
       body.scrollTop += line.getBoundingClientRect().top - body.getBoundingClientRect().top - body.clientHeight / 2 + line.clientHeight / 2;
     }, [sourceFocus, codeViewFiles, cliLiveByPath, graphConfig.vizType]);
-    function renderSourceProcesses() {
-      if (!selected || !runtimeSnapshot) return null;
-      var processes = (runtimeSnapshot.processes || []).filter(function(process) {
-        return process.sourcePath === selected.path;
-      });
-      return processes.length > 0 && React.createElement(
-        "div",
-        { className: "card" },
-        React.createElement("div", { className: "card-header" }, "Running processes"),
-        React.createElement("div", { className: "card-body" }, processes.map(function(process) {
-          return React.createElement("button", { key: process.id, className: "top-btn", onClick: function() {
-            setRuntimeFocus(process.id);
-            setRightTab("runtime");
-          } }, process.label || process.module, " ", process.pid);
-        }))
-      );
-    }
-    function renderBeamRuntime() {
-      var snapshot = runtimeSnapshot, processes = new Map((snapshot && snapshot.processes || []).map(function(p) {
-        return [p.id, p];
-      }));
-      var focusAncestors = /* @__PURE__ */ new Set(), focus = runtimeFocus;
-      while (focus && !focusAncestors.has(focus)) {
-        focusAncestors.add(focus);
-        focus = processes.get(focus) && processes.get(focus).parentId;
-      }
-      function processTree(id, seen) {
-        var process = processes.get(id);
-        if (!process || seen.has(id)) return null;
-        var next = new Set(seen);
-        next.add(id);
-        return React.createElement(
-          "details",
-          { key: id, "data-process-id": id, open: process.type === "supervisor" || focusAncestors.has(id), style: { margin: "8px 0 8px 10px", outline: id === runtimeFocus ? "1px solid var(--acc)" : void 0 } },
-          React.createElement("summary", null, process.label || process.module || process.pid),
-          React.createElement("div", { style: { color: "var(--t3)", margin: "6px 0" } }, process.pid, " \xB7 ", process.metrics && process.metrics.status, " \xB7 queue ", process.metrics && process.metrics.messageQueueLength, " \xB7 ", process.metrics && process.metrics.memory, " B \xB7 ", process.metrics && process.metrics.reductions, " reductions"),
-          process.sourcePath && data.files.some(function(f) {
-            return f.path === process.sourcePath;
-          }) && React.createElement("button", { className: "top-btn", onClick: function() {
-            openSourceLocation({ path: process.sourcePath });
-          } }, "Source"),
-          (process.children || []).map(function(child) {
-            return processTree(child, next);
-          })
-        );
-      }
-      return React.createElement(
-        React.Fragment,
-        null,
-        React.createElement(
-          "form",
-          { onSubmit: connectBeamRuntime, style: { display: "flex", gap: 6, marginBottom: 12 } },
-          React.createElement("input", { value: runtimeNode, onChange: function(e) {
-            setRuntimeNode(e.target.value);
-          }, placeholder: "name@hostname", "aria-label": "BEAM node", style: { minWidth: 0, flex: 1 } }),
-          React.createElement("button", { className: "top-btn", disabled: runtimeBusy || !runtimeNode.trim(), type: "submit" }, runtimeBusy ? "Connecting\u2026" : snapshot && snapshot.status === "ready" ? "Refresh" : "Connect")
-        ),
-        snapshot && snapshot.status !== "ready" && React.createElement("p", { role: "status" }, snapshot.reason || snapshot.error || (snapshot.warnings || []).join(" ") || "Runtime unavailable"),
-        snapshot && snapshot.status === "ready" && React.createElement(
-          React.Fragment,
-          null,
-          React.createElement("div", { style: { color: "var(--t3)" } }, "Snapshot \xB7 " + new Date(snapshot.collectedAt).toLocaleTimeString()),
-          (snapshot.applications || []).slice().sort(function(a, b) {
-            function local(app) {
-              var p = processes.get(app.rootId);
-              return p && p.sourcePath ? 1 : 0;
-            }
-            return local(b) - local(a) || a.name.localeCompare(b.name);
-          }).map(function(app) {
-            return React.createElement("details", { key: app.name, open: focusAncestors.has(app.rootId) }, React.createElement("summary", { style: { padding: "8px 0" } }, app.name), processTree(app.rootId, /* @__PURE__ */ new Set()));
-          }),
-          React.createElement("details", { open: (snapshot.processes || []).some(function(p) {
-            return !p.parentId && !p.application && focusAncestors.has(p.id);
-          }) }, React.createElement("summary", { style: { padding: "8px 0" } }, "Other processes"), (snapshot.processes || []).filter(function(p) {
-            return !p.parentId && !p.application;
-          }).map(function(p) {
-            return processTree(p.id, /* @__PURE__ */ new Set());
-          })),
-          (snapshot.warnings || []).map(function(warning, i) {
-            return React.createElement("p", { key: i, role: "status" }, warning);
-          })
-        )
-      );
-    }
     function renderOverviewPane() {
       if (!data) return renderSidebarEmpty("No Repository", "Enter a GitHub URL, open a folder, or load a ZIP archive");
       return React.createElement(
@@ -62116,7 +62151,7 @@ This problem is likely caused by another plugin injecting
             React.createElement(
               "div",
               { className: "panel-content" },
-              data.beam && rightTab === "runtime" && renderBeamRuntime(),
+              data.beam && rightTab === "runtime" && React.createElement(RuntimePanel, { index: runtimeIndex, inspection: runtimeInspection, onOpen: openSourceLocation }),
               rightTab === "details" && (selected ? React.createElement(
                 React.Fragment,
                 null,
@@ -62149,8 +62184,11 @@ This problem is likely caused by another plugin injecting
                     } }, iconLabel("eye", "View Source"))
                   )
                 ),
-                data.beam && renderBeamNavigation(),
-                renderSourceProcesses(),
+                data.beam && React.createElement(SourceNavigation, { path: selected.path, symbols: beamSymbols, locations: beamLocations, error: beamNavigationError, onOpen: openSourceLocation, onReferences: (path, position) => navigateBeamSymbol("references", path, position) }),
+                React.createElement(SourceProcesses, { index: runtimeIndex, path: selected.path, onSelect: (id) => {
+                  runtimeInspection.setFocus(id);
+                  setRightTab("runtime");
+                } }),
                 blastRadius && React.createElement(
                   "div",
                   { className: "card", style: { marginBottom: 12 } },
@@ -62421,7 +62459,7 @@ This problem is likely caused by another plugin injecting
               ) : graphConfig.vizType === "architecture" ? renderArchitectureSummary() : React.createElement(
                 React.Fragment,
                 null,
-                renderAnalysisProviders(),
+                React.createElement(AnalysisTools, { assessments: data.assessments }),
                 React.createElement("div", { style: { fontSize: 12, fontWeight: 600, marginBottom: 12 } }, React.createElement(Icon, { name: "search", size: "m" }), " Architecture Issues (", data.issues.length, ")"),
                 data.issues.length === 0 ? React.createElement("div", { style: { textAlign: "center", padding: 20 } }, React.createElement(Icon, { name: "spark", size: "xxl", className: "empty-icon" }), React.createElement("div", { style: { color: "var(--green)" } }, "No issues detected!")) : data.issues.map(function(issue, i) {
                   return React.createElement(
