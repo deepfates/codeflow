@@ -4764,37 +4764,11 @@
   }
 
   // src/browser/collection.mjs
-  function makeOversizedAnalysisFile(file, size, isCode2) {
-    return {
-      path: file.path,
-      name: file.name,
-      folder: file.folder,
-      content: "",
-      functions: [],
-      lines: 0,
-      layer: detectLayer(file.path),
-      churn: 0,
-      isCode: isCode2,
-      size: size || 0,
-      analysisSkipped: "oversized",
-      parserProvenance: "skipped:size-limit"
-    };
+  function makeOversizedAnalysisFile(file, size) {
+    return { path: file.path, name: file.name, folder: file.folder, size: size || 0, analysisSkipped: "oversized" };
   }
   function makeFetchFailedAnalysisFile(file) {
-    return {
-      path: file.path,
-      name: file.name,
-      folder: file.folder,
-      content: "",
-      functions: [],
-      lines: 0,
-      layer: detectLayer(file.path),
-      churn: 0,
-      isCode: false,
-      size: file.size || 0,
-      analysisSkipped: "fetch-failed",
-      parserProvenance: "skipped:fetch-failed"
-    };
+    return { path: file.path, name: file.name, folder: file.folder, size: file.size || 0, analysisSkipped: "fetch-failed" };
   }
 
   // src/browser/html.mjs
@@ -7664,7 +7638,47 @@
 
   // src/analysis/project.mjs
   function createProjectAnalyzer(Parser2) {
-    async function buildAnalysisData2(options) {
+    async function analyzeFiles2({ files = [], progress = () => {
+    }, yieldFn = () => Promise.resolve(), ...options } = {}) {
+      await Parser2.prepareTreeSitter(files.filter((file) => !file.analysisSkipped));
+      const analyzed = [], allFns = [];
+      for (let index = 0; index < files.length; index++) {
+        const file = files[index], path = file.path, name = file.name || path.split("/").pop();
+        const folder = file.folder || (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "root");
+        const content = typeof file.content === "string" ? file.content : "";
+        const skipped = file.analysisSkipped || (Parser2.isOversized(file.size) || Parser2.isOversized(content.length) ? "oversized" : null);
+        const isCode2 = Parser2.isCode(name) && (!Parser2.isScriptContainer(path) || Parser2.hasEmbeddedCode(content, path));
+        const layer = Parser2.detectLayer(path);
+        const elixir = !skipped && isCode2 && Parser2.isElixir(path) ? Parser2.analyzeElixir(content, path) : null;
+        const functions = elixir && elixir.status !== "unavailable" ? elixir.functions : !skipped && isCode2 ? Parser2.extract(content, path) : [];
+        const record = {
+          ...file,
+          path,
+          name,
+          folder,
+          content: skipped ? "" : content,
+          functions,
+          layer,
+          lines: skipped || !content ? 0 : content.split("\n").length,
+          isCode: isCode2,
+          churn: file.churn || 0
+        };
+        if (elixir) {
+          record.elixir = elixir;
+          record.parserProvenance = elixir.provenance;
+        }
+        if (skipped) {
+          record.analysisSkipped = skipped;
+          record.parserProvenance = skipped === "oversized" ? "skipped:size-limit" : "skipped:" + skipped;
+        }
+        analyzed.push(record);
+        for (const fn of functions) allFns.push({ ...fn, folder, layer });
+        progress("Analyzing " + (index + 1) + "/" + files.length + ": " + name);
+        if (index % 30 === 29) await yieldFn();
+      }
+      return buildAnalysisData({ ...options, analyzed, allFns, progress, yieldFn });
+    }
+    async function buildAnalysisData(options) {
       var analyzed = (options.analyzed || []).map((file2) => ({ ...file2 }));
       var allFns = options.allFns || [];
       var excludePatterns = options.excludePatterns || [];
@@ -7674,26 +7688,6 @@
       var CALL_BATCH = 30;
       progress("Building dependency graph (1/6)...");
       await yieldFn();
-      await Parser2.prepareTreeSitter(analyzed);
-      var elixirReparsed = /* @__PURE__ */ new Set();
-      analyzed.forEach(function(file2) {
-        if (!Parser2.isElixir(file2.path) || !file2.content || file2.analysisSkipped) return;
-        file2.elixir = Parser2.analyzeElixir(file2.content, file2.path);
-        if (file2.elixir.status !== "unavailable") {
-          elixirReparsed.add(file2.path);
-          file2.functions = file2.elixir.functions;
-          file2.parserProvenance = file2.elixir.provenance;
-        }
-      });
-      allFns = allFns.filter(function(fn) {
-        return !elixirReparsed.has(fn.file);
-      }).concat(analyzed.filter(function(file2) {
-        return elixirReparsed.has(file2.path);
-      }).flatMap(function(file2) {
-        return file2.functions.map(function(fn) {
-          return Object.assign({}, fn, { folder: file2.folder, layer: file2.layer });
-        });
-      }));
       var fnDefIndex = Parser2.buildFunctionDefinitionIndex(allFns);
       var fnNames = Object.keys(fnDefIndex.byName);
       var fnNameIndex = Parser2.buildFunctionNameIndex(fnNames);
@@ -8076,7 +8070,7 @@
       dataObj.suggestions = Parser2.generateSuggestions(dataObj);
       return qualifySourceCallerEvidence(dataObj);
     }
-    return { buildAnalysisData: buildAnalysisData2 };
+    return { analyzeFiles: analyzeFiles2, buildAnalysisData };
   }
   function qualifySourceCallerEvidence(data) {
     var isElixir2 = function(f) {
@@ -54534,7 +54528,47 @@ This problem is likely caused by another plugin injecting
 
   // src/analysis/project.mjs
   function createProjectAnalyzer(Parser3) {
-    async function buildAnalysisData2(options) {
+    async function analyzeFiles2({ files = [], progress = () => {
+    }, yieldFn = () => Promise.resolve(), ...options } = {}) {
+      await Parser3.prepareTreeSitter(files.filter((file) => !file.analysisSkipped));
+      const analyzed = [], allFns = [];
+      for (let index = 0; index < files.length; index++) {
+        const file = files[index], path = file.path, name = file.name || path.split("/").pop();
+        const folder = file.folder || (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "root");
+        const content = typeof file.content === "string" ? file.content : "";
+        const skipped = file.analysisSkipped || (Parser3.isOversized(file.size) || Parser3.isOversized(content.length) ? "oversized" : null);
+        const isCode2 = Parser3.isCode(name) && (!Parser3.isScriptContainer(path) || Parser3.hasEmbeddedCode(content, path));
+        const layer = Parser3.detectLayer(path);
+        const elixir = !skipped && isCode2 && Parser3.isElixir(path) ? Parser3.analyzeElixir(content, path) : null;
+        const functions = elixir && elixir.status !== "unavailable" ? elixir.functions : !skipped && isCode2 ? Parser3.extract(content, path) : [];
+        const record = {
+          ...file,
+          path,
+          name,
+          folder,
+          content: skipped ? "" : content,
+          functions,
+          layer,
+          lines: skipped || !content ? 0 : content.split("\\n").length,
+          isCode: isCode2,
+          churn: file.churn || 0
+        };
+        if (elixir) {
+          record.elixir = elixir;
+          record.parserProvenance = elixir.provenance;
+        }
+        if (skipped) {
+          record.analysisSkipped = skipped;
+          record.parserProvenance = skipped === "oversized" ? "skipped:size-limit" : "skipped:" + skipped;
+        }
+        analyzed.push(record);
+        for (const fn of functions) allFns.push({ ...fn, folder, layer });
+        progress("Analyzing " + (index + 1) + "/" + files.length + ": " + name);
+        if (index % 30 === 29) await yieldFn();
+      }
+      return buildAnalysisData({ ...options, analyzed, allFns, progress, yieldFn });
+    }
+    async function buildAnalysisData(options) {
       var analyzed = (options.analyzed || []).map((file2) => ({ ...file2 }));
       var allFns = options.allFns || [];
       var excludePatterns = options.excludePatterns || [];
@@ -54544,26 +54578,6 @@ This problem is likely caused by another plugin injecting
       var CALL_BATCH = 30;
       progress("Building dependency graph (1/6)...");
       await yieldFn();
-      await Parser3.prepareTreeSitter(analyzed);
-      var elixirReparsed = /* @__PURE__ */ new Set();
-      analyzed.forEach(function(file2) {
-        if (!Parser3.isElixir(file2.path) || !file2.content || file2.analysisSkipped) return;
-        file2.elixir = Parser3.analyzeElixir(file2.content, file2.path);
-        if (file2.elixir.status !== "unavailable") {
-          elixirReparsed.add(file2.path);
-          file2.functions = file2.elixir.functions;
-          file2.parserProvenance = file2.elixir.provenance;
-        }
-      });
-      allFns = allFns.filter(function(fn) {
-        return !elixirReparsed.has(fn.file);
-      }).concat(analyzed.filter(function(file2) {
-        return elixirReparsed.has(file2.path);
-      }).flatMap(function(file2) {
-        return file2.functions.map(function(fn) {
-          return Object.assign({}, fn, { folder: file2.folder, layer: file2.layer });
-        });
-      }));
       var fnDefIndex = Parser3.buildFunctionDefinitionIndex(allFns);
       var fnNames = Object.keys(fnDefIndex.byName);
       var fnNameIndex = Parser3.buildFunctionNameIndex(fnNames);
@@ -54946,7 +54960,7 @@ This problem is likely caused by another plugin injecting
       dataObj.suggestions = Parser3.generateSuggestions(dataObj);
       return qualifySourceCallerEvidence(dataObj);
     }
-    return { buildAnalysisData: buildAnalysisData2 };
+    return { analyzeFiles: analyzeFiles2, buildAnalysisData };
   }
   function qualifySourceCallerEvidence(data) {
     var isElixir2 = function(f) {
@@ -54990,13 +55004,12 @@ This problem is likely caused by another plugin injecting
 
   // src/worker/analysis-worker.mjs
   var Parser2 = createParser(browserSyntaxRuntime({ TreeSitter: import_tree_sitter2.default, acorn: import_acorn_min.default, Babel: import_babel_min.default }));
-  var { buildAnalysisData } = createProjectAnalyzer(Parser2);
+  var { analyzeFiles } = createProjectAnalyzer(Parser2);
   self.onmessage = async function(event) {
     const payload = event.data || {};
     try {
-      const data = await buildAnalysisData({
-        analyzed: payload.analyzed || [],
-        allFns: payload.allFns || [],
+      const data = await analyzeFiles({
+        files: payload.files || [],
         excludePatterns: payload.excludePatterns || [],
         progress: (message) => self.postMessage({ type: "progress", message })
       });
@@ -55009,9 +55022,9 @@ This problem is likely caused by another plugin injecting
 `;
 
   // src/browser/analysis-client.mjs
-  function createAnalysisClient({ buildAnalysisData: buildAnalysisData2, yieldFn, Worker = globalThis.Worker }) {
+  function createAnalysisClient({ analyzeFiles: analyzeFiles2, yieldFn, Worker = globalThis.Worker }) {
     return function runAnalysisData2(options) {
-      if (!Worker) return buildAnalysisData2({ ...options, yieldFn });
+      if (!Worker) return analyzeFiles2({ ...options, yieldFn });
       return new Promise((resolve, reject) => {
         const url = URL.createObjectURL(new Blob([worker_default], { type: "text/javascript" }));
         let worker;
@@ -55023,7 +55036,7 @@ This problem is likely caused by another plugin injecting
           worker = new Worker(url);
         } catch (error) {
           cleanup();
-          resolve(buildAnalysisData2({ ...options, yieldFn }));
+          resolve(analyzeFiles2({ ...options, yieldFn }));
           return;
         }
         worker.onmessage = ({ data: message }) => {
@@ -55040,7 +55053,7 @@ This problem is likely caused by another plugin injecting
           reject(new Error(error.message || "Worker analysis failed"));
         };
         try {
-          worker.postMessage({ analyzed: options.analyzed || [], allFns: options.allFns || [], excludePatterns: options.excludePatterns || [] });
+          worker.postMessage({ files: options.files || [], excludePatterns: options.excludePatterns || [] });
         } catch (error) {
           cleanup();
           reject(error);
@@ -55319,8 +55332,8 @@ This problem is likely caused by another plugin injecting
 
   // src/browser/app.mjs
   var Parser = createParser(browserSyntaxRuntime({ TreeSitter: globalThis.TreeSitter, acorn: globalThis.acorn, Babel: globalThis.Babel }));
-  var { buildAnalysisData } = createProjectAnalyzer(Parser);
-  var runAnalysisData = createAnalysisClient({ buildAnalysisData, yieldFn: yieldToBrowser });
+  var { analyzeFiles } = createProjectAnalyzer(Parser);
+  var runAnalysisData = createAnalysisClient({ analyzeFiles, yieldFn: yieldToBrowser });
   var GitHub = createGitHubAdapter({ KJUR: globalThis.KJUR });
   var { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } = React;
   var COLORS = ["#4d9fff", "#a78bfa", "#22d3ee", "#00ff9d", "#ff9f43", "#ec4899", "#ff5f5f", "#84cc16"];
@@ -56634,23 +56647,18 @@ This problem is likely caused by another plugin injecting
       setLoading(true);
       setProgress("Reading local folder from CLI...");
       try {
-        await Parser.initTreeSitter().catch(function() {
-          return null;
-        });
         var listRes = await fetch("/__codeflow/files");
         if (!listRes.ok) throw new Error("CLI file list failed");
         var list = await listRes.json();
         var files = filterAnalyzableLocalFiles(list && list.files ? list.files : [], activeExcludePatterns);
         if (!files.length) throw new Error(activeExcludePatterns.length ? "No code files found in the watched folder after applying exclude patterns" : "No code files found in the watched folder");
         var analyzed = [];
-        var allFns = [];
         for (var i = 0; i < files.length; i++) {
           var f = files[i];
           if (i > 0 && i % 40 === 0) await yieldToBrowser();
           setProgress("Analyzing " + (i + 1) + "/" + files.length + ": " + f.name);
-          var isCodeFile = Parser.isCode(f.name);
           if (Parser.isOversized(Number(f.size))) {
-            analyzed.push(makeOversizedAnalysisFile(f, f.size, isCodeFile));
+            analyzed.push(makeOversizedAnalysisFile(f, f.size));
             continue;
           }
           var fileRes = await fetch("/__codeflow/file?path=" + encodeURIComponent(f.path));
@@ -56664,16 +56672,10 @@ This problem is likely caused by another plugin injecting
           if (snapRev != null) cliWatchSnapRevRef.current[pathKey] = snapRev;
           var content = await fileRes.text();
           if (Parser.isOversized(content.length)) {
-            analyzed.push(makeOversizedAnalysisFile(f, content.length, isCodeFile));
+            analyzed.push(makeOversizedAnalysisFile(f, content.length));
             continue;
           }
-          var layer = Parser.detectLayer(f.path);
-          var actualIsCode = isCodeFile && (!Parser.isScriptContainer(f.path) || Parser.hasEmbeddedCode(content, f.path));
-          var fns = actualIsCode ? Parser.extract(content, f.path) : [];
-          analyzed.push({ path: f.path, name: f.name, folder: f.folder || "root", content: content || "", functions: fns, lines: (content || "").split("\n").length, layer, churn: 0, isCode: actualIsCode });
-          if (actualIsCode) fns.forEach(function(fn) {
-            allFns.push(Object.assign({}, fn, { folder: f.folder || "root", layer }));
-          });
+          analyzed.push({ path: f.path, name: f.name, folder: f.folder || "root", content: content || "", churn: 0 });
         }
         var snapshot = null;
         if (status.beam) {
@@ -56682,8 +56684,7 @@ This problem is likely caused by another plugin injecting
           snapshot = await beamRes.json();
         }
         var dataObj = await runAnalysisData({
-          analyzed,
-          allFns,
+          files: analyzed,
           excludePatterns: activeExcludePatterns.map(function(x) {
             return x.raw;
           }),
@@ -56837,11 +56838,6 @@ This problem is likely caused by another plugin injecting
         authPromise = Promise.resolve();
       }
       authPromise.then(function() {
-        setProgress("Loading language parsers...");
-        return Parser.initTreeSitter().catch(function() {
-          return null;
-        });
-      }).then(function() {
         setProgress("Checking rate limit...");
         return GitHub.getRateLimit();
       }).then(function(rl) {
@@ -56876,7 +56872,6 @@ This problem is likely caused by another plugin injecting
           }
           var max = Math.min(files.length, HARD_LIMIT);
           var analyzed = [];
-          var allFns = [];
           function processFile(i) {
             if (i >= max) {
               finishAnalysis();
@@ -56886,7 +56881,7 @@ This problem is likely caused by another plugin injecting
             setProgress("Analyzing " + (i + 1) + "/" + max + ": " + f.name);
             var isCodeFile = f.isCode !== false && Parser.isCode(f.name);
             if (Parser.isOversized(f.size)) {
-              analyzed.push(makeOversizedAnalysisFile(f, f.size, isCodeFile));
+              analyzed.push(makeOversizedAnalysisFile(f, f.size));
               processFile(i + 1);
               return;
             }
@@ -56900,15 +56895,7 @@ This problem is likely caused by another plugin injecting
                 var content = results[0];
                 var commits = results[1];
                 if (content) {
-                  var layer = Parser.detectLayer(f.path);
-                  var actualIsCode = !Parser.isScriptContainer(f.path) || Parser.hasEmbeddedCode(content, f.path);
-                  var fns = actualIsCode ? Parser.extract(content, f.path) : [];
-                  analyzed.push({ path: f.path, name: f.name, folder: f.folder, content, functions: fns, lines: content.split("\n").length, layer, churn: Array.isArray(commits) ? commits.length : 0, isCode: actualIsCode });
-                  if (actualIsCode) {
-                    fns.forEach(function(fn) {
-                      allFns.push(Object.assign({}, fn, { folder: f.folder, layer }));
-                    });
-                  }
+                  analyzed.push({ path: f.path, name: f.name, folder: f.folder, content, churn: Array.isArray(commits) ? commits.length : 0 });
                 } else {
                   analyzed.push(makeFetchFailedAnalysisFile(f));
                 }
@@ -56919,9 +56906,7 @@ This problem is likely caused by another plugin injecting
               });
             } else {
               GitHub.getFile(p.owner, p.repo, f.path).then(function(content) {
-                var layer = Parser.detectLayer(f.path);
-                var lines = content ? content.split("\n").length : 0;
-                analyzed.push({ path: f.path, name: f.name, folder: f.folder, content: content || "", functions: [], lines, layer, churn: 0, isCode: false });
+                analyzed.push({ path: f.path, name: f.name, folder: f.folder, content: content || "", churn: 0 });
                 processFile(i + 1);
               }).catch(function() {
                 analyzed.push(makeFetchFailedAnalysisFile(f));
@@ -56932,8 +56917,7 @@ This problem is likely caused by another plugin injecting
           async function finishAnalysis() {
             try {
               var dataObj = await runAnalysisData({
-                analyzed,
-                allFns,
+                files: analyzed,
                 excludePatterns: currentExcludePatterns.map(function(x) {
                   return x.raw;
                 }),
@@ -57136,10 +57120,6 @@ This problem is likely caused by another plugin injecting
       var files = [];
       var SOFT_LIMIT = ANALYSIS_LIMITS.localSoft;
       var fileCount = 0;
-      setProgress("Loading language parsers...");
-      await Parser.initTreeSitter().catch(function() {
-        return null;
-      });
       setProgress("Scanning local folder...");
       async function readDirectory(handle, currentPath) {
         for await (const entry of handle.values()) {
@@ -57176,59 +57156,28 @@ This problem is likely caused by another plugin injecting
       }
       var max = files.length;
       var analyzed = [];
-      var allFns = [];
-      async function processFile(i) {
-        if (i >= max) {
-          await finishAnalysis();
-          return;
-        }
-        var f = files[i];
-        if (i > 0 && i % 50 === 0) await yieldToBrowser();
-        setProgress("Analyzing " + (i + 1) + "/" + max + ": " + f.name);
-        var isCodeFile = f.isCode !== false && Parser.isCode(f.name);
-        try {
-          var fileHandle = f.handle;
-          if (isCodeFile) {
-            var fileObj = await fileHandle.getFile();
+      async function processFiles() {
+        for (var i = 0; i < files.length; i++) {
+          var f = files[i];
+          if (i > 0 && i % 50 === 0) await yieldToBrowser();
+          setProgress("Reading " + (i + 1) + "/" + files.length + ": " + f.name);
+          try {
+            var fileObj = await f.handle.getFile();
             if (Parser.isOversized(fileObj.size)) {
-              analyzed.push(makeOversizedAnalysisFile(f, fileObj.size, isCodeFile));
-              processFile(i + 1);
-              return;
+              analyzed.push(makeOversizedAnalysisFile(f, fileObj.size));
+              continue;
             }
-            var content = await fileObj.text();
-            var layer = Parser.detectLayer(f.path);
-            var actualIsCode = !Parser.isScriptContainer(f.path) || Parser.hasEmbeddedCode(content, f.path);
-            var fns = actualIsCode ? Parser.extract(content, f.path) : [];
-            analyzed.push({ path: f.path, name: f.name, folder: f.folder, content, functions: fns, lines: content.split("\n").length, layer, churn: 0, isCode: actualIsCode });
-            if (actualIsCode) {
-              fns.forEach(function(fn) {
-                allFns.push(Object.assign({}, fn, { folder: f.folder, layer }));
-              });
-            }
-            processFile(i + 1);
-          } else {
-            var fileObj = await fileHandle.getFile();
-            if (Parser.isOversized(fileObj.size)) {
-              analyzed.push(makeOversizedAnalysisFile(f, fileObj.size, isCodeFile));
-              processFile(i + 1);
-              return;
-            }
-            var content = await fileObj.text();
-            var layer = Parser.detectLayer(f.path);
-            var lines = content ? content.split("\n").length : 0;
-            analyzed.push({ path: f.path, name: f.name, folder: f.folder, content: content || "", functions: [], lines, layer, churn: 0, isCode: false });
-            processFile(i + 1);
+            analyzed.push({ path: f.path, name: f.name, folder: f.folder, content: await fileObj.text() });
+          } catch (error2) {
+            analyzed.push(makeFetchFailedAnalysisFile(f));
           }
-        } catch (e) {
-          analyzed.push({ path: f.path, name: f.name, folder: f.folder, content: "", functions: [], lines: 0, layer: Parser.detectLayer(f.path), churn: 0, isCode: false });
-          processFile(i + 1);
         }
+        await finishAnalysis();
       }
       async function finishAnalysis() {
         try {
           var dataObj = await runAnalysisData({
-            analyzed,
-            allFns,
+            files: analyzed,
             excludePatterns: (compiledPatterns || []).map(function(x) {
               return x.raw;
             }),
@@ -57257,16 +57206,12 @@ This problem is likely caused by another plugin injecting
         setLoading(false);
         return;
       }
-      processFile(0);
+      await processFiles();
     }
     async function readLocalFolderFromFiles(fileObjs, compiledPatterns) {
       var patterns = compiledPatterns || activeExcludePatterns;
       var SOFT_LIMIT = ANALYSIS_LIMITS.localSoft;
       try {
-        setProgress("Loading language parsers...");
-        await Parser.initTreeSitter().catch(function() {
-          return null;
-        });
         setProgress("Scanning local folder...");
         var rawPaths = fileObjs.map(function(f2) {
           return f2.webkitRelativePath || f2.name;
@@ -57311,38 +57256,23 @@ This problem is likely caused by another plugin injecting
         }
         var max = files.length;
         var analyzed = [];
-        var allFns = [];
         for (var i = 0; i < max; i++) {
           var f = files[i];
           if (i > 0 && i % 50 === 0) await yieldToBrowser();
           setProgress("Analyzing " + (i + 1) + "/" + max + ": " + f.name);
-          var isCodeFile = f.isCode !== false && Parser.isCode(f.name);
           try {
             if (Parser.isOversized(f.size)) {
-              analyzed.push(makeOversizedAnalysisFile(f, f.size, isCodeFile));
+              analyzed.push(makeOversizedAnalysisFile(f, f.size));
               continue;
             }
             var content = await f.file.text();
-            var layer = Parser.detectLayer(f.path);
-            if (isCodeFile) {
-              var actualIsCode = !Parser.isScriptContainer(f.path) || Parser.hasEmbeddedCode(content, f.path);
-              var fns = actualIsCode ? Parser.extract(content, f.path) : [];
-              analyzed.push({ path: f.path, name: f.name, folder: f.folder, content, functions: fns, lines: content.split("\n").length, layer, churn: 0, isCode: actualIsCode });
-              if (actualIsCode) {
-                fns.forEach(function(fn) {
-                  allFns.push(Object.assign({}, fn, { folder: f.folder, layer }));
-                });
-              }
-            } else {
-              analyzed.push({ path: f.path, name: f.name, folder: f.folder, content: content || "", functions: [], lines: content ? content.split("\n").length : 0, layer, churn: 0, isCode: false });
-            }
+            analyzed.push({ path: f.path, name: f.name, folder: f.folder, content, churn: 0 });
           } catch (e) {
-            analyzed.push({ path: f.path, name: f.name, folder: f.folder, content: "", functions: [], lines: 0, layer: Parser.detectLayer(f.path), churn: 0, isCode: false });
+            analyzed.push({ path: f.path, name: f.name, folder: f.folder, content: "", churn: 0, analysisSkipped: "fetch-failed" });
           }
         }
         var dataObj = await runAnalysisData({
-          analyzed,
-          allFns,
+          files: analyzed,
           excludePatterns: (patterns || []).map(function(x) {
             return x.raw;
           }),
@@ -57371,10 +57301,6 @@ This problem is likely caused by another plugin injecting
       var SOFT_LIMIT = ANALYSIS_LIMITS.localSoft;
       try {
         if (!window.JSZip) throw new Error("ZIP support failed to load");
-        setProgress("Loading language parsers...");
-        await Parser.initTreeSitter().catch(function() {
-          return null;
-        });
         setProgress("Reading ZIP archive...");
         var zip = await JSZip.loadAsync(zipFile);
         var rawEntries = Object.keys(zip.files).sort().map(function(name) {
@@ -57429,38 +57355,23 @@ This problem is likely caused by another plugin injecting
         setLocalSourceKind("zip");
         var max = files.length;
         var analyzed = [];
-        var allFns = [];
         for (var i = 0; i < max; i++) {
           var f = files[i];
           if (i > 0 && i % 50 === 0) await yieldToBrowser();
           setProgress("Analyzing " + (i + 1) + "/" + max + ": " + f.name);
-          var isCodeFile = f.isCode !== false && Parser.isCode(f.name);
           try {
             if (Parser.isOversized(f.size)) {
-              analyzed.push(makeOversizedAnalysisFile(f, f.size, isCodeFile));
+              analyzed.push(makeOversizedAnalysisFile(f, f.size));
               continue;
             }
             var content = await f.entry.async("string");
-            var layer = Parser.detectLayer(f.path);
-            if (isCodeFile) {
-              var actualIsCode = !Parser.isScriptContainer(f.path) || Parser.hasEmbeddedCode(content, f.path);
-              var fns = actualIsCode ? Parser.extract(content, f.path) : [];
-              analyzed.push({ path: f.path, name: f.name, folder: f.folder, content, functions: fns, lines: content.split("\n").length, layer, churn: 0, isCode: actualIsCode });
-              if (actualIsCode) {
-                fns.forEach(function(fn) {
-                  allFns.push(Object.assign({}, fn, { folder: f.folder, layer }));
-                });
-              }
-            } else {
-              analyzed.push({ path: f.path, name: f.name, folder: f.folder, content: content || "", functions: [], lines: content ? content.split("\n").length : 0, layer, churn: 0, isCode: false });
-            }
+            analyzed.push({ path: f.path, name: f.name, folder: f.folder, content, churn: 0 });
           } catch (e) {
-            analyzed.push({ path: f.path, name: f.name, folder: f.folder, content: "", functions: [], lines: 0, layer: Parser.detectLayer(f.path), churn: 0, isCode: false });
+            analyzed.push({ path: f.path, name: f.name, folder: f.folder, content: "", churn: 0, analysisSkipped: "fetch-failed" });
           }
         }
         var dataObj = await runAnalysisData({
-          analyzed,
-          allFns,
+          files: analyzed,
           excludePatterns: (patterns || []).map(function(x) {
             return x.raw;
           }),

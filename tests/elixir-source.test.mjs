@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createNodeAnalyzer } from './helpers/analysis.mjs';
-const { Parser, buildAnalysisData } = createNodeAnalyzer();
+const { Parser, analyzeFiles } = createNodeAnalyzer();
 await Parser.prepareTreeSitter([{path:'lib/example.ex'}]);
 assert.ok(Parser.getLoadedTreeSitterParser('lib/example.ex'),'vendored Elixir grammar must load');
 const plain=x=>JSON.parse(JSON.stringify(x));
@@ -40,7 +40,7 @@ test('real Elixir grammar groups clauses with module, arity, defaults and source
 
 async function analyze(sources){
  const files=Object.entries(sources).map(([path,content])=>({path,name:path.split('/').pop(),folder:'lib',content,functions:[],lines:content.split('\n').length,layer:'utils',isCode:true}));
- return buildAnalysisData({analyzed:files,allFns:[],yieldFn:async()=>{}});
+ return analyzeFiles({files,yieldFn:async()=>{}});
 }
 
 test('native analysis resolves exact module/arity and keeps dynamic or ambiguous calls unresolved',async()=>{
@@ -148,7 +148,7 @@ test('browser analysis worker loads the vendored Elixir grammar in its actual wo
    try{return await new Promise((resolve,reject)=>{
      worker.onmessage=event=>{if(event.data.type==='done')resolve(event.data.data);else if(event.data.type==='error')reject(new Error(event.data.message));};
      worker.onerror=event=>reject(new Error(event.message));
-     worker.postMessage({analyzed:[{path:'lib/example.ex',name:'example.ex',folder:'lib',content:'defmodule Example do\n def run(), do: :ok\nend',functions:[],isCode:true,lines:3,layer:'utils'}],allFns:[]});
+     worker.postMessage({files:[{path:'lib/example.ex',name:'example.ex',folder:'lib',content:'defmodule Example do\n def run(), do: :ok\nend',functions:[],isCode:true,lines:3,layer:'utils'}],allFns:[]});
    });}finally{worker.terminate();}
  });
  assert.equal(result.files[0].elixir.status,'ready');
@@ -159,8 +159,8 @@ test('browser analysis worker loads the vendored Elixir grammar in its actual wo
 test('successive Node investigations retain the grammar runtime after initialization',async()=>{
  const {createNodeAnalyzer}=await import('../src/node/analysis.mjs');
  for(let i=0;i<3;i++){
-  const {buildAnalysisData}=createNodeAnalyzer();
-  const data=await buildAnalysisData({analyzed:[{path:'lib/repeated.ex',name:'repeated.ex',folder:'lib',content:'defmodule Repeated do\n def run(), do: :ok\nend',functions:[],isCode:true,lines:3}]});
+  const {analyzeFiles}=createNodeAnalyzer();
+  const data=await analyzeFiles({files:[{path:'lib/repeated.ex',name:'repeated.ex',folder:'lib',content:'defmodule Repeated do\n def run(), do: :ok\nend',functions:[],isCode:true,lines:3}]});
   assert.equal(data.files[0].elixir.status,'ready','investigation '+i);
   assert.equal(data.files[0].functions[0].name,'Repeated.run/0');
  }

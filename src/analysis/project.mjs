@@ -1,8 +1,33 @@
 import {buildTree} from '../project/tree.mjs';
 import {buildArchitectureDiagram} from './architecture.mjs';
 
-// The project model assembles evidence; scheduling and syntax belong to its callers.
+// The shared engine prepares source and assembles evidence into the project model.
 export function createProjectAnalyzer(Parser){
+// Acquisition supplies source records; syntax preparation belongs to this engine.
+async function analyzeFiles({files=[],progress=()=>{},yieldFn=()=>Promise.resolve(),...options}={}){
+    await Parser.prepareTreeSitter(files.filter(file=>!file.analysisSkipped));
+    const analyzed=[],allFns=[];
+    for(let index=0;index<files.length;index++){
+        const file=files[index],path=file.path,name=file.name||path.split('/').pop();
+        const folder=file.folder||(path.includes('/')?path.slice(0,path.lastIndexOf('/')):'root');
+        const content=typeof file.content==='string'?file.content:'';
+        const skipped=file.analysisSkipped||(Parser.isOversized(file.size)||Parser.isOversized(content.length)?'oversized':null);
+        const isCode=Parser.isCode(name)&&(!Parser.isScriptContainer(path)||Parser.hasEmbeddedCode(content,path));
+        const layer=Parser.detectLayer(path);
+        const elixir=!skipped&&isCode&&Parser.isElixir(path)?Parser.analyzeElixir(content,path):null;
+        const functions=elixir&&elixir.status!=='unavailable'?elixir.functions:!skipped&&isCode?Parser.extract(content,path):[];
+        const record={...file,path,name,folder,content:skipped?'':content,functions,layer,
+            lines:skipped||!content?0:content.split('\n').length,isCode,churn:file.churn||0};
+        if(elixir){record.elixir=elixir;record.parserProvenance=elixir.provenance;}
+        if(skipped){record.analysisSkipped=skipped;record.parserProvenance=skipped==='oversized'?'skipped:size-limit':'skipped:'+skipped;}
+        analyzed.push(record);
+        for(const fn of functions)allFns.push({...fn,folder,layer});
+        progress('Analyzing '+(index+1)+'/'+files.length+': '+name);
+        if(index%30===29)await yieldFn();
+    }
+    return buildAnalysisData({...options,analyzed,allFns,progress,yieldFn});
+}
+
 async function buildAnalysisData(options){
     var analyzed=(options.analyzed||[]).map(file=>({...file}));
     var allFns=options.allFns||[];
@@ -13,18 +38,6 @@ async function buildAnalysisData(options){
 
     progress('Building dependency graph (1/6)...');
     await yieldFn();
-    await Parser.prepareTreeSitter(analyzed);
-    var elixirReparsed=new Set();
-    analyzed.forEach(function(file){
-        if(!Parser.isElixir(file.path)||!file.content||file.analysisSkipped)return;
-        file.elixir=Parser.analyzeElixir(file.content,file.path);
-        if(file.elixir.status!=='unavailable'){
-            elixirReparsed.add(file.path);
-            file.functions=file.elixir.functions;
-            file.parserProvenance=file.elixir.provenance;
-        }
-    });
-    allFns=allFns.filter(function(fn){return !elixirReparsed.has(fn.file);}).concat(analyzed.filter(function(file){return elixirReparsed.has(file.path);}).flatMap(function(file){return file.functions.map(function(fn){return Object.assign({},fn,{folder:file.folder,layer:file.layer});});}));
     var fnDefIndex=Parser.buildFunctionDefinitionIndex(allFns);
     var fnNames=Object.keys(fnDefIndex.byName);
     var fnNameIndex=Parser.buildFunctionNameIndex(fnNames);
@@ -353,7 +366,7 @@ async function buildAnalysisData(options){
     dataObj.suggestions=Parser.generateSuggestions(dataObj);
     return qualifySourceCallerEvidence(dataObj);
 }
-return {buildAnalysisData};
+return {analyzeFiles,buildAnalysisData};
 }
 
 // Missing static callers are not proof of dead Elixir code: callbacks, macros

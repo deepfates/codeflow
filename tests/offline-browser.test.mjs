@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
-import {readFile} from 'node:fs/promises';
+import {readFile,mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
 import {createNodeAnalyzer} from '../src/node/analysis.mjs';
 const require=createRequire(import.meta.url);
 
-test('offline HTML imports a ZIP with the same grammar evidence as Node and navigates exact source',{
+test('offline ZIP and selected-folder imports share grammar evidence and exact source navigation',{
  skip:!process.env.CODEFLOW_TEST_BROWSER,timeout:60000
 },async t=>{
  const {chromium}=await import('playwright');
@@ -30,14 +32,25 @@ test('offline HTML imports a ZIP with the same grammar evidence as Node and navi
  const download=await downloaded;
  const exported=JSON.parse(await readFile(await download.path(),'utf8'));
  const data=exported.data||exported;
- const {buildAnalysisData}=createNodeAnalyzer();
- const expected=await buildAnalysisData({analyzed:[{path:'lib/example.ex',name:'example.ex',folder:'lib',content,functions:[],isCode:true,lines:3,layer:'utils'}]});
+ const {analyzeFiles}=createNodeAnalyzer();
+ const expected=await analyzeFiles({files:[{path:'lib/example.ex',name:'example.ex',folder:'lib',content,functions:[],isCode:true,lines:3,layer:'utils'}]});
  assert.equal(data.files.length,1,'default dependency exclusions apply to ZIPs');
  assert.equal(data.files[0].elixir.status,'ready');
  assert.deepEqual(data.files[0].elixir,expected.files[0].elixir);
  assert.ok(workers>0,'ordinary offline analysis actually uses its built worker');
  await page.getByRole('tab',{name:'Files',exact:true}).click();
  const search=page.getByRole('searchbox',{name:'Find files and symbols'});
+ await search.fill('Example.run/0');await search.press('Enter');
+ await page.locator('[data-code-card="lib/example.ex"] [data-line="2"].highlighted').waitFor();
+ // The browser's directory-file input is a distinct acquisition path from ZIP.
+ const folder=await mkdtemp(join(tmpdir(),'codeflow-selected-folder-'));
+ t.after(()=>rm(folder,{recursive:true,force:true}));
+ await mkdir(join(folder,'lib'));await mkdir(join(folder,'deps'));
+ await writeFile(join(folder,'lib/example.ex'),content);
+ await writeFile(join(folder,'deps/excluded.ex'),'defmodule Vendored do\nend');
+ await page.locator('input[type="file"][webkitdirectory]').setInputFiles(folder);
+ await page.getByRole('combobox',{name:'Visualization type'}).waitFor({timeout:45000});
+ await page.getByRole('tab',{name:'Files',exact:true}).click();
  await search.fill('Example.run/0');await search.press('Enter');
  await page.locator('[data-code-card="lib/example.ex"] [data-line="2"].highlighted').waitFor();
  assert.deepEqual(errors,[]);

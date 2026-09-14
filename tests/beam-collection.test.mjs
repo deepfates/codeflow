@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { listWatchFiles, parseCliArgs } from '../cli/codeflow.mjs';
-import { buildAnalyzed } from '../card/lib/collect.js';
+import { collectFiles } from '../card/lib/collect.js';
 import { createNodeAnalyzer } from './helpers/analysis.mjs';
 import { filterAnalyzableLocalFiles } from '../src/project/exclusions.mjs';
 
@@ -18,7 +18,7 @@ test('local and headless acquisition exclude dependency and build trees while re
   }
   const expected=['apps/web/lib/sample.ex','lib/sample.ex'];
   assert.deepEqual((await listWatchFiles(root)).map(f=>f.path).sort(),expected);
-  assert.deepEqual((await buildAnalyzed(root,Parser,[])).analyzed.map(f=>f.path).sort(),expected);
+  assert.deepEqual((await collectFiles(root,Parser,[])).map(f=>f.path).sort(),expected);
 });
 test('CLI can print the Codeflow URL without opening the default browser', () => {
   assert.deepEqual(parseCliArgs(['node','codeflow','/project','--beam','--no-open','--port','4180']),

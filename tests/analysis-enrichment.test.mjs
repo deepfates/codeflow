@@ -59,15 +59,12 @@ test('compiler refresh replaces only compiler edges, including unavailable snaps
 });
 
 async function sourceOnly(extension) {
-  const { Parser, buildAnalysisData } = createNodeAnalyzer();
+  const { analyzeFiles } = createNodeAnalyzer();
   const content = extension === 'ex'
     ? 'defmodule Candidates do\n' + Array.from({ length: 12 }, (_, i) => `  def candidate_${i}(value), do: value`).join('\n') + '\nend'
     : Array.from({ length: 12 }, (_, i) => `function candidate_${i}(value) { return value + ${i}; }`).join('\n');
   const path = `lib/candidates.${extension}`;
-  const file = { path, name: `candidates.${extension}`, folder: 'lib', content,
-    lines: content.split('\n').length, isCode: true, layer: Parser.detectLayer(path),
-    functions: Parser.extract(content, path), churn: 0 };
-  return buildAnalysisData({ analyzed: [file], allFns: file.functions, yieldFn: async () => {} });
+  return analyzeFiles({ files: [{path, content}], yieldFn: async () => {} });
 }
 
 test('ordinary source analysis retains Elixir candidates with uncertainty before any compiler evidence', async () => {

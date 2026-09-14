@@ -457,7 +457,10 @@ modules, then rebuild; do not edit the generated bundles.
 
 Node imports the canonical modules directly, with Babel’s Node API configured
 to ignore consumer Babel configuration and the same vendored Tree-sitter grammars. The browser never fetches its HTML
-to extract executable code. Source stays in the live project model; recent-analysis
+to extract executable code. Every loader supplies source records to `analyzeFiles`;
+the engine loads grammars before extraction and owns definitions, classification
+and project assembly. Acquisition failures remain inventory entries. Source stays
+in the live project model; recent-analysis
 persistence makes its own compact projection. Raw JSON retains source evidence,
 including Elixir declarations and unresolved calls, alongside findings and links.
 

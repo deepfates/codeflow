@@ -32,8 +32,8 @@ import {browserSyntaxRuntime} from './syntax-runtime.mjs';
 import {createAnalysisClient} from './analysis-client.mjs';
 import {createGitHubAdapter} from '../project/github.mjs';
 const Parser=createParser(browserSyntaxRuntime({TreeSitter:globalThis.TreeSitter,acorn:globalThis.acorn,Babel:globalThis.Babel}));
-const {buildAnalysisData}=createProjectAnalyzer(Parser);
-const runAnalysisData=createAnalysisClient({buildAnalysisData,yieldFn:yieldToBrowser});
+const {analyzeFiles}=createProjectAnalyzer(Parser);
+const runAnalysisData=createAnalysisClient({analyzeFiles,yieldFn:yieldToBrowser});
 const GitHub=createGitHubAdapter({KJUR:globalThis.KJUR});
 
 const{useState,useEffect,useLayoutEffect,useRef,useMemo,useCallback}=React;
@@ -1167,21 +1167,20 @@ function App(){
         setLoading(true);
         setProgress('Reading local folder from CLI...');
         try{
-            await Parser.initTreeSitter().catch(function(){return null;});
+
             var listRes=await fetch('/__codeflow/files');
             if(!listRes.ok)throw new Error('CLI file list failed');
             var list=await listRes.json();
             var files=filterAnalyzableLocalFiles(list&&list.files?list.files:[],activeExcludePatterns);
             if(!files.length)throw new Error(activeExcludePatterns.length?'No code files found in the watched folder after applying exclude patterns':'No code files found in the watched folder');
             var analyzed=[];
-            var allFns=[];
+
             for(var i=0;i<files.length;i++){
                 var f=files[i];
                 if(i>0&&i%40===0)await yieldToBrowser();
                 setProgress('Analyzing '+(i+1)+'/'+files.length+': '+f.name);
-                var isCodeFile=Parser.isCode(f.name);
                 if(Parser.isOversized(Number(f.size))){
-                    analyzed.push(makeOversizedAnalysisFile(f,f.size,isCodeFile));
+                    analyzed.push(makeOversizedAnalysisFile(f,f.size));
                     continue;
                 }
                 var fileRes=await fetch('/__codeflow/file?path='+encodeURIComponent(f.path));
@@ -1195,14 +1194,12 @@ function App(){
                 if(snapRev!=null)cliWatchSnapRevRef.current[pathKey]=snapRev;
                 var content=await fileRes.text();
                 if(Parser.isOversized(content.length)){
-                    analyzed.push(makeOversizedAnalysisFile(f,content.length,isCodeFile));
+                    analyzed.push(makeOversizedAnalysisFile(f,content.length));
                     continue;
                 }
-                var layer=Parser.detectLayer(f.path);
-                var actualIsCode=isCodeFile&&(!Parser.isScriptContainer(f.path)||Parser.hasEmbeddedCode(content,f.path));
-                var fns=actualIsCode?Parser.extract(content,f.path):[];
-                analyzed.push({path:f.path,name:f.name,folder:f.folder||'root',content:content||'',functions:fns,lines:(content||'').split('\n').length,layer:layer,churn:0,isCode:actualIsCode});
-                if(actualIsCode)fns.forEach(function(fn){allFns.push(Object.assign({},fn,{folder:f.folder||'root',layer:layer}));});
+
+                analyzed.push({path:f.path,name:f.name,folder:f.folder||'root',content:content||'',churn:0});
+
             }
             var snapshot=null;
             if(status.beam){
@@ -1211,8 +1208,7 @@ function App(){
                 snapshot=await beamRes.json();
             }
             var dataObj=await runAnalysisData({
-                analyzed:analyzed,
-                allFns:allFns,
+                files:analyzed,
                 excludePatterns:activeExcludePatterns.map(function(x){return x.raw;}),
                 progress:setProgress,
                 yieldFn:yieldToBrowser
@@ -1368,9 +1364,6 @@ function App(){
         }
 
         authPromise.then(function(){
-            setProgress('Loading language parsers...');
-            return Parser.initTreeSitter().catch(function(){return null;});
-        }).then(function(){
             setProgress('Checking rate limit...');
             return GitHub.getRateLimit();
         }).then(function(rl){
@@ -1416,7 +1409,6 @@ function App(){
                 }
                 var max=Math.min(files.length,HARD_LIMIT);
                 var analyzed=[];
-                var allFns=[];
 
                 function processFile(i){
                     if(i>=max){finishAnalysis();return;}
@@ -1424,7 +1416,7 @@ function App(){
                     setProgress('Analyzing '+(i+1)+'/'+max+': '+f.name);
                     var isCodeFile=f.isCode!==false&&Parser.isCode(f.name);
                     if(Parser.isOversized(f.size)){
-                        analyzed.push(makeOversizedAnalysisFile(f,f.size,isCodeFile));
+                        analyzed.push(makeOversizedAnalysisFile(f,f.size));
                         processFile(i+1);
                         return;
                     }
@@ -1436,13 +1428,9 @@ function App(){
                             var content=results[0];
                             var commits=results[1];
                             if(content){
-                                var layer=Parser.detectLayer(f.path);
-                                var actualIsCode=!Parser.isScriptContainer(f.path)||Parser.hasEmbeddedCode(content,f.path);
-                                var fns=actualIsCode?Parser.extract(content,f.path):[];
-                                analyzed.push({path:f.path,name:f.name,folder:f.folder,content:content,functions:fns,lines:content.split('\n').length,layer:layer,churn:Array.isArray(commits)?commits.length:0,isCode:actualIsCode});
-                                if(actualIsCode){
-                                    fns.forEach(function(fn){allFns.push(Object.assign({},fn,{folder:f.folder,layer:layer}));});
-                                }
+
+                                analyzed.push({path:f.path,name:f.name,folder:f.folder,content:content,churn:Array.isArray(commits)?commits.length:0});
+
                             }else{
                                 // Content fetch failed (rate limit, network) — keep the
                                 // file visible instead of silently shrinking the repo.
@@ -1452,9 +1440,8 @@ function App(){
                         }).catch(function(){analyzed.push(makeFetchFailedAnalysisFile(f));processFile(i+1);});
                     }else{
                         GitHub.getFile(p.owner,p.repo,f.path).then(function(content){
-                            var layer=Parser.detectLayer(f.path);
-                            var lines=content?content.split('\n').length:0;
-                            analyzed.push({path:f.path,name:f.name,folder:f.folder,content:content||'',functions:[],lines:lines,layer:layer,churn:0,isCode:false});
+
+                            analyzed.push({path:f.path,name:f.name,folder:f.folder,content:content||'',churn:0});
                             processFile(i+1);
                         }).catch(function(){
                             analyzed.push(makeFetchFailedAnalysisFile(f));
@@ -1466,8 +1453,7 @@ function App(){
                 async function finishAnalysis(){
                     try{
                         var dataObj=await runAnalysisData({
-                            analyzed:analyzed,
-                            allFns:allFns,
+                            files:analyzed,
                             excludePatterns:currentExcludePatterns.map(function(x){return x.raw;}),
                             progress:setProgress,
                             yieldFn:yieldToBrowser
@@ -1680,8 +1666,6 @@ function App(){
         var files=[];
         var SOFT_LIMIT=ANALYSIS_LIMITS.localSoft;
         var fileCount=0;
-        setProgress('Loading language parsers...');
-        await Parser.initTreeSitter().catch(function(){return null;});
         setProgress('Scanning local folder...');
 
         async function readDirectory(handle, currentPath){
@@ -1721,58 +1705,28 @@ function App(){
         }
         var max=files.length;
         var analyzed=[];
-        var allFns=[];
 
-        async function processFile(i){
-            if(i>=max){await finishAnalysis();return;}
-            var f=files[i];
-            // Yield to browser every 50 files to keep UI responsive
-            if(i>0&&i%50===0)await yieldToBrowser();
-            setProgress('Analyzing '+(i+1)+'/'+max+': '+f.name);
-            var isCodeFile=f.isCode!==false&&Parser.isCode(f.name);
-
-            try{
-                var fileHandle=f.handle;
-                if(isCodeFile){
-                    var fileObj=await fileHandle.getFile();
+        async function processFiles(){
+            for(var i=0;i<files.length;i++){
+                var f=files[i];
+                if(i>0&&i%50===0)await yieldToBrowser();
+                setProgress('Reading '+(i+1)+'/'+files.length+': '+f.name);
+                try{
+                    var fileObj=await f.handle.getFile();
                     if(Parser.isOversized(fileObj.size)){
-                        analyzed.push(makeOversizedAnalysisFile(f,fileObj.size,isCodeFile));
-                        processFile(i+1);
-                        return;
+                        analyzed.push(makeOversizedAnalysisFile(f,fileObj.size));
+                        continue;
                     }
-                    var content=await fileObj.text();
-                    var layer=Parser.detectLayer(f.path);
-                    var actualIsCode=!Parser.isScriptContainer(f.path)||Parser.hasEmbeddedCode(content,f.path);
-                    var fns=actualIsCode?Parser.extract(content,f.path):[];
-                    analyzed.push({path:f.path,name:f.name,folder:f.folder,content:content,functions:fns,lines:content.split('\n').length,layer:layer,churn:0,isCode:actualIsCode});
-                    if(actualIsCode){
-                        fns.forEach(function(fn){allFns.push(Object.assign({},fn,{folder:f.folder,layer:layer}));});
-                    }
-                    processFile(i+1);
-                }else{
-                    var fileObj=await fileHandle.getFile();
-                    if(Parser.isOversized(fileObj.size)){
-                        analyzed.push(makeOversizedAnalysisFile(f,fileObj.size,isCodeFile));
-                        processFile(i+1);
-                        return;
-                    }
-                    var content=await fileObj.text();
-                    var layer=Parser.detectLayer(f.path);
-                    var lines=content?content.split('\n').length:0;
-                    analyzed.push({path:f.path,name:f.name,folder:f.folder,content:content||'',functions:[],lines:lines,layer:layer,churn:0,isCode:false});
-                    processFile(i+1);
-                }
-            }catch(e){
-                analyzed.push({path:f.path,name:f.name,folder:f.folder,content:'',functions:[],lines:0,layer:Parser.detectLayer(f.path),churn:0,isCode:false});
-                processFile(i+1);
+                    analyzed.push({path:f.path,name:f.name,folder:f.folder,content:await fileObj.text()});
+                }catch(error){analyzed.push(makeFetchFailedAnalysisFile(f));}
             }
+            await finishAnalysis();
         }
 
         async function finishAnalysis(){
             try{
                 var dataObj=await runAnalysisData({
-                    analyzed:analyzed,
-                    allFns:allFns,
+                    files:analyzed,
                     excludePatterns:(compiledPatterns||[]).map(function(x){return x.raw;}),
                     progress:setProgress,
                     yieldFn:yieldToBrowser
@@ -1799,15 +1753,14 @@ function App(){
             return;
         }
 
-        processFile(0);
+        await processFiles();
     }
 
     async function readLocalFolderFromFiles(fileObjs,compiledPatterns){
         var patterns=compiledPatterns||activeExcludePatterns;
         var SOFT_LIMIT=ANALYSIS_LIMITS.localSoft;
         try{
-            setProgress('Loading language parsers...');
-            await Parser.initTreeSitter().catch(function(){return null;});
+
             setProgress('Scanning local folder...');
             var rawPaths=fileObjs.map(function(f){return f.webkitRelativePath||f.name;});
             var rootPrefix=getArchiveRootPrefix(rawPaths);
@@ -1854,37 +1807,26 @@ function App(){
 
             var max=files.length;
             var analyzed=[];
-            var allFns=[];
+
             for(var i=0;i<max;i++){
                 var f=files[i];
                 if(i>0&&i%50===0)await yieldToBrowser();
                 setProgress('Analyzing '+(i+1)+'/'+max+': '+f.name);
-                var isCodeFile=f.isCode!==false&&Parser.isCode(f.name);
                 try{
                     if(Parser.isOversized(f.size)){
-                        analyzed.push(makeOversizedAnalysisFile(f,f.size,isCodeFile));
+                        analyzed.push(makeOversizedAnalysisFile(f,f.size));
                         continue;
                     }
                     var content=await f.file.text();
-                    var layer=Parser.detectLayer(f.path);
-                    if(isCodeFile){
-                        var actualIsCode=!Parser.isScriptContainer(f.path)||Parser.hasEmbeddedCode(content,f.path);
-                        var fns=actualIsCode?Parser.extract(content,f.path):[];
-                        analyzed.push({path:f.path,name:f.name,folder:f.folder,content:content,functions:fns,lines:content.split('\n').length,layer:layer,churn:0,isCode:actualIsCode});
-                        if(actualIsCode){
-                            fns.forEach(function(fn){allFns.push(Object.assign({},fn,{folder:f.folder,layer:layer}));});
-                        }
-                    }else{
-                        analyzed.push({path:f.path,name:f.name,folder:f.folder,content:content||'',functions:[],lines:content?content.split('\n').length:0,layer:layer,churn:0,isCode:false});
-                    }
+
+                    analyzed.push({path:f.path,name:f.name,folder:f.folder,content:content,churn:0});
                 }catch(e){
-                    analyzed.push({path:f.path,name:f.name,folder:f.folder,content:'',functions:[],lines:0,layer:Parser.detectLayer(f.path),churn:0,isCode:false});
+                    analyzed.push({path:f.path,name:f.name,folder:f.folder,content:'',churn:0,analysisSkipped:'fetch-failed'});
                 }
             }
 
             var dataObj=await runAnalysisData({
-                analyzed:analyzed,
-                allFns:allFns,
+                files:analyzed,
                 excludePatterns:(patterns||[]).map(function(x){return x.raw;}),
                 progress:setProgress,
                 yieldFn:yieldToBrowser
@@ -1910,8 +1852,7 @@ function App(){
         var SOFT_LIMIT=ANALYSIS_LIMITS.localSoft;
         try{
             if(!window.JSZip)throw new Error('ZIP support failed to load');
-            setProgress('Loading language parsers...');
-            await Parser.initTreeSitter().catch(function(){return null;});
+
             setProgress('Reading ZIP archive...');
             var zip=await JSZip.loadAsync(zipFile);
             var rawEntries=Object.keys(zip.files).sort().map(function(name){return zip.files[name];}).filter(function(entry){return entry&&!entry.dir;});
@@ -1963,37 +1904,26 @@ function App(){
 
             var max=files.length;
             var analyzed=[];
-            var allFns=[];
+
             for(var i=0;i<max;i++){
                 var f=files[i];
                 if(i>0&&i%50===0)await yieldToBrowser();
                 setProgress('Analyzing '+(i+1)+'/'+max+': '+f.name);
-                var isCodeFile=f.isCode!==false&&Parser.isCode(f.name);
                 try{
                     if(Parser.isOversized(f.size)){
-                        analyzed.push(makeOversizedAnalysisFile(f,f.size,isCodeFile));
+                        analyzed.push(makeOversizedAnalysisFile(f,f.size));
                         continue;
                     }
                     var content=await f.entry.async('string');
-                    var layer=Parser.detectLayer(f.path);
-                    if(isCodeFile){
-                        var actualIsCode=!Parser.isScriptContainer(f.path)||Parser.hasEmbeddedCode(content,f.path);
-                        var fns=actualIsCode?Parser.extract(content,f.path):[];
-                        analyzed.push({path:f.path,name:f.name,folder:f.folder,content:content,functions:fns,lines:content.split('\n').length,layer:layer,churn:0,isCode:actualIsCode});
-                        if(actualIsCode){
-                            fns.forEach(function(fn){allFns.push(Object.assign({},fn,{folder:f.folder,layer:layer}));});
-                        }
-                    }else{
-                        analyzed.push({path:f.path,name:f.name,folder:f.folder,content:content||'',functions:[],lines:content?content.split('\n').length:0,layer:layer,churn:0,isCode:false});
-                    }
+
+                    analyzed.push({path:f.path,name:f.name,folder:f.folder,content:content,churn:0});
                 }catch(e){
-                    analyzed.push({path:f.path,name:f.name,folder:f.folder,content:'',functions:[],lines:0,layer:Parser.detectLayer(f.path),churn:0,isCode:false});
+                    analyzed.push({path:f.path,name:f.name,folder:f.folder,content:'',churn:0,analysisSkipped:'fetch-failed'});
                 }
             }
 
             var dataObj=await runAnalysisData({
-                analyzed:analyzed,
-                allFns:allFns,
+                files:analyzed,
                 excludePatterns:(patterns||[]).map(function(x){return x.raw;}),
                 progress:setProgress,
                 yieldFn:yieldToBrowser
@@ -2140,7 +2070,6 @@ function App(){
     var toggleFn=useCallback(function(name){setExpandedFns(function(prev){var n=new Set(prev);if(n.has(name))n.delete(name);else n.add(name);return n;});},[]);
 
     // Syntax highlighting function
-
 
     function folderSourceIsLive(){
         var currentSource=currentAnalysisSource();

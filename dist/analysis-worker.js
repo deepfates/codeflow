@@ -46395,7 +46395,47 @@ ${JSON.stringify(t2, null, 2)}`);
 
   // src/analysis/project.mjs
   function createProjectAnalyzer(Parser3) {
-    async function buildAnalysisData2(options) {
+    async function analyzeFiles2({ files = [], progress = () => {
+    }, yieldFn = () => Promise.resolve(), ...options } = {}) {
+      await Parser3.prepareTreeSitter(files.filter((file) => !file.analysisSkipped));
+      const analyzed = [], allFns = [];
+      for (let index = 0; index < files.length; index++) {
+        const file = files[index], path = file.path, name = file.name || path.split("/").pop();
+        const folder = file.folder || (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "root");
+        const content = typeof file.content === "string" ? file.content : "";
+        const skipped = file.analysisSkipped || (Parser3.isOversized(file.size) || Parser3.isOversized(content.length) ? "oversized" : null);
+        const isCode2 = Parser3.isCode(name) && (!Parser3.isScriptContainer(path) || Parser3.hasEmbeddedCode(content, path));
+        const layer = Parser3.detectLayer(path);
+        const elixir = !skipped && isCode2 && Parser3.isElixir(path) ? Parser3.analyzeElixir(content, path) : null;
+        const functions = elixir && elixir.status !== "unavailable" ? elixir.functions : !skipped && isCode2 ? Parser3.extract(content, path) : [];
+        const record = {
+          ...file,
+          path,
+          name,
+          folder,
+          content: skipped ? "" : content,
+          functions,
+          layer,
+          lines: skipped || !content ? 0 : content.split("\n").length,
+          isCode: isCode2,
+          churn: file.churn || 0
+        };
+        if (elixir) {
+          record.elixir = elixir;
+          record.parserProvenance = elixir.provenance;
+        }
+        if (skipped) {
+          record.analysisSkipped = skipped;
+          record.parserProvenance = skipped === "oversized" ? "skipped:size-limit" : "skipped:" + skipped;
+        }
+        analyzed.push(record);
+        for (const fn of functions) allFns.push({ ...fn, folder, layer });
+        progress("Analyzing " + (index + 1) + "/" + files.length + ": " + name);
+        if (index % 30 === 29) await yieldFn();
+      }
+      return buildAnalysisData({ ...options, analyzed, allFns, progress, yieldFn });
+    }
+    async function buildAnalysisData(options) {
       var analyzed = (options.analyzed || []).map((file2) => ({ ...file2 }));
       var allFns = options.allFns || [];
       var excludePatterns = options.excludePatterns || [];
@@ -46405,26 +46445,6 @@ ${JSON.stringify(t2, null, 2)}`);
       var CALL_BATCH = 30;
       progress("Building dependency graph (1/6)...");
       await yieldFn();
-      await Parser3.prepareTreeSitter(analyzed);
-      var elixirReparsed = /* @__PURE__ */ new Set();
-      analyzed.forEach(function(file2) {
-        if (!Parser3.isElixir(file2.path) || !file2.content || file2.analysisSkipped) return;
-        file2.elixir = Parser3.analyzeElixir(file2.content, file2.path);
-        if (file2.elixir.status !== "unavailable") {
-          elixirReparsed.add(file2.path);
-          file2.functions = file2.elixir.functions;
-          file2.parserProvenance = file2.elixir.provenance;
-        }
-      });
-      allFns = allFns.filter(function(fn) {
-        return !elixirReparsed.has(fn.file);
-      }).concat(analyzed.filter(function(file2) {
-        return elixirReparsed.has(file2.path);
-      }).flatMap(function(file2) {
-        return file2.functions.map(function(fn) {
-          return Object.assign({}, fn, { folder: file2.folder, layer: file2.layer });
-        });
-      }));
       var fnDefIndex = Parser3.buildFunctionDefinitionIndex(allFns);
       var fnNames = Object.keys(fnDefIndex.byName);
       var fnNameIndex = Parser3.buildFunctionNameIndex(fnNames);
@@ -46807,7 +46827,7 @@ ${JSON.stringify(t2, null, 2)}`);
       dataObj.suggestions = Parser3.generateSuggestions(dataObj);
       return qualifySourceCallerEvidence(dataObj);
     }
-    return { buildAnalysisData: buildAnalysisData2 };
+    return { analyzeFiles: analyzeFiles2, buildAnalysisData };
   }
   function qualifySourceCallerEvidence(data) {
     var isElixir2 = function(f) {
@@ -46851,13 +46871,12 @@ ${JSON.stringify(t2, null, 2)}`);
 
   // src/worker/analysis-worker.mjs
   var Parser2 = createParser(browserSyntaxRuntime({ TreeSitter: import_tree_sitter2.default, acorn: import_acorn_min.default, Babel: import_babel_min.default }));
-  var { buildAnalysisData } = createProjectAnalyzer(Parser2);
+  var { analyzeFiles } = createProjectAnalyzer(Parser2);
   self.onmessage = async function(event) {
     const payload = event.data || {};
     try {
-      const data = await buildAnalysisData({
-        analyzed: payload.analyzed || [],
-        allFns: payload.allFns || [],
+      const data = await analyzeFiles({
+        files: payload.files || [],
         excludePatterns: payload.excludePatterns || [],
         progress: (message) => self.postMessage({ type: "progress", message })
       });
