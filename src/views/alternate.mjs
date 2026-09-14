@@ -1,4 +1,5 @@
 import {snapshotZoomTransform} from './camera.mjs';
+import {fileMatchesFolderFilter} from '../investigation/navigation.mjs';
 import {sankeyCircular} from 'd3-sankey-circular';
 import {scaleStrokeWidth} from './graph-style.mjs';
 import {renderTooltipHtml} from '../browser/html.mjs';
@@ -306,26 +307,31 @@ export function createAlternateViews({React,d3,colors:COLORS}){
             svg.call(zoom);
             function cleanup(){cameraRef.current=d3.zoomTransform(svg.node());paintRef.current=null;svg.interrupt();svg.selectAll('*').interrupt();svg.on('.zoom',null);container.selectAll('*').remove();}
             svg.call(zoom.transform,cameraRef.current||d3.zoomIdentity);
-            var filteredFiles=folderFilter?sourceFiles.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}):sourceFiles;
+            var filteredFiles=sourceFiles.filter(file=>fileMatchesFolderFilter(file,folderFilter));
             var folders=[...new Set(filteredFiles.map(function(f){return f.folder||'root';}))];
-            var folderIdx={};folders.forEach(function(f,i){folderIdx[f]=i;});
+            var filesByPath=new Map(sourceFiles.map(file=>[file.path,file]));
             var filteredPaths=new Set(filteredFiles.map(function(f){return f.path;}));
             var flowMap={};
             connections.forEach(function(c){
                 var src=typeof c.source==='object'?c.source.id:c.source;
                 var tgt=typeof c.target==='object'?c.target.id:c.target;
                 if(!filteredPaths.has(src)&&!filteredPaths.has(tgt))return;
-                var srcFile=sourceFiles.find(function(f){return f.path===src;});
-                var tgtFile=sourceFiles.find(function(f){return f.path===tgt;});
+                var srcFile=filesByPath.get(src);
+                var tgtFile=filesByPath.get(tgt);
                 if(srcFile&&tgtFile&&srcFile.folder!==tgtFile.folder){
-                    var key=srcFile.folder+'|'+tgtFile.folder;
+                    var key=JSON.stringify([srcFile.folder||'root',tgtFile.folder||'root']);
                     flowMap[key]=(flowMap[key]||0)+(c.count||1);
                 }
             });
-            var nodes=folders.map(function(f,i){return{id:i,name:f.split('/').pop()||'root',fullPath:f,fileCount:filteredFiles.filter(function(x){return x.folder===f;}).length};});
+            // Keep the selected scope and the boundary folders of its incident flows.
+            // Boundary context does not expand the scope or pull in unrelated flows.
+            folders=[...new Set([...folders,...Object.keys(flowMap).flatMap(key=>JSON.parse(key))])];
+            var folderIdx={};folders.forEach(function(f,i){folderIdx[f]=i;});
+            var folderCounts=new Map();sourceFiles.forEach(file=>{const folder=file.folder||'root';folderCounts.set(folder,(folderCounts.get(folder)||0)+1);});
+            var nodes=folders.map(function(f,i){return{id:i,name:f.split('/').pop()||'root',fullPath:f,fileCount:folderCounts.get(f)||0};});
             // A Sankey measures directed flow: reciprocal relationships stay separate.
             var links=Object.entries(flowMap).flatMap(function([key,value]){
-                var [source,target]=key.split('|').map(folder=>folderIdx[folder]);
+                var [source,target]=JSON.parse(key).map(folder=>folderIdx[folder]);
                 return source!==undefined&&target!==undefined&&source!==target?[{source,target,value}]:[];
             });
             if(links.length===0){

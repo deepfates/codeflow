@@ -1303,7 +1303,15 @@ function App(){
     }
     function analyzePR(){if(!prUrl||!repoInfo)return;var m=prUrl.match(/\/pull\/(\d+)/);if(!m){showNotification('Invalid PR URL','error');return;}GitHub.getPR(repoInfo.owner,repoInfo.repo,m[1]).then(function(pr){if(pr)setPrData(pr);else showNotification('Could not load PR','error');});}
     function resetAnalysis(){project.clear();resetProjectPresentation();setRepoUrl('');setArchitectureIncludeTests(false);setArchitectureIncludeBuildOutput(false);window.history.replaceState({},'',window.location.pathname);}
-    function filterByFolder(path){setFolderFilter(function(prev){return prev===path?null:path;});}
+    function filterByFolder(path){
+        setFolderFilter(function(prev){return prev===path?null:path;});
+        if(path&&path!==folderFilter)setExpandedPaths(function(prev){
+            const expanded=new Set(prev);expanded.add('');
+            const parts=path.split('/');
+            parts.forEach((_,index)=>expanded.add(parts.slice(0,index+1).join('/')));
+            return expanded;
+        });
+    }
     function renderRecentsList(){
         return React.createElement('div',{className:'sidebar-scroll'},
             recentAnalyses.length?React.createElement('div',{className:'recent-list'},
