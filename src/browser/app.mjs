@@ -573,6 +573,13 @@ function App(){
 
     }
 
+    function openAssessmentSource(item){
+        const location=item.sourceLocation||{path:typeof item==='string'?item:item.path||item.file,line:item.line,range:item.range};
+        if(location.range||(Number.isInteger(location.line)&&location.line>0))openSourceLocation(location);
+        else goToFile(location.path);
+        setDrillDown(null);
+    }
+
     async function navigateBeamSymbol(method,path,position){
         setBeamNavigationError(null);
         try{var locations=await beamLanguage(method,path,position);if(method==='definition'&&locations.length===1)openSourceLocation(locations[0]);else setBeamLocations({title:method==='references'?'References':'Definitions',items:locations});}
@@ -1715,10 +1722,11 @@ function App(){
     // Scroll to highlighted line after file preview loads
     useEffect(function(){
         if(filePreview&&filePreview.content&&filePreview.line&&filePreviewRef.current){
-            setTimeout(function(){
+            const timer=setTimeout(function(){
                 var el=filePreviewRef.current.querySelector('.file-preview-line.highlighted');
                 if(el)el.scrollIntoView({behavior:'smooth',block:'center'});
             },100);
+            return function(){clearTimeout(timer);};
         }
     },[filePreview]);
 
@@ -3770,7 +3778,7 @@ function App(){
                                 React.createElement('div',{style:{fontWeight:600,fontSize:11}},item.name),
                                 item.file&&React.createElement('div',{style:{display:'flex',gap:6}},
                                     React.createElement('button',{className:'view-file-btn',onClick:function(e){e.stopPropagation();openFilePreview(item.file,item.line);}},iconLabel('eye','View')),
-                                    React.createElement('button',{style:{fontSize:9,padding:'4px 8px',background:'var(--acc)',color:'var(--bg0)',border:'none',borderRadius:4,cursor:'pointer'},onClick:function(e){e.stopPropagation();goToFile(item.file);setDrillDown(null);}},'Go to file →')
+                                    React.createElement('button',{style:{fontSize:9,padding:'4px 8px',background:'var(--acc)',color:'var(--bg0)',border:'none',borderRadius:4,cursor:'pointer'},onClick:function(e){e.stopPropagation();openAssessmentSource(item);}},'Go to file →')
                                 )
                             ),
                             item.file&&React.createElement('div',{style:{fontSize:10,color:'var(--t3)',marginTop:4,fontFamily:'monospace'}},item.file,item.line?' : '+item.line:''),
@@ -3786,10 +3794,10 @@ function App(){
                             item.files&&React.createElement('div',{style:{marginTop:8}},
                                 React.createElement('div',{style:{fontSize:9,color:'var(--t3)',marginBottom:4}},'Locations:'),
                                 item.files.map(function(f,k){return React.createElement('div',{key:k,style:{fontSize:9,color:'var(--t2)',padding:'4px 8px',background:'var(--bg2)',borderRadius:4,marginBottom:4,display:'flex',justifyContent:'space-between',alignItems:'center'}},
-                                    React.createElement('span',{style:{fontFamily:'monospace',cursor:'pointer',flex:1},onClick:function(){goToFile(f.file||f);setDrillDown(null);}},typeof f==='string'?f.split('/').pop():(f.file||'').split('/').pop(),f.line?' :'+f.line:''),
+                                    React.createElement('span',{style:{fontFamily:'monospace',cursor:'pointer',flex:1},onClick:function(){openAssessmentSource(f);}},typeof f==='string'?f.split('/').pop():(f.file||'').split('/').pop(),f.line?' :'+f.line:''),
                                     React.createElement('div',{style:{display:'flex',gap:4}},
                                         React.createElement('button',{className:'view-file-btn',onClick:function(e){e.stopPropagation();openFilePreview(f.file||f,f.line);}},React.createElement(Icon,{name:'eye',size:'s'})),
-                                        React.createElement('span',{style:{color:'var(--acc)',cursor:'pointer'},onClick:function(){goToFile(f.file||f);setDrillDown(null);}},'→')
+                                        React.createElement('span',{style:{color:'var(--acc)',cursor:'pointer'},onClick:function(){openAssessmentSource(f);}},'→')
                                     )
                                 );})
                             )
@@ -3833,10 +3841,10 @@ function App(){
                         React.createElement('div',{style:{fontSize:12,fontWeight:600,marginBottom:12}},'Location'),
                         React.createElement('div',{style:{background:'var(--bg0)',padding:12,borderRadius:8,marginBottom:16}},
                             React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
-                                React.createElement('div',{style:{fontWeight:600,fontSize:11,cursor:'pointer'},onClick:function(){goToFile(drillDown.data.path);setDrillDown(null);}},drillDown.data.file),
+                                React.createElement('div',{style:{fontWeight:600,fontSize:11,cursor:'pointer'},onClick:function(){openAssessmentSource(drillDown.data);}},drillDown.data.file),
                                 React.createElement('button',{className:'view-file-btn',onClick:function(e){e.stopPropagation();openFilePreview(drillDown.data.path,drillDown.data.line);}},iconLabel('eye','View'))
                             ),
-                            React.createElement('div',{style:{fontSize:10,color:'var(--t3)',marginTop:4,fontFamily:'monospace',cursor:'pointer'},onClick:function(){goToFile(drillDown.data.path);setDrillDown(null);}},drillDown.data.path),
+                            React.createElement('div',{style:{fontSize:10,color:'var(--t3)',marginTop:4,fontFamily:'monospace',cursor:'pointer'},onClick:function(){openAssessmentSource(drillDown.data);}},drillDown.data.path),
                             drillDown.data.line&&React.createElement('div',{style:{fontSize:10,color:'var(--orange)',marginTop:4}},'Line ',drillDown.data.line)
                         ),
                         drillDown.data.code&&React.createElement(React.Fragment,null,
@@ -3862,10 +3870,10 @@ function App(){
                             ? getAccentBlockStyle('rgba(167,139,250,0.34)','rgba(167,139,250,0.08)',{padding:12,marginBottom:8})
                             : getAccentBlockStyle('rgba(255,159,67,0.34)','rgba(255,159,67,0.08)',{padding:12,marginBottom:8})},
                             React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
-                                React.createElement('div',{style:{fontWeight:600,fontSize:11,cursor:'pointer'},onClick:function(){goToFile(f.file);setDrillDown(null);}},f.name||drillDown.data.name),
+                                React.createElement('div',{style:{fontWeight:600,fontSize:11,cursor:'pointer'},onClick:function(){openAssessmentSource(f);}},f.name||drillDown.data.name),
                                 React.createElement('button',{className:'view-file-btn',onClick:function(e){e.stopPropagation();openFilePreview(f.file,f.line);}},iconLabel('eye','View'))
                             ),
-                            React.createElement('div',{style:{fontSize:10,color:'var(--t3)',marginTop:4,fontFamily:'monospace',cursor:'pointer'},onClick:function(){goToFile(f.file);setDrillDown(null);}},f.file),
+                            React.createElement('div',{style:{fontSize:10,color:'var(--t3)',marginTop:4,fontFamily:'monospace',cursor:'pointer'},onClick:function(){openAssessmentSource(f);}},f.file),
                             f.line&&React.createElement('div',{style:{fontSize:10,color:'var(--orange)',marginTop:4}},'Line ',f.line)
                         );}),
                         React.createElement('div',{style:{fontSize:12,fontWeight:600,marginBottom:12,marginTop:16}},'Suggested Action'),
@@ -3961,7 +3969,7 @@ function App(){
                                     React.createElement('div',{className:'unused-fn-path'},
                                         React.createElement('span',null,React.createElement(Icon,{name:'folder',size:'s'}),' ',fn.folder||'root'),
                                         React.createElement('span',null,'→'),
-                                        React.createElement('span',{className:'unused-fn-file',onClick:function(e){e.stopPropagation();goToFile(fn.file);setShowUnused(false);}},fn.file.split('/').pop())
+                                        React.createElement('span',{className:'unused-fn-file',onClick:function(e){e.stopPropagation();openAssessmentSource(fn);setShowUnused(false);}},fn.file.split('/').pop())
                                     )
                                 ),
                                 React.createElement('div',{className:'unused-fn-meta'},
