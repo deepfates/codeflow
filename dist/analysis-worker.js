@@ -42182,6 +42182,14 @@ ${JSON.stringify(t2, null, 2)}`);
   }
 
   // src/analysis/parser.mjs
+  var grammarLoads = /* @__PURE__ */ new WeakMap();
+  function loadRuntimeLanguage(runtime, source) {
+    const previous = grammarLoads.get(runtime) || Promise.resolve();
+    const pending = previous.then(() => runtime.Language.load(source));
+    grammarLoads.set(runtime, pending.catch(() => {
+    }));
+    return pending;
+  }
   function createParser({ TreeSitter: TreeSitter3, acorn: acorn2, Babel: Babel2, vendorBase = "vendor/", runtimeWasm, loadGrammar } = {}) {
     const Parser3 = {
       // Tree-sitter parsers are loaded lazily from vendored WASM and used when a language has
@@ -42267,7 +42275,7 @@ ${JSON.stringify(t2, null, 2)}`);
           if (!runtime) return null;
           try {
             var lang = await Parser3._withTimeout(Promise.resolve(loadGrammar ? loadGrammar(config.grammar) : Parser3.treeSitterWasmBase + "tree-sitter-" + config.grammar + ".wasm").then(function(source) {
-              return runtime.Language.load(source);
+              return loadRuntimeLanguage(runtime, source);
             }), Parser3.treeSitterFetchTimeoutMs);
             var parser = new runtime();
             parser.setLanguage(lang);

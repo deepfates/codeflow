@@ -363,72 +363,237 @@
     }
   });
 
-  // src/browser/source-navigation.mjs
-  function createSourceNavigationHook(React2) {
-    const { useState: useState2, useRef: useRef2, useMemo: useMemo2, useEffect: useEffect2 } = React2;
-    return function useSourceNavigation2({ connection, selection, loading, language, onOpen }) {
-      const owner = useMemo2(() => ({}), [connection, selection, loading, language?.state, language?.build?.completedAt]);
-      const current = useRef2(owner), open = useRef2(onOpen), request = useRef2(null);
-      current.current = owner;
-      open.current = onOpen;
-      const [result, setResult] = useState2({ owner, symbols: [], locations: null, error: null });
-      const state = result.owner === owner ? result : { symbols: [], locations: null, error: null };
-      function update(change) {
-        if (current.current === owner) setResult((prev) => ({ ...prev, ...prev.owner === owner ? {} : { symbols: [], locations: null, error: null }, owner, ...change }));
-      }
-      useEffect2(() => {
-        current.current = owner;
-        return () => {
-          if (current.current === owner) current.current = null;
-        };
-      }, [owner]);
-      useEffect2(() => {
-        const path2 = selection.selectedPath;
-        if (loading || !connection || !path2 || !/\.exs?$/.test(path2) || language?.state !== "ready") return;
-        let cancelled = false;
-        connection.language("symbols", path2).then((symbols) => {
-          if (!cancelled) update({ symbols });
-        }).catch((error) => {
-          if (!cancelled && error.name !== "AbortError") update({ error: error.message });
-        });
-        return () => {
-          cancelled = true;
-        };
-      }, [owner, language?.state, language?.build?.completedAt]);
-      async function navigate(method, path2, position) {
-        const pending = {};
-        request.current = pending;
-        update({ error: null });
-        try {
-          if (!connection) throw new Error("Open this checkout with the CLI to use language navigation.");
-          const locations = await connection.language(method, path2, position);
-          if (current.current !== owner || request.current !== pending) return;
-          if (method === "definition" && locations.length === 1) open.current(locations[0]);
-          else update({ locations: { title: method === "references" ? "References" : "Definitions", items: locations } });
-        } catch (error) {
-          if (request.current === pending && error.name !== "AbortError") update({ error: error.message });
+  // src/analysis/metrics.mjs
+  function calcBlast(fileId, conns, files) {
+    var exportedTo = {};
+    var importedFrom = {};
+    var exportedFns = {};
+    conns.forEach(function(c) {
+      var src = typeof c.source === "object" ? c.source.id : c.source;
+      var tgt = typeof c.target === "object" ? c.target.id : c.target;
+      if (!exportedTo[src]) exportedTo[src] = /* @__PURE__ */ new Set();
+      exportedTo[src].add(tgt);
+      if (!importedFrom[tgt]) importedFrom[tgt] = /* @__PURE__ */ new Set();
+      importedFrom[tgt].add(src);
+      if (c.evidence === "mix xref") return;
+      if (!exportedFns[src]) exportedFns[src] = /* @__PURE__ */ new Map();
+      var fnMap = exportedFns[src];
+      fnMap.set(c.fn, (fnMap.get(c.fn) || 0) + (c.count || 1));
+    });
+    var directDeps = exportedTo[fileId] ? Array.from(exportedTo[fileId]) : [];
+    var transitive = /* @__PURE__ */ new Map();
+    var queue = directDeps.map(function(f) {
+      return { file: f, depth: 1 };
+    });
+    var visited = new Set([fileId].concat(directDeps));
+    while (queue.length > 0) {
+      var item = queue.shift();
+      if (item.depth > 3) continue;
+      transitive.set(item.file, item.depth);
+      var nextDeps = exportedTo[item.file] || /* @__PURE__ */ new Set();
+      nextDeps.forEach(function(f) {
+        if (!visited.has(f)) {
+          visited.add(f);
+          queue.push({ file: f, depth: item.depth + 1 });
         }
-      }
-      return { symbols: state.symbols, locations: state.locations, error: state.error, navigate, unavailable: (reason) => update({ error: reason }) };
+      });
+    }
+    var fnUsage = exportedFns[fileId] || /* @__PURE__ */ new Map();
+    var fnsUsed = fnUsage.size;
+    var totalCalls = 0;
+    fnUsage.forEach(function(cnt) {
+      totalCalls += cnt;
+    });
+    var dependencies = importedFrom[fileId] ? Array.from(importedFrom[fileId]) : [];
+    var impactScore = directDeps.length;
+    transitive.forEach(function(depth, f) {
+      if (depth > 1) impactScore += 1 / depth;
+    });
+    var centrality = directDeps.length + dependencies.length + fnsUsed;
+    var level = "low";
+    var connectedFiles = files.filter(function(f) {
+      return exportedTo[f.path] || importedFrom[f.path];
+    }).length;
+    var relativePct = connectedFiles > 0 ? Math.round(directDeps.length / connectedFiles * 100) : 0;
+    if (directDeps.length >= 8 || fnsUsed >= 5) level = "critical";
+    else if (directDeps.length >= 4 || fnsUsed >= 3) level = "high";
+    else if (directDeps.length >= 2 || fnsUsed >= 1) level = "medium";
+    return {
+      affected: directDeps,
+      transitive: Array.from(transitive.keys()),
+      count: directDeps.length,
+      transitiveCount: transitive.size,
+      percent: relativePct,
+      level,
+      depth: transitive.size > 0 ? Math.max.apply(null, Array.from(transitive.values())) : 0,
+      fnsUsed,
+      totalCalls,
+      dependencies,
+      impactScore: Math.round(impactScore * 10) / 10,
+      centrality
     };
   }
+  function calcHealth(data) {
+    if (!data) return { score: 0, grade: "F" };
+    var score = 100;
+    var assessedDead = data.deadFunctions ? data.deadFunctions.filter(function(f) {
+      return f.certainty !== "unverified";
+    }).length : data.stats.dead;
+    var deadPct = data.stats.functions > 0 ? assessedDead / data.stats.functions * 100 : 0;
+    score -= Math.min(20, deadPct);
+    var circular = data.issues.filter(function(i) {
+      return i.title.includes("Circular");
+    }).length;
+    score -= Math.min(20, circular * 5);
+    var god = data.issues.filter(function(i) {
+      return i.title.includes("Large");
+    }).length;
+    score -= Math.min(15, god * 3);
+    var avgCoup = data.stats.files > 0 ? data.stats.connections / data.stats.files : 0;
+    score -= Math.min(15, Math.max(0, avgCoup - 3) * 2);
+    var sec = data.securityIssues ? data.securityIssues.filter(function(i) {
+      return i.severity === "high";
+    }).length : 0;
+    score -= Math.min(20, sec * 5);
+    score = Math.max(0, Math.round(score));
+    var grade = "F";
+    if (score >= 90) grade = "A";
+    else if (score >= 80) grade = "B";
+    else if (score >= 70) grade = "C";
+    else if (score >= 60) grade = "D";
+    return { score, grade };
+  }
 
-  // src/project/loading.mjs
-  function createProjectLoading() {
-    let active;
-    return {
-      begin() {
-        active?.abort();
-        active = new AbortController();
-        return active.signal;
-      },
-      get signal() {
-        return active?.signal;
-      },
-      dispose() {
-        active?.abort();
+  // src/analysis/pull-request.mjs
+  function calcPRRisk(prData, repoData) {
+    if (!prData || !repoData) return { score: 0, level: "low", factors: [] };
+    var score = 0;
+    var factors = [];
+    var changedFiles = prData.files || [];
+    var totalBlast = 0;
+    var hotspots = [];
+    changedFiles.forEach(function(f) {
+      var existing = repoData.files.find(function(df) {
+        return df.path === f.filename;
+      });
+      if (existing) {
+        var blast = calcBlast(f.filename, repoData.connections, repoData.files);
+        totalBlast += blast.count;
+        if (blast.count > 5) hotspots.push({ file: f.filename, blast: blast.count });
       }
-    };
+    });
+    if (totalBlast > 50) {
+      score += 30;
+      factors.push("High blast radius (" + totalBlast + " files)");
+    } else if (totalBlast > 20) {
+      score += 15;
+      factors.push("Moderate blast radius");
+    }
+    if (changedFiles.length > 10) {
+      score += 20;
+      factors.push("Many files changed (" + changedFiles.length + ")");
+    } else if (changedFiles.length > 5) {
+      score += 10;
+      factors.push("Several files changed");
+    }
+    var totalChanges = (prData.additions || 0) + (prData.deletions || 0);
+    if (totalChanges > 500) {
+      score += 25;
+      factors.push("Large changeset (" + totalChanges + " lines)");
+    } else if (totalChanges > 200) {
+      score += 12;
+      factors.push("Moderate changeset");
+    }
+    var coreFiles = changedFiles.filter(function(f) {
+      return f.filename.includes("/core/") || f.filename.includes("/utils/") || f.filename.includes("/lib/");
+    });
+    if (coreFiles.length > 0) {
+      score += 15;
+      factors.push("Core files modified (" + coreFiles.length + ")");
+    }
+    var configFiles = changedFiles.filter(function(f) {
+      return f.filename.match(/\.(json|yaml|yml|toml|env)$/);
+    });
+    if (configFiles.length > 0) {
+      score += 10;
+      factors.push("Config files changed");
+    }
+    score = Math.min(100, score);
+    var level = score >= 70 ? "critical" : score >= 40 ? "high" : score >= 20 ? "medium" : "low";
+    return { score, level, factors, totalBlast, hotspots: hotspots.sort(function(a, b) {
+      return b.blast - a.blast;
+    }).slice(0, 5) };
+  }
+  function findReviewAreas(prData, repoData) {
+    if (!prData || !repoData) return [];
+    var changedPaths = (prData.files || []).map(function(f) {
+      return f.filename;
+    });
+    var areas = /* @__PURE__ */ new Map();
+    repoData.files.forEach(function(f) {
+      if (!f.folder || !changedPaths.some(function(p) {
+        return p.startsWith(f.folder + "/");
+      })) return;
+      var layer = f.layer || "other";
+      if (!areas.has(layer)) areas.set(layer, { layer, count: 0, files: [] });
+      var area = areas.get(layer);
+      area.count++;
+      area.files.push(f.path);
+    });
+    return Array.from(areas.values()).sort(function(a, b) {
+      return b.count - a.count;
+    }).slice(0, 3);
+  }
+  function findTestImpact(prData, repoData) {
+    if (!prData || !repoData) return [];
+    var changedFiles = (prData.files || []).map(function(f) {
+      return f.filename;
+    });
+    var testFiles = repoData.files.filter(function(f) {
+      return f.name.match(/\.test\.|\.spec\.|_test\.|test_/i);
+    });
+    var impacted = [];
+    testFiles.forEach(function(tf) {
+      var shouldRun = changedFiles.some(function(cf) {
+        var cfBase = cf.replace(/\.[^.]+$/, "").split("/").pop();
+        return tf.name.toLowerCase().includes(cfBase.toLowerCase());
+      });
+      if (shouldRun) impacted.push({ file: tf.name, path: tf.path });
+    });
+    if (impacted.length === 0 && testFiles.length > 0) {
+      impacted = testFiles.slice(0, 3).map(function(tf) {
+        return { file: tf.name, path: tf.path, suggested: true };
+      });
+    }
+    return impacted;
+  }
+  function findDependencyChains(prData, repoData) {
+    if (!prData || !repoData) return [];
+    var changedFiles = (prData.files || []).map(function(f) {
+      return f.filename;
+    });
+    var chains = [];
+    changedFiles.slice(0, 3).forEach(function(file) {
+      var chain = [file.split("/").pop()];
+      var visited = /* @__PURE__ */ new Set([file]);
+      var queue = [file];
+      var depth = 0;
+      while (queue.length > 0 && depth < 3) {
+        var current = queue.shift();
+        repoData.connections.forEach(function(c) {
+          var src = typeof c.source === "object" ? c.source.id : c.source;
+          var tgt = typeof c.target === "object" ? c.target.id : c.target;
+          if (tgt === current && !visited.has(src)) {
+            visited.add(src);
+            chain.push(src.split("/").pop());
+            queue.push(src);
+          }
+        });
+        depth++;
+      }
+      if (chain.length > 1) chains.push(chain.slice(0, 5));
+    });
+    return chains;
   }
 
   // src/project/identity.mjs
@@ -583,6 +748,406 @@
   function functionKey(fn) {
     if (!fn) return "";
     return [fn.file || "", fn.line || "", String(fn.name == null ? "" : fn.name)].join("|");
+  }
+
+  // src/views/file-inspector.mjs
+  function createFileInspector({ React: React2, Icon: Icon2, colors: COLORS2 }) {
+    const { useState: useState2, useEffect: useEffect2 } = React2;
+    const iconLabel2 = (name, label) => React2.createElement(React2.Fragment, null, React2.createElement(Icon2, { name, size: "s" }), " ", label);
+    return function FileInspector2({ file: selected, analysis: data, blastRadius, readOwnership, onLocate, onPreview, onBack, children }) {
+      const [expandedCards, setExpandedCards] = useState2(() => /* @__PURE__ */ new Set(["blast", "fns"]));
+      const [expandedFns, setExpandedFns] = useState2(() => /* @__PURE__ */ new Set());
+      const [ownership, setOwnership] = useState2(null);
+      const [ownerLoading, setOwnerLoading] = useState2(false);
+      useEffect2(() => {
+        setExpandedFns(/* @__PURE__ */ new Set());
+      }, [selected.path]);
+      useEffect2(() => {
+        let cancelled = false;
+        setOwnership(null);
+        setOwnerLoading(Boolean(readOwnership));
+        if (readOwnership) Promise.resolve().then(() => readOwnership(selected.path)).then((owners) => {
+          if (!cancelled) {
+            setOwnership(owners);
+            setOwnerLoading(false);
+          }
+        }, () => {
+          if (!cancelled) setOwnerLoading(false);
+        });
+        return () => {
+          cancelled = true;
+        };
+      }, [selected.path, readOwnership]);
+      const toggleCard = (id) => setExpandedCards((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+      const toggleFn = (id) => setExpandedFns((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+      return React2.createElement(
+        React2.Fragment,
+        null,
+        React2.createElement("button", { className: "top-btn", style: { width: "100%", marginBottom: 12 }, onClick: onBack }, "\u2190 Back to Issues"),
+        React2.createElement(
+          "div",
+          { className: "panel-header", style: { margin: "0 -12px 12px", padding: 12 } },
+          React2.createElement(
+            "div",
+            { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } },
+            React2.createElement(
+              "div",
+              null,
+              React2.createElement("div", { className: "panel-title" }, React2.createElement(Icon2, { name: "file", size: "m" }), " ", selected.name),
+              React2.createElement("div", { className: "panel-subtitle" }, selected.folder || "root", " \u2022 ", selected.layer, " \u2022 ", selected.lines, " lines", selected.complexity && selected.complexity.score > 0 ? " \u2022 Complexity: " + selected.complexity.score : "")
+            ),
+            React2.createElement("button", { className: "view-file-btn", onClick: function() {
+              onPreview(selected.path);
+            } }, iconLabel2("eye", "View Source"))
+          )
+        ),
+        children,
+        blastRadius && React2.createElement(
+          "div",
+          { className: "card", style: { marginBottom: 12 } },
+          React2.createElement("div", { className: "card-header", onClick: function() {
+            toggleCard("blast");
+          } }, React2.createElement("div", { className: "card-title" }, React2.createElement("span", { className: "card-toggle" + (expandedCards.has("blast") ? " open" : "") }, "\u25B6"), React2.createElement(Icon2, { name: "impact", size: "s" }), " Impact Analysis"), React2.createElement("span", { className: "badge badge-" + (blastRadius.level === "low" ? "success" : blastRadius.level === "medium" ? "warning" : "danger") }, blastRadius.level.toUpperCase())),
+          expandedCards.has("blast") && React2.createElement(
+            "div",
+            { className: "card-body" },
+            React2.createElement(
+              "div",
+              { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 } },
+              React2.createElement(
+                "div",
+                { style: { background: "var(--bg0)", padding: 8, borderRadius: 6, textAlign: "center" } },
+                React2.createElement("div", { style: { fontSize: 16, fontWeight: 600, color: "var(--acc)" } }, blastRadius.count),
+                React2.createElement("div", { style: { fontSize: 9, color: "var(--t3)" } }, "Direct Dependents")
+              ),
+              React2.createElement(
+                "div",
+                { style: { background: "var(--bg0)", padding: 8, borderRadius: 6, textAlign: "center" } },
+                React2.createElement("div", { style: { fontSize: 16, fontWeight: 600, color: "var(--purple)" } }, blastRadius.transitiveCount || 0),
+                React2.createElement("div", { style: { fontSize: 9, color: "var(--t3)" } }, "Transitive")
+              ),
+              React2.createElement(
+                "div",
+                { style: { background: "var(--bg0)", padding: 8, borderRadius: 6, textAlign: "center" } },
+                React2.createElement("div", { style: { fontSize: 16, fontWeight: 600, color: "var(--green)" } }, blastRadius.fnsUsed || 0),
+                React2.createElement("div", { style: { fontSize: 9, color: "var(--t3)" } }, "Fns Exported")
+              ),
+              React2.createElement(
+                "div",
+                { style: { background: "var(--bg0)", padding: 8, borderRadius: 6, textAlign: "center" } },
+                React2.createElement("div", { style: { fontSize: 16, fontWeight: 600, color: "var(--orange)" } }, (blastRadius.dependencies || []).length),
+                React2.createElement("div", { style: { fontSize: 9, color: "var(--t3)" } }, "Dependencies")
+              )
+            ),
+            (blastRadius.count > 0 || blastRadius.fnsUsed > 0) && React2.createElement(
+              "div",
+              { style: { fontSize: 9, color: "var(--t3)", marginBottom: 8, padding: "6px 8px", background: "var(--bg0)", borderRadius: 4 } },
+              blastRadius.count > 0 ? blastRadius.count + " file" + (blastRadius.count > 1 ? "s" : "") + " directly depend on this file" : "",
+              blastRadius.count > 0 && blastRadius.fnsUsed > 0 ? " \u2022 " : "",
+              blastRadius.fnsUsed > 0 ? blastRadius.fnsUsed + " function" + (blastRadius.fnsUsed > 1 ? "s" : "") + " used " + blastRadius.totalCalls + " times" : ""
+            ),
+            blastRadius.affected.length > 0 && React2.createElement(
+              "div",
+              { className: "blast-detail" },
+              React2.createElement("div", { style: { fontSize: 9, fontWeight: 600, marginBottom: 6 } }, "Files that import from this:"),
+              blastRadius.affected.slice(0, 8).map(function(path2) {
+                return React2.createElement("div", { key: path2, className: "blast-file", onClick: function() {
+                  onLocate(path2);
+                } }, React2.createElement(Icon2, { name: "file", size: "s" }), " ", path2.split("/").pop());
+              }),
+              blastRadius.affected.length > 8 && React2.createElement("div", { style: { fontSize: 9, color: "var(--t3)", marginTop: 4 } }, "+", blastRadius.affected.length - 8, " more")
+            ),
+            (blastRadius.dependencies || []).length > 0 && React2.createElement(
+              "div",
+              { className: "blast-detail", style: { marginTop: 8 } },
+              React2.createElement("div", { style: { fontSize: 9, fontWeight: 600, marginBottom: 6, color: "var(--orange)" } }, "Dependencies (risk if these change):"),
+              blastRadius.dependencies.slice(0, 5).map(function(path2) {
+                return React2.createElement("div", { key: path2, className: "blast-file", onClick: function() {
+                  onLocate(path2);
+                } }, React2.createElement(Icon2, { name: "file", size: "s" }), " ", path2.split("/").pop());
+              }),
+              blastRadius.dependencies.length > 5 && React2.createElement("div", { style: { fontSize: 9, color: "var(--t3)", marginTop: 4 } }, "+", blastRadius.dependencies.length - 5, " more")
+            )
+          )
+        ),
+        (function() {
+          var outgoing = [], incoming = [];
+          var connByFile = { out: {}, in: {} };
+          data.connections.forEach(function(c) {
+            var src = typeof c.source === "object" ? c.source.id : c.source;
+            var tgt = typeof c.target === "object" ? c.target.id : c.target;
+            if (src === selected.path) {
+              if (!connByFile.out[tgt]) connByFile.out[tgt] = { file: tgt, fns: [] };
+              connByFile.out[tgt].fns.push({ name: c.evidence === "mix xref" ? c.kind : c.fn, count: c.count, evidence: c.evidence });
+            }
+            if (tgt === selected.path) {
+              if (!connByFile.in[src]) connByFile.in[src] = { file: src, fns: [] };
+              connByFile.in[src].fns.push({ name: c.evidence === "mix xref" ? c.kind : c.fn, count: c.count, evidence: c.evidence });
+            }
+          });
+          outgoing = Object.values(connByFile.out).sort(function(a, b) {
+            return b.fns.length - a.fns.length;
+          });
+          incoming = Object.values(connByFile.in).sort(function(a, b) {
+            return b.fns.length - a.fns.length;
+          });
+          var totalConns = outgoing.length + incoming.length;
+          return totalConns > 0 && React2.createElement(
+            "div",
+            { className: "card", style: { marginBottom: 12 } },
+            React2.createElement("div", { className: "card-header", onClick: function() {
+              toggleCard("conns");
+            } }, React2.createElement("div", { className: "card-title" }, React2.createElement("span", { className: "card-toggle" + (expandedCards.has("conns") ? " open" : "") }, "\u25B6"), React2.createElement(Icon2, { name: "link", size: "s" }), " Connections"), React2.createElement("span", { className: "badge badge-default" }, totalConns)),
+            expandedCards.has("conns") && React2.createElement(
+              "div",
+              { className: "card-body", style: { padding: 0 } },
+              outgoing.length > 0 && React2.createElement(
+                React2.Fragment,
+                null,
+                React2.createElement("div", { style: { fontSize: 9, fontWeight: 600, color: "var(--t3)", padding: "8px 12px", background: "var(--bg2)", borderBottom: "1px solid var(--border)" } }, "Used by (", outgoing.length, " files)"),
+                outgoing.map(function(conn) {
+                  var isOpen = expandedCards.has("conn-out-" + conn.file);
+                  return React2.createElement(
+                    "div",
+                    { key: conn.file, className: "conn-item" },
+                    React2.createElement(
+                      "div",
+                      { className: "conn-header", onClick: function(e) {
+                        e.stopPropagation();
+                        toggleCard("conn-out-" + conn.file);
+                      } },
+                      React2.createElement("span", { className: "card-toggle" + (isOpen ? " open" : ""), style: { fontSize: 8, marginRight: 6 } }, "\u25B6"),
+                      React2.createElement("span", { className: "conn-file-icon" }, React2.createElement(Icon2, { name: "file", size: "s" })),
+                      React2.createElement("span", { className: "conn-file-name" }, conn.file.split("/").pop()),
+                      React2.createElement("span", { className: "badge badge-default", style: { marginLeft: "auto" } }, conn.fns.length, " relationship", conn.fns.length !== 1 ? "s" : "")
+                    ),
+                    isOpen && React2.createElement(
+                      "div",
+                      { className: "conn-fns" },
+                      conn.fns.map(function(fn, i) {
+                        return React2.createElement(
+                          "div",
+                          { key: i, className: "conn-fn" },
+                          React2.createElement("span", { className: "conn-fn-name" }, fn.name, fn.evidence === "mix xref" ? "" : "()"),
+                          React2.createElement("span", { className: "conn-fn-count" }, fn.evidence === "mix xref" ? "mix xref" : fn.count + "\xD7")
+                        );
+                      }),
+                      React2.createElement("div", { className: "conn-goto", onClick: function() {
+                        onLocate(conn.file);
+                      } }, "\u2192 View ", conn.file.split("/").pop())
+                    )
+                  );
+                })
+              ),
+              incoming.length > 0 && React2.createElement(
+                React2.Fragment,
+                null,
+                React2.createElement("div", { style: { fontSize: 9, fontWeight: 600, color: "var(--t3)", padding: "8px 12px", background: "var(--bg2)", borderBottom: "1px solid var(--border)", borderTop: outgoing.length > 0 ? "1px solid var(--border)" : "none" } }, "Depends on (", incoming.length, " files)"),
+                incoming.map(function(conn) {
+                  var isOpen = expandedCards.has("conn-in-" + conn.file);
+                  return React2.createElement(
+                    "div",
+                    { key: conn.file, className: "conn-item" },
+                    React2.createElement(
+                      "div",
+                      { className: "conn-header", onClick: function(e) {
+                        e.stopPropagation();
+                        toggleCard("conn-in-" + conn.file);
+                      } },
+                      React2.createElement("span", { className: "card-toggle" + (isOpen ? " open" : ""), style: { fontSize: 8, marginRight: 6 } }, "\u25B6"),
+                      React2.createElement("span", { className: "conn-file-icon" }, React2.createElement(Icon2, { name: "file", size: "s" })),
+                      React2.createElement("span", { className: "conn-file-name" }, conn.file.split("/").pop()),
+                      React2.createElement("span", { className: "badge badge-default", style: { marginLeft: "auto" } }, conn.fns.length, " relationship", conn.fns.length !== 1 ? "s" : "")
+                    ),
+                    isOpen && React2.createElement(
+                      "div",
+                      { className: "conn-fns" },
+                      conn.fns.map(function(fn, i) {
+                        return React2.createElement(
+                          "div",
+                          { key: i, className: "conn-fn" },
+                          React2.createElement("span", { className: "conn-fn-name" }, fn.name, fn.evidence === "mix xref" ? "" : "()"),
+                          React2.createElement("span", { className: "conn-fn-count" }, fn.evidence === "mix xref" ? "mix xref" : fn.count + "\xD7")
+                        );
+                      }),
+                      React2.createElement("div", { className: "conn-goto", onClick: function() {
+                        onLocate(conn.file);
+                      } }, "\u2192 View ", conn.file.split("/").pop())
+                    )
+                  );
+                })
+              )
+            )
+          );
+        })(),
+        React2.createElement(
+          "div",
+          { className: "card", style: { marginBottom: 12 } },
+          React2.createElement("div", { className: "card-header", onClick: function() {
+            toggleCard("own");
+          } }, React2.createElement("div", { className: "card-title" }, React2.createElement("span", { className: "card-toggle" + (expandedCards.has("own") ? " open" : "") }, "\u25B6"), React2.createElement(Icon2, { name: "users", size: "s" }), " Ownership")),
+          expandedCards.has("own") && React2.createElement(
+            "div",
+            { className: "card-body" },
+            ownerLoading ? React2.createElement("div", { className: "loading-owner" }, "Loading ownership data...") : ownership && ownership.length > 0 ? React2.createElement(
+              React2.Fragment,
+              null,
+              React2.createElement("div", { className: "owner-bar" }, ownership.slice(0, 5).map(function(o, i) {
+                return React2.createElement("div", { key: i, className: "owner-segment", style: { width: o.percent + "%", background: COLORS2[i % COLORS2.length] } });
+              })),
+              React2.createElement("div", { className: "owner-list" }, ownership.slice(0, 5).map(function(o, i) {
+                return React2.createElement("div", { key: i, className: "owner-item" }, React2.createElement("div", { className: "owner-avatar", style: { background: COLORS2[i % COLORS2.length] } }, o.name[0].toUpperCase()), React2.createElement("span", { className: "owner-name" }, o.name), React2.createElement("span", { className: "owner-percent" }, o.percent, "%"));
+              }))
+            ) : React2.createElement("div", { style: { fontSize: 10, color: "var(--t3)", padding: 8 } }, "No ownership data available")
+          )
+        ),
+        React2.createElement(
+          "div",
+          { className: "card" },
+          React2.createElement("div", { className: "card-header", onClick: function() {
+            toggleCard("fns");
+          } }, React2.createElement("div", { className: "card-title" }, React2.createElement("span", { className: "card-toggle" + (expandedCards.has("fns") ? " open" : "") }, "\u25B6"), React2.createElement(Icon2, { name: "bolt", size: "s" }), " Functions (", selected.functions.length, ")")),
+          expandedCards.has("fns") && React2.createElement(
+            "div",
+            { className: "card-body", style: { padding: 8 } },
+            selected.functions.length === 0 ? React2.createElement("div", { style: { fontSize: 10, color: "var(--t3)", padding: 8, textAlign: "center" } }, "No functions detected") : selected.functions.map(function(fn) {
+              var statKey = fn.key || functionKey(fn);
+              var st = data.fnStats[statKey] || data.fnStats[fn.name];
+              var expandKey = statKey || fn.name;
+              var isExpanded = expandedFns.has(expandKey);
+              var intCalls = st ? st.internal : 0, extCalls = st ? st.external : 0;
+              return React2.createElement(
+                "div",
+                { key: expandKey, className: "fn-item" },
+                React2.createElement(
+                  "div",
+                  { className: "fn-header", onClick: function() {
+                    toggleFn(expandKey);
+                  } },
+                  React2.createElement("span", { className: "fn-name" }, fn.name, fn.evidence === "mix xref" ? "" : "()"),
+                  React2.createElement(
+                    "span",
+                    { style: { display: "flex", alignItems: "center", gap: 4 } },
+                    React2.createElement("button", { className: "view-file-btn", onClick: function(e) {
+                      e.stopPropagation();
+                      onPreview(selected.path, fn.line);
+                    }, title: "View source" }, React2.createElement(Icon2, { name: "eye", size: "s" })),
+                    React2.createElement("span", { className: "fn-line" }, "L", fn.line),
+                    React2.createElement("span", { className: "badge badge-default", title: "Internal calls (same file)" }, intCalls, " int"),
+                    React2.createElement("span", { className: "badge " + (extCalls > 10 ? "badge-danger" : extCalls > 0 ? "badge-warning" : "badge-default"), title: "External calls (other files)" }, extCalls, " ext")
+                  )
+                ),
+                isExpanded && React2.createElement(
+                  React2.Fragment,
+                  null,
+                  fn.code && React2.createElement("div", { className: "fn-code" }, fn.code),
+                  st && st.callers && st.callers.length > 0 && React2.createElement(
+                    "div",
+                    { className: "fn-callers" },
+                    React2.createElement("div", { className: "fn-callers-title" }, "External callers:"),
+                    st.callers.map(function(c, i) {
+                      return React2.createElement(
+                        "div",
+                        { key: i, className: "fn-caller", onClick: function() {
+                          onLocate(c.file);
+                        } },
+                        React2.createElement(Icon2, { name: "file", size: "s" }),
+                        React2.createElement("span", null, c.name),
+                        React2.createElement("span", { style: { marginLeft: "auto", color: "var(--t3)" } }, c.count, "\xD7")
+                      );
+                    })
+                  ),
+                  intCalls === 0 && extCalls === 0 && React2.createElement(
+                    "div",
+                    { style: { fontSize: 9, color: "var(--orange)", padding: 8, textAlign: "center", background: "rgba(255,159,67,0.1)", borderRadius: 4 } },
+                    React2.createElement(Icon2, { name: "warning", size: "s" }),
+                    st && st.usageCertainty === "unverified" ? " No callers found by source analysis; runtime use is unknown." : " No callers found by source analysis."
+                  )
+                )
+              );
+            })
+          )
+        )
+      );
+    };
+  }
+
+  // src/browser/source-navigation.mjs
+  function createSourceNavigationHook(React2) {
+    const { useState: useState2, useRef: useRef2, useMemo: useMemo2, useEffect: useEffect2 } = React2;
+    return function useSourceNavigation2({ connection, selection, loading, language, onOpen }) {
+      const owner = useMemo2(() => ({}), [connection, selection, loading, language?.state, language?.build?.completedAt]);
+      const current = useRef2(owner), open = useRef2(onOpen), request = useRef2(null);
+      current.current = owner;
+      open.current = onOpen;
+      const [result, setResult] = useState2({ owner, symbols: [], locations: null, error: null });
+      const state = result.owner === owner ? result : { symbols: [], locations: null, error: null };
+      function update(change) {
+        if (current.current === owner) setResult((prev) => ({ ...prev, ...prev.owner === owner ? {} : { symbols: [], locations: null, error: null }, owner, ...change }));
+      }
+      useEffect2(() => {
+        current.current = owner;
+        return () => {
+          if (current.current === owner) current.current = null;
+        };
+      }, [owner]);
+      useEffect2(() => {
+        const path2 = selection.selectedPath;
+        if (loading || !connection || !path2 || !/\.exs?$/.test(path2) || language?.state !== "ready") return;
+        let cancelled = false;
+        connection.language("symbols", path2).then((symbols) => {
+          if (!cancelled) update({ symbols });
+        }).catch((error) => {
+          if (!cancelled && error.name !== "AbortError") update({ error: error.message });
+        });
+        return () => {
+          cancelled = true;
+        };
+      }, [owner, language?.state, language?.build?.completedAt]);
+      async function navigate(method, path2, position) {
+        const pending = {};
+        request.current = pending;
+        update({ error: null });
+        try {
+          if (!connection) throw new Error("Open this checkout with the CLI to use language navigation.");
+          const locations = await connection.language(method, path2, position);
+          if (current.current !== owner || request.current !== pending) return;
+          if (method === "definition" && locations.length === 1) open.current(locations[0]);
+          else update({ locations: { title: method === "references" ? "References" : "Definitions", items: locations } });
+        } catch (error) {
+          if (request.current === pending && error.name !== "AbortError") update({ error: error.message });
+        }
+      }
+      return { symbols: state.symbols, locations: state.locations, error: state.error, navigate, unavailable: (reason) => update({ error: reason }) };
+    };
+  }
+
+  // src/project/loading.mjs
+  function createProjectLoading() {
+    let active;
+    return {
+      begin() {
+        active?.abort();
+        active = new AbortController();
+        return active.signal;
+      },
+      get signal() {
+        return active?.signal;
+      },
+      dispose() {
+        active?.abort();
+      }
+    };
   }
 
   // src/project/local-tools.mjs
@@ -8758,107 +9323,6 @@
     return out + source.slice(last);
   }
 
-  // src/analysis/metrics.mjs
-  function calcBlast(fileId, conns, files) {
-    var exportedTo = {};
-    var importedFrom = {};
-    var exportedFns = {};
-    conns.forEach(function(c) {
-      var src = typeof c.source === "object" ? c.source.id : c.source;
-      var tgt = typeof c.target === "object" ? c.target.id : c.target;
-      if (!exportedTo[src]) exportedTo[src] = /* @__PURE__ */ new Set();
-      exportedTo[src].add(tgt);
-      if (!importedFrom[tgt]) importedFrom[tgt] = /* @__PURE__ */ new Set();
-      importedFrom[tgt].add(src);
-      if (c.evidence === "mix xref") return;
-      if (!exportedFns[src]) exportedFns[src] = /* @__PURE__ */ new Map();
-      var fnMap = exportedFns[src];
-      fnMap.set(c.fn, (fnMap.get(c.fn) || 0) + (c.count || 1));
-    });
-    var directDeps = exportedTo[fileId] ? Array.from(exportedTo[fileId]) : [];
-    var transitive = /* @__PURE__ */ new Map();
-    var queue = directDeps.map(function(f) {
-      return { file: f, depth: 1 };
-    });
-    var visited = new Set([fileId].concat(directDeps));
-    while (queue.length > 0) {
-      var item = queue.shift();
-      if (item.depth > 3) continue;
-      transitive.set(item.file, item.depth);
-      var nextDeps = exportedTo[item.file] || /* @__PURE__ */ new Set();
-      nextDeps.forEach(function(f) {
-        if (!visited.has(f)) {
-          visited.add(f);
-          queue.push({ file: f, depth: item.depth + 1 });
-        }
-      });
-    }
-    var fnUsage = exportedFns[fileId] || /* @__PURE__ */ new Map();
-    var fnsUsed = fnUsage.size;
-    var totalCalls = 0;
-    fnUsage.forEach(function(cnt) {
-      totalCalls += cnt;
-    });
-    var dependencies = importedFrom[fileId] ? Array.from(importedFrom[fileId]) : [];
-    var impactScore = directDeps.length;
-    transitive.forEach(function(depth, f) {
-      if (depth > 1) impactScore += 1 / depth;
-    });
-    var centrality = directDeps.length + dependencies.length + fnsUsed;
-    var level = "low";
-    var connectedFiles = files.filter(function(f) {
-      return exportedTo[f.path] || importedFrom[f.path];
-    }).length;
-    var relativePct = connectedFiles > 0 ? Math.round(directDeps.length / connectedFiles * 100) : 0;
-    if (directDeps.length >= 8 || fnsUsed >= 5) level = "critical";
-    else if (directDeps.length >= 4 || fnsUsed >= 3) level = "high";
-    else if (directDeps.length >= 2 || fnsUsed >= 1) level = "medium";
-    return {
-      affected: directDeps,
-      transitive: Array.from(transitive.keys()),
-      count: directDeps.length,
-      transitiveCount: transitive.size,
-      percent: relativePct,
-      level,
-      depth: transitive.size > 0 ? Math.max.apply(null, Array.from(transitive.values())) : 0,
-      fnsUsed,
-      totalCalls,
-      dependencies,
-      impactScore: Math.round(impactScore * 10) / 10,
-      centrality
-    };
-  }
-  function calcHealth(data) {
-    if (!data) return { score: 0, grade: "F" };
-    var score = 100;
-    var assessedDead = data.deadFunctions ? data.deadFunctions.filter(function(f) {
-      return f.certainty !== "unverified";
-    }).length : data.stats.dead;
-    var deadPct = data.stats.functions > 0 ? assessedDead / data.stats.functions * 100 : 0;
-    score -= Math.min(20, deadPct);
-    var circular = data.issues.filter(function(i) {
-      return i.title.includes("Circular");
-    }).length;
-    score -= Math.min(20, circular * 5);
-    var god = data.issues.filter(function(i) {
-      return i.title.includes("Large");
-    }).length;
-    score -= Math.min(15, god * 3);
-    var avgCoup = data.stats.files > 0 ? data.stats.connections / data.stats.files : 0;
-    score -= Math.min(15, Math.max(0, avgCoup - 3) * 2);
-    var sec = data.securityIssues ? data.securityIssues.filter(function(i) {
-      return i.severity === "high";
-    }).length : 0;
-    score -= Math.min(20, sec * 5);
-    score = Math.max(0, Math.round(score));
-    var grade = "F";
-    if (score >= 90) grade = "A";
-    else if (score >= 80) grade = "B";
-    else if (score >= 70) grade = "C";
-    else if (score >= 60) grade = "D";
-    return { score, grade };
-  }
-
   // src/views/native-canvas.mjs
   function copyRecords(records) {
     return Object.fromEntries(Object.entries(records).map(([path2, value2]) => [path2, { ...value2 }]));
@@ -11716,6 +12180,14 @@
   }
 
   // src/analysis/parser.mjs
+  var grammarLoads = /* @__PURE__ */ new WeakMap();
+  function loadRuntimeLanguage(runtime, source) {
+    const previous = grammarLoads.get(runtime) || Promise.resolve();
+    const pending = previous.then(() => runtime.Language.load(source));
+    grammarLoads.set(runtime, pending.catch(() => {
+    }));
+    return pending;
+  }
   function createParser({ TreeSitter, acorn, Babel, vendorBase = "vendor/", runtimeWasm, loadGrammar } = {}) {
     const Parser2 = {
       // Tree-sitter parsers are loaded lazily from vendored WASM and used when a language has
@@ -11801,7 +12273,7 @@
           if (!runtime) return null;
           try {
             var lang = await Parser2._withTimeout(Promise.resolve(loadGrammar ? loadGrammar(config.grammar) : Parser2.treeSitterWasmBase + "tree-sitter-" + config.grammar + ".wasm").then(function(source) {
-              return runtime.Language.load(source);
+              return loadRuntimeLanguage(runtime, source);
             }), Parser2.treeSitterFetchTimeoutMs);
             var parser = new runtime();
             parser.setLanguage(lang);
@@ -57135,6 +57607,14 @@ This problem is likely caused by another plugin injecting
   }
 
   // src/analysis/parser.mjs
+  var grammarLoads = /* @__PURE__ */ new WeakMap();
+  function loadRuntimeLanguage(runtime, source) {
+    const previous = grammarLoads.get(runtime) || Promise.resolve();
+    const pending = previous.then(() => runtime.Language.load(source));
+    grammarLoads.set(runtime, pending.catch(() => {
+    }));
+    return pending;
+  }
   function createParser({ TreeSitter: TreeSitter3, acorn: acorn2, Babel: Babel2, vendorBase = "vendor/", runtimeWasm, loadGrammar } = {}) {
     const Parser3 = {
       // Tree-sitter parsers are loaded lazily from vendored WASM and used when a language has
@@ -57220,7 +57700,7 @@ This problem is likely caused by another plugin injecting
           if (!runtime) return null;
           try {
             var lang = await Parser3._withTimeout(Promise.resolve(loadGrammar ? loadGrammar(config.grammar) : Parser3.treeSitterWasmBase + "tree-sitter-" + config.grammar + ".wasm").then(function(source) {
-              return runtime.Language.load(source);
+              return loadRuntimeLanguage(runtime, source);
             }), Parser3.treeSitterFetchTimeoutMs);
             var parser = new runtime();
             parser.setLanguage(lang);
@@ -62184,144 +62664,11 @@ This problem is likely caused by another plugin injecting
   var useSourceNavigation = createSourceNavigationHook(React);
   var ArchitectureView = createArchitectureView({ React, mermaid: globalThis.mermaid });
   var COLORS = ["#4d9fff", "#a78bfa", "#22d3ee", "#00ff9d", "#ff9f43", "#ec4899", "#ff5f5f", "#84cc16"];
+  var FileInspector = createFileInspector({ React, Icon, colors: COLORS });
   var LAYER_COLORS = { ui: "#4d9fff", components: "#22d3ee", services: "#a78bfa", utils: "#00ff9d", data: "#ff9f43", config: "#ec4899", test: "#f59e0b", modules: "#a78bfa", forms: "#22d3ee", classes: "#ff9f43", note: "#c084fc" };
   var NativeCanvas = createNativeCanvas({ React, d3: globalThis.d3, Icon, COLORS, LAYER_COLORS });
   var { TreemapView, MatrixView, DendrogramView, SankeyView, DisjointView, BundleView } = createAlternateViews({ React, d3: globalThis.d3, colors: COLORS });
   var Graph3DView = createGraph3DView({ React, getRuntime: () => ({ ForceGraph3D: globalThis.ForceGraph3D, THREE: globalThis.THREE }), colors: COLORS, layerColors: LAYER_COLORS });
-  function calcPRRisk(prData, repoData) {
-    if (!prData || !repoData) return { score: 0, level: "low", factors: [] };
-    var score = 0;
-    var factors = [];
-    var changedFiles = prData.files || [];
-    var totalBlast = 0;
-    var hotspots = [];
-    changedFiles.forEach(function(f) {
-      var existing = repoData.files.find(function(df) {
-        return df.path === f.filename;
-      });
-      if (existing) {
-        var blast = calcBlast(f.filename, repoData.connections, repoData.files);
-        totalBlast += blast.count;
-        if (blast.count > 5) hotspots.push({ file: f.filename, blast: blast.count });
-      }
-    });
-    if (totalBlast > 50) {
-      score += 30;
-      factors.push("High blast radius (" + totalBlast + " files)");
-    } else if (totalBlast > 20) {
-      score += 15;
-      factors.push("Moderate blast radius");
-    }
-    if (changedFiles.length > 10) {
-      score += 20;
-      factors.push("Many files changed (" + changedFiles.length + ")");
-    } else if (changedFiles.length > 5) {
-      score += 10;
-      factors.push("Several files changed");
-    }
-    var totalChanges = (prData.additions || 0) + (prData.deletions || 0);
-    if (totalChanges > 500) {
-      score += 25;
-      factors.push("Large changeset (" + totalChanges + " lines)");
-    } else if (totalChanges > 200) {
-      score += 12;
-      factors.push("Moderate changeset");
-    }
-    var coreFiles = changedFiles.filter(function(f) {
-      return f.filename.includes("/core/") || f.filename.includes("/utils/") || f.filename.includes("/lib/");
-    });
-    if (coreFiles.length > 0) {
-      score += 15;
-      factors.push("Core files modified (" + coreFiles.length + ")");
-    }
-    var configFiles = changedFiles.filter(function(f) {
-      return f.filename.match(/\.(json|yaml|yml|toml|env)$/);
-    });
-    if (configFiles.length > 0) {
-      score += 10;
-      factors.push("Config files changed");
-    }
-    score = Math.min(100, score);
-    var level = score >= 70 ? "critical" : score >= 40 ? "high" : score >= 20 ? "medium" : "low";
-    return { score, level, factors, totalBlast, hotspots: hotspots.sort(function(a, b) {
-      return b.blast - a.blast;
-    }).slice(0, 5) };
-  }
-  function findSuggestedReviewers(prData, repoData) {
-    if (!prData || !repoData) return [];
-    var changedPaths = (prData.files || []).map(function(f) {
-      return f.filename;
-    });
-    var authorCounts = {};
-    repoData.files.forEach(function(f) {
-      if (changedPaths.some(function(p) {
-        return f.folder && p.startsWith(f.folder);
-      })) {
-        var layer = f.layer || "other";
-        if (!authorCounts[layer]) authorCounts[layer] = { count: 0, files: [] };
-        authorCounts[layer].count++;
-        authorCounts[layer].files.push(f.name);
-      }
-    });
-    var reviewers = [];
-    Object.entries(authorCounts).sort(function(a, b) {
-      return b[1].count - a[1].count;
-    }).slice(0, 3).forEach(function(entry, i) {
-      reviewers.push({ name: entry[0].charAt(0).toUpperCase() + entry[0].slice(1) + " Expert", reason: "Knows " + entry[1].count + " files in " + entry[0], avatar: COLORS[i % COLORS.length] });
-    });
-    return reviewers;
-  }
-  function findTestImpact(prData, repoData) {
-    if (!prData || !repoData) return [];
-    var changedFiles = (prData.files || []).map(function(f) {
-      return f.filename;
-    });
-    var testFiles = repoData.files.filter(function(f) {
-      return f.name.match(/\.test\.|\.spec\.|_test\.|test_/i);
-    });
-    var impacted = [];
-    testFiles.forEach(function(tf) {
-      var shouldRun = changedFiles.some(function(cf) {
-        var cfBase = cf.replace(/\.[^.]+$/, "").split("/").pop();
-        return tf.name.toLowerCase().includes(cfBase.toLowerCase());
-      });
-      if (shouldRun) impacted.push({ file: tf.name, path: tf.path });
-    });
-    if (impacted.length === 0 && testFiles.length > 0) {
-      impacted = testFiles.slice(0, 3).map(function(tf) {
-        return { file: tf.name, path: tf.path, suggested: true };
-      });
-    }
-    return impacted;
-  }
-  function findDependencyChains(prData, repoData) {
-    if (!prData || !repoData) return [];
-    var changedFiles = (prData.files || []).map(function(f) {
-      return f.filename;
-    });
-    var chains = [];
-    changedFiles.slice(0, 3).forEach(function(file) {
-      var chain = [file.split("/").pop()];
-      var visited = /* @__PURE__ */ new Set([file]);
-      var queue = [file];
-      var depth = 0;
-      while (queue.length > 0 && depth < 3) {
-        var current = queue.shift();
-        repoData.connections.forEach(function(c) {
-          var src = typeof c.source === "object" ? c.source.id : c.source;
-          var tgt = typeof c.target === "object" ? c.target.id : c.target;
-          if (tgt === current && !visited.has(src)) {
-            visited.add(src);
-            chain.push(src.split("/").pop());
-            queue.push(src);
-          }
-        });
-        depth++;
-      }
-      if (chain.length > 1) chains.push(chain.slice(0, 5));
-    });
-    return chains;
-  }
   function Icon(props) {
     var name = props.name || "file";
     var size = props.size || "m";
@@ -62680,7 +63027,6 @@ This problem is likely caused by another plugin injecting
       setPickerError(null);
       setSelected(null);
       setBlastRadius(null);
-      setOwnership(null);
       setFolderFilter(null);
       setPrData(null);
       closeFilePreview();
@@ -62701,12 +63047,10 @@ This problem is likely caused by another plugin injecting
     }
     var _i = useState("folder"), colorMode = _i[0], setColorMode = _i[1];
     var _k = useState(/* @__PURE__ */ new Set([""])), expandedPaths = _k[0], setExpandedPaths = _k[1];
-    var _l = useState(/* @__PURE__ */ new Set(["blast", "fns"])), expandedCards = _l[0], setExpandedCards = _l[1];
     var _leftRail = useState("overview"), leftTab = _leftRail[0], setLeftTab = _leftRail[1];
     var _m = useState("details"), rightTab = _m[0], setRightTab = _m[1];
     var _m2 = useState(null), drillDown = _m2[0], setDrillDown = _m2[1];
     var _n = useState(null), blastRadius = _n[0], setBlastRadius = _n[1];
-    var _o = useState(null), ownership = _o[0], setOwnership = _o[1];
     var _p = useState(""), prUrl = _p[0], setPrUrl = _p[1];
     var _q = useState(null), prData = _q[0], setPrData = _q[1];
     var _r = useState(false), showExport = _r[0], setShowExport = _r[1];
@@ -62714,8 +63058,7 @@ This problem is likely caused by another plugin injecting
     var _t = useState(false), showPrivacy = _t[0], setShowPrivacy = _t[1];
     var _u = useState(null), tooltip = _u[0], setTooltip = _u[1];
     var _v = useState(null), toast = _v[0], setToast = _v[1];
-    var _w = useState(false), ownerLoading = _w[0], setOwnerLoading = _w[1];
-    var _y = useState(/* @__PURE__ */ new Set()), expandedFns = _y[0], setExpandedFns = _y[1];
+    var _y = useState(/* @__PURE__ */ new Set()), expandedUnusedFns = _y[0], setExpandedUnusedFns = _y[1];
     var _z = useState(false), showUnused = _z[0], setShowUnused = _z[1];
     const [graphSettings, setGraphSettings] = useState({ spacing: 200, linkDist: 70, viewMode: "force", showLabels: true, curvedLinks: true });
     const graphConfig = useMemo(() => ({ ...graphSettings, vizType: investigation.view }), [graphSettings, investigation.view]);
@@ -63085,35 +63428,12 @@ This problem is likely caused by another plugin injecting
     useEffect(function() {
       if (!selected) return;
       setRightTab("details");
-      setExpandedFns(/* @__PURE__ */ new Set());
       if (isMobile) {
         setMobilePanel("details");
         setLegendCollapsed(true);
       }
     }, [investigation.selectedPath, navigation]);
-    useEffect(function() {
-      setOwnership(null);
-      setOwnerLoading(false);
-      if (!selected) return;
-      if (localSourceKind) {
-        setOwnership([]);
-        return;
-      }
-      if (!repoInfo) return;
-      let cancelled = false;
-      setOwnerLoading(true);
-      GitHub.getBlame(repoInfo.owner, repoInfo.repo, selected.path).then(function(owners) {
-        if (!cancelled) {
-          setOwnership(owners);
-          setOwnerLoading(false);
-        }
-      }).catch(function() {
-        if (!cancelled) setOwnerLoading(false);
-      });
-      return function() {
-        cancelled = true;
-      };
-    }, [investigation.selectedPath, repoInfo, localSourceKind]);
+    const readOwnership = useMemo(() => localSourceKind || !repoInfo ? null : (path2) => GitHub.getBlame(repoInfo.owner, repoInfo.repo, path2), [localSourceKind, repoInfo]);
     function openCodeFile(path2, replace, range) {
       dispatchInvestigation({ type: "open", path: path2, replace, range, camera: snapshotZoomTransform(nativeCanvasRef.current?.snapshotScene().camera) });
       nativeCanvasRef.current?.focus(path2);
@@ -63168,16 +63488,8 @@ This problem is likely caused by another plugin injecting
         return n;
       });
     }, []);
-    var toggleCard = useCallback(function(id) {
-      setExpandedCards(function(prev) {
-        var n = new Set(prev);
-        if (n.has(id)) n.delete(id);
-        else n.add(id);
-        return n;
-      });
-    }, []);
-    var toggleFn = useCallback(function(name) {
-      setExpandedFns(function(prev) {
+    var toggleUnusedFn = useCallback(function(name) {
+      setExpandedUnusedFns(function(prev) {
         var n = new Set(prev);
         if (n.has(name)) n.delete(name);
         else n.add(name);
@@ -64712,301 +65024,17 @@ This problem is likely caused by another plugin injecting
               { className: "panel-content" },
               data.beam && rightTab === "runtime" && React.createElement(RuntimePanel, { index: runtimeIndex, inspection: runtimeInspection, onOpen: openSourceLocation }),
               rightTab === "details" && (selected ? React.createElement(
-                React.Fragment,
-                null,
-                React.createElement("button", { className: "top-btn", style: { width: "100%", marginBottom: 12 }, onClick: function() {
+                FileInspector,
+                { key: loadedSourceIdentity?.sourceType + ":" + loadedSourceIdentity?.sourceKey, file: selected, analysis: data, blastRadius, readOwnership, onLocate: goToFile, onPreview: openFilePreview, onBack: () => {
                   setSelected(null);
                   setBlastRadius(null);
-                } }, "\u2190 Back to Issues"),
-                React.createElement(
-                  "div",
-                  { className: "panel-header", style: { margin: "0 -12px 12px", padding: 12 } },
-                  React.createElement(
-                    "div",
-                    { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } },
-                    React.createElement(
-                      "div",
-                      null,
-                      React.createElement("div", { className: "panel-title" }, React.createElement(Icon, { name: "file", size: "m" }), " ", selected.name),
-                      React.createElement("div", { className: "panel-subtitle" }, selected.folder || "root", " \u2022 ", selected.layer, " \u2022 ", selected.lines, " lines", selected.complexity && selected.complexity.score > 0 ? " \u2022 Complexity: " + selected.complexity.score : "")
-                    ),
-                    React.createElement("button", { className: "view-file-btn", onClick: function() {
-                      openFilePreview(selected.path);
-                    } }, iconLabel("eye", "View Source"))
-                  )
-                ),
+                } },
                 React.createElement(SourceProcesses, { index: runtimeIndex, path: selected.path, onSelect: (id) => {
                   runtimeInspection.setFocus(id);
                   setRightTab("runtime");
                 } }),
                 React.createElement(SourceFindings, { summary: findingsByFile.get(selected.path), onOpen: openSourceLocation }),
-                data.beam && React.createElement(SourceNavigation, { path: selected.path, symbols: beamSymbols, locations: beamLocations, error: beamNavigationError, onOpen: openSourceLocation, onReferences: (path2, position) => navigateBeamSymbol("references", path2, position) }),
-                blastRadius && React.createElement(
-                  "div",
-                  { className: "card", style: { marginBottom: 12 } },
-                  React.createElement("div", { className: "card-header", onClick: function() {
-                    toggleCard("blast");
-                  } }, React.createElement("div", { className: "card-title" }, React.createElement("span", { className: "card-toggle" + (expandedCards.has("blast") ? " open" : "") }, "\u25B6"), React.createElement(Icon, { name: "impact", size: "s" }), " Impact Analysis"), React.createElement("span", { className: "badge badge-" + (blastRadius.level === "low" ? "success" : blastRadius.level === "medium" ? "warning" : "danger") }, blastRadius.level.toUpperCase())),
-                  expandedCards.has("blast") && React.createElement(
-                    "div",
-                    { className: "card-body" },
-                    React.createElement(
-                      "div",
-                      { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 } },
-                      React.createElement(
-                        "div",
-                        { style: { background: "var(--bg0)", padding: 8, borderRadius: 6, textAlign: "center" } },
-                        React.createElement("div", { style: { fontSize: 16, fontWeight: 600, color: "var(--acc)" } }, blastRadius.count),
-                        React.createElement("div", { style: { fontSize: 9, color: "var(--t3)" } }, "Direct Dependents")
-                      ),
-                      React.createElement(
-                        "div",
-                        { style: { background: "var(--bg0)", padding: 8, borderRadius: 6, textAlign: "center" } },
-                        React.createElement("div", { style: { fontSize: 16, fontWeight: 600, color: "var(--purple)" } }, blastRadius.transitiveCount || 0),
-                        React.createElement("div", { style: { fontSize: 9, color: "var(--t3)" } }, "Transitive")
-                      ),
-                      React.createElement(
-                        "div",
-                        { style: { background: "var(--bg0)", padding: 8, borderRadius: 6, textAlign: "center" } },
-                        React.createElement("div", { style: { fontSize: 16, fontWeight: 600, color: "var(--green)" } }, blastRadius.fnsUsed || 0),
-                        React.createElement("div", { style: { fontSize: 9, color: "var(--t3)" } }, "Fns Exported")
-                      ),
-                      React.createElement(
-                        "div",
-                        { style: { background: "var(--bg0)", padding: 8, borderRadius: 6, textAlign: "center" } },
-                        React.createElement("div", { style: { fontSize: 16, fontWeight: 600, color: "var(--orange)" } }, (blastRadius.dependencies || []).length),
-                        React.createElement("div", { style: { fontSize: 9, color: "var(--t3)" } }, "Dependencies")
-                      )
-                    ),
-                    (blastRadius.count > 0 || blastRadius.fnsUsed > 0) && React.createElement(
-                      "div",
-                      { style: { fontSize: 9, color: "var(--t3)", marginBottom: 8, padding: "6px 8px", background: "var(--bg0)", borderRadius: 4 } },
-                      blastRadius.count > 0 ? blastRadius.count + " file" + (blastRadius.count > 1 ? "s" : "") + " directly depend on this file" : "",
-                      blastRadius.count > 0 && blastRadius.fnsUsed > 0 ? " \u2022 " : "",
-                      blastRadius.fnsUsed > 0 ? blastRadius.fnsUsed + " function" + (blastRadius.fnsUsed > 1 ? "s" : "") + " used " + blastRadius.totalCalls + " times" : ""
-                    ),
-                    blastRadius.affected.length > 0 && React.createElement(
-                      "div",
-                      { className: "blast-detail" },
-                      React.createElement("div", { style: { fontSize: 9, fontWeight: 600, marginBottom: 6 } }, "Files that import from this:"),
-                      blastRadius.affected.slice(0, 8).map(function(path2) {
-                        return React.createElement("div", { key: path2, className: "blast-file", onClick: function() {
-                          goToFile(path2);
-                        } }, React.createElement(Icon, { name: "file", size: "s" }), " ", path2.split("/").pop());
-                      }),
-                      blastRadius.affected.length > 8 && React.createElement("div", { style: { fontSize: 9, color: "var(--t3)", marginTop: 4 } }, "+", blastRadius.affected.length - 8, " more")
-                    ),
-                    (blastRadius.dependencies || []).length > 0 && React.createElement(
-                      "div",
-                      { className: "blast-detail", style: { marginTop: 8 } },
-                      React.createElement("div", { style: { fontSize: 9, fontWeight: 600, marginBottom: 6, color: "var(--orange)" } }, "Dependencies (risk if these change):"),
-                      blastRadius.dependencies.slice(0, 5).map(function(path2) {
-                        return React.createElement("div", { key: path2, className: "blast-file", onClick: function() {
-                          goToFile(path2);
-                        } }, React.createElement(Icon, { name: "file", size: "s" }), " ", path2.split("/").pop());
-                      }),
-                      blastRadius.dependencies.length > 5 && React.createElement("div", { style: { fontSize: 9, color: "var(--t3)", marginTop: 4 } }, "+", blastRadius.dependencies.length - 5, " more")
-                    )
-                  )
-                ),
-                (function() {
-                  var outgoing = [], incoming = [];
-                  var connByFile = { out: {}, in: {} };
-                  data.connections.forEach(function(c) {
-                    var src = typeof c.source === "object" ? c.source.id : c.source;
-                    var tgt = typeof c.target === "object" ? c.target.id : c.target;
-                    if (src === selected.path) {
-                      if (!connByFile.out[tgt]) connByFile.out[tgt] = { file: tgt, fns: [] };
-                      connByFile.out[tgt].fns.push({ name: c.evidence === "mix xref" ? c.kind : c.fn, count: c.count, evidence: c.evidence });
-                    }
-                    if (tgt === selected.path) {
-                      if (!connByFile.in[src]) connByFile.in[src] = { file: src, fns: [] };
-                      connByFile.in[src].fns.push({ name: c.evidence === "mix xref" ? c.kind : c.fn, count: c.count, evidence: c.evidence });
-                    }
-                  });
-                  outgoing = Object.values(connByFile.out).sort(function(a, b) {
-                    return b.fns.length - a.fns.length;
-                  });
-                  incoming = Object.values(connByFile.in).sort(function(a, b) {
-                    return b.fns.length - a.fns.length;
-                  });
-                  var totalConns = outgoing.length + incoming.length;
-                  return totalConns > 0 && React.createElement(
-                    "div",
-                    { className: "card", style: { marginBottom: 12 } },
-                    React.createElement("div", { className: "card-header", onClick: function() {
-                      toggleCard("conns");
-                    } }, React.createElement("div", { className: "card-title" }, React.createElement("span", { className: "card-toggle" + (expandedCards.has("conns") ? " open" : "") }, "\u25B6"), React.createElement(Icon, { name: "link", size: "s" }), " Connections"), React.createElement("span", { className: "badge badge-default" }, totalConns)),
-                    expandedCards.has("conns") && React.createElement(
-                      "div",
-                      { className: "card-body", style: { padding: 0 } },
-                      outgoing.length > 0 && React.createElement(
-                        React.Fragment,
-                        null,
-                        React.createElement("div", { style: { fontSize: 9, fontWeight: 600, color: "var(--t3)", padding: "8px 12px", background: "var(--bg2)", borderBottom: "1px solid var(--border)" } }, "Used by (", outgoing.length, " files)"),
-                        outgoing.map(function(conn) {
-                          var isOpen = expandedCards.has("conn-out-" + conn.file);
-                          return React.createElement(
-                            "div",
-                            { key: conn.file, className: "conn-item" },
-                            React.createElement(
-                              "div",
-                              { className: "conn-header", onClick: function(e) {
-                                e.stopPropagation();
-                                toggleCard("conn-out-" + conn.file);
-                              } },
-                              React.createElement("span", { className: "card-toggle" + (isOpen ? " open" : ""), style: { fontSize: 8, marginRight: 6 } }, "\u25B6"),
-                              React.createElement("span", { className: "conn-file-icon" }, React.createElement(Icon, { name: "file", size: "s" })),
-                              React.createElement("span", { className: "conn-file-name" }, conn.file.split("/").pop()),
-                              React.createElement("span", { className: "badge badge-default", style: { marginLeft: "auto" } }, conn.fns.length, " relationship", conn.fns.length !== 1 ? "s" : "")
-                            ),
-                            isOpen && React.createElement(
-                              "div",
-                              { className: "conn-fns" },
-                              conn.fns.map(function(fn, i) {
-                                return React.createElement(
-                                  "div",
-                                  { key: i, className: "conn-fn" },
-                                  React.createElement("span", { className: "conn-fn-name" }, fn.name, fn.evidence === "mix xref" ? "" : "()"),
-                                  React.createElement("span", { className: "conn-fn-count" }, fn.evidence === "mix xref" ? "mix xref" : fn.count + "\xD7")
-                                );
-                              }),
-                              React.createElement("div", { className: "conn-goto", onClick: function() {
-                                goToFile(conn.file);
-                              } }, "\u2192 View ", conn.file.split("/").pop())
-                            )
-                          );
-                        })
-                      ),
-                      incoming.length > 0 && React.createElement(
-                        React.Fragment,
-                        null,
-                        React.createElement("div", { style: { fontSize: 9, fontWeight: 600, color: "var(--t3)", padding: "8px 12px", background: "var(--bg2)", borderBottom: "1px solid var(--border)", borderTop: outgoing.length > 0 ? "1px solid var(--border)" : "none" } }, "Depends on (", incoming.length, " files)"),
-                        incoming.map(function(conn) {
-                          var isOpen = expandedCards.has("conn-in-" + conn.file);
-                          return React.createElement(
-                            "div",
-                            { key: conn.file, className: "conn-item" },
-                            React.createElement(
-                              "div",
-                              { className: "conn-header", onClick: function(e) {
-                                e.stopPropagation();
-                                toggleCard("conn-in-" + conn.file);
-                              } },
-                              React.createElement("span", { className: "card-toggle" + (isOpen ? " open" : ""), style: { fontSize: 8, marginRight: 6 } }, "\u25B6"),
-                              React.createElement("span", { className: "conn-file-icon" }, React.createElement(Icon, { name: "file", size: "s" })),
-                              React.createElement("span", { className: "conn-file-name" }, conn.file.split("/").pop()),
-                              React.createElement("span", { className: "badge badge-default", style: { marginLeft: "auto" } }, conn.fns.length, " relationship", conn.fns.length !== 1 ? "s" : "")
-                            ),
-                            isOpen && React.createElement(
-                              "div",
-                              { className: "conn-fns" },
-                              conn.fns.map(function(fn, i) {
-                                return React.createElement(
-                                  "div",
-                                  { key: i, className: "conn-fn" },
-                                  React.createElement("span", { className: "conn-fn-name" }, fn.name, fn.evidence === "mix xref" ? "" : "()"),
-                                  React.createElement("span", { className: "conn-fn-count" }, fn.evidence === "mix xref" ? "mix xref" : fn.count + "\xD7")
-                                );
-                              }),
-                              React.createElement("div", { className: "conn-goto", onClick: function() {
-                                goToFile(conn.file);
-                              } }, "\u2192 View ", conn.file.split("/").pop())
-                            )
-                          );
-                        })
-                      )
-                    )
-                  );
-                })(),
-                React.createElement(
-                  "div",
-                  { className: "card", style: { marginBottom: 12 } },
-                  React.createElement("div", { className: "card-header", onClick: function() {
-                    toggleCard("own");
-                  } }, React.createElement("div", { className: "card-title" }, React.createElement("span", { className: "card-toggle" + (expandedCards.has("own") ? " open" : "") }, "\u25B6"), React.createElement(Icon, { name: "users", size: "s" }), " Ownership")),
-                  expandedCards.has("own") && React.createElement(
-                    "div",
-                    { className: "card-body" },
-                    ownerLoading ? React.createElement("div", { className: "loading-owner" }, "Loading ownership data...") : ownership && ownership.length > 0 ? React.createElement(
-                      React.Fragment,
-                      null,
-                      React.createElement("div", { className: "owner-bar" }, ownership.slice(0, 5).map(function(o, i) {
-                        return React.createElement("div", { key: i, className: "owner-segment", style: { width: o.percent + "%", background: COLORS[i % COLORS.length] } });
-                      })),
-                      React.createElement("div", { className: "owner-list" }, ownership.slice(0, 5).map(function(o, i) {
-                        return React.createElement("div", { key: i, className: "owner-item" }, React.createElement("div", { className: "owner-avatar", style: { background: COLORS[i % COLORS.length] } }, o.name[0].toUpperCase()), React.createElement("span", { className: "owner-name" }, o.name), React.createElement("span", { className: "owner-percent" }, o.percent, "%"));
-                      }))
-                    ) : React.createElement("div", { style: { fontSize: 10, color: "var(--t3)", padding: 8 } }, "No ownership data available")
-                  )
-                ),
-                React.createElement(
-                  "div",
-                  { className: "card" },
-                  React.createElement("div", { className: "card-header", onClick: function() {
-                    toggleCard("fns");
-                  } }, React.createElement("div", { className: "card-title" }, React.createElement("span", { className: "card-toggle" + (expandedCards.has("fns") ? " open" : "") }, "\u25B6"), React.createElement(Icon, { name: "bolt", size: "s" }), " Functions (", selected.functions.length, ")")),
-                  expandedCards.has("fns") && React.createElement(
-                    "div",
-                    { className: "card-body", style: { padding: 8 } },
-                    selected.functions.length === 0 ? React.createElement("div", { style: { fontSize: 10, color: "var(--t3)", padding: 8, textAlign: "center" } }, "No functions detected") : selected.functions.map(function(fn) {
-                      var statKey = fn.key || Parser.functionKey(fn);
-                      var st = data.fnStats[statKey] || data.fnStats[fn.name];
-                      var expandKey = statKey || fn.name;
-                      var isExpanded = expandedFns.has(expandKey);
-                      var intCalls = st ? st.internal : 0, extCalls = st ? st.external : 0;
-                      return React.createElement(
-                        "div",
-                        { key: expandKey, className: "fn-item" },
-                        React.createElement(
-                          "div",
-                          { className: "fn-header", onClick: function() {
-                            toggleFn(expandKey);
-                          } },
-                          React.createElement("span", { className: "fn-name" }, fn.name, fn.evidence === "mix xref" ? "" : "()"),
-                          React.createElement(
-                            "span",
-                            { style: { display: "flex", alignItems: "center", gap: 4 } },
-                            React.createElement("button", { className: "view-file-btn", onClick: function(e) {
-                              e.stopPropagation();
-                              openFilePreview(selected.path, fn.line);
-                            }, title: "View source" }, React.createElement(Icon, { name: "eye", size: "s" })),
-                            React.createElement("span", { className: "fn-line" }, "L", fn.line),
-                            React.createElement("span", { className: "badge badge-default", title: "Internal calls (same file)" }, intCalls, " int"),
-                            React.createElement("span", { className: "badge " + (extCalls > 10 ? "badge-danger" : extCalls > 0 ? "badge-warning" : "badge-default"), title: "External calls (other files)" }, extCalls, " ext")
-                          )
-                        ),
-                        isExpanded && React.createElement(
-                          React.Fragment,
-                          null,
-                          fn.code && React.createElement("div", { className: "fn-code" }, fn.code),
-                          st && st.callers && st.callers.length > 0 && React.createElement(
-                            "div",
-                            { className: "fn-callers" },
-                            React.createElement("div", { className: "fn-callers-title" }, "External callers:"),
-                            st.callers.map(function(c, i) {
-                              return React.createElement(
-                                "div",
-                                { key: i, className: "fn-caller", onClick: function() {
-                                  goToFile(c.file);
-                                } },
-                                React.createElement(Icon, { name: "file", size: "s" }),
-                                React.createElement("span", null, c.name),
-                                React.createElement("span", { style: { marginLeft: "auto", color: "var(--t3)" } }, c.count, "\xD7")
-                              );
-                            })
-                          ),
-                          intCalls === 0 && extCalls === 0 && React.createElement(
-                            "div",
-                            { style: { fontSize: 9, color: "var(--orange)", padding: 8, textAlign: "center", background: "rgba(255,159,67,0.1)", borderRadius: 4 } },
-                            React.createElement(Icon, { name: "warning", size: "s" }),
-                            st && st.usageCertainty === "unverified" ? " No callers found by source analysis; runtime use is unknown." : " No callers found by source analysis."
-                          )
-                        )
-                      );
-                    })
-                  )
-                )
+                data.beam && React.createElement(SourceNavigation, { path: selected.path, symbols: beamSymbols, locations: beamLocations, error: beamNavigationError, onOpen: openSourceLocation, onReferences: (path2, position) => navigateBeamSymbol("references", path2, position) })
               ) : graphConfig.vizType === "architecture" ? renderArchitectureSummary() : React.createElement(
                 React.Fragment,
                 null,
@@ -65348,7 +65376,7 @@ This problem is likely caused by another plugin injecting
             React.createElement("button", { className: "top-btn primary", "aria-label": "Analyze Pull Request", onClick: analyzePR, style: { marginBottom: 16, width: "100%" } }, iconLabel("search", "Analyze PR Impact")),
             prData && (function() {
               var risk = calcPRRisk(prData, data);
-              var reviewers = findSuggestedReviewers(prData, data);
+              var reviewAreas = findReviewAreas(prData, data);
               var testImpact = findTestImpact(prData, data);
               var chains = findDependencyChains(prData, data);
               var riskColor = risk.level === "critical" ? "var(--red)" : risk.level === "high" ? "var(--orange)" : risk.level === "medium" ? "var(--blue)" : "var(--green)";
@@ -65401,20 +65429,20 @@ This problem is likely caused by another plugin injecting
                     React.createElement("div", { className: "pr-metric-row" }, React.createElement("span", { className: "pr-metric-label" }, "Lines Modified"), React.createElement("span", { className: "pr-metric-value" }, (prData.additions || 0) + (prData.deletions || 0))),
                     React.createElement("div", { className: "pr-metric-row" }, React.createElement("span", { className: "pr-metric-label" }, "Net Change"), React.createElement("span", { className: "pr-metric-value", style: { color: (prData.additions || 0) - (prData.deletions || 0) >= 0 ? "var(--green)" : "var(--red)" } }, (prData.additions || 0) - (prData.deletions || 0) > 0 ? "+" : "", (prData.additions || 0) - (prData.deletions || 0)))
                   ),
-                  reviewers.length > 0 && React.createElement(
+                  reviewAreas.length > 0 && React.createElement(
                     "div",
                     { className: "pr-impact-card" },
-                    React.createElement("div", { className: "pr-impact-card-title" }, iconLabel("users", "Suggested Reviewers")),
-                    reviewers.map(function(r, i) {
+                    React.createElement("div", { className: "pr-impact-card-title" }, iconLabel("folder", "Review areas")),
+                    reviewAreas.map(function(r, i) {
                       return React.createElement(
                         "div",
                         { key: i, className: "pr-reviewer-card" },
-                        React.createElement("div", { className: "pr-reviewer-avatar", style: { background: r.avatar } }, r.name[0]),
+                        React.createElement("div", { className: "pr-reviewer-avatar", style: { background: COLORS[i % COLORS.length] } }, React.createElement(Icon, { name: "folder", size: "s" })),
                         React.createElement(
                           "div",
                           { className: "pr-reviewer-info" },
-                          React.createElement("div", { className: "pr-reviewer-name" }, r.name),
-                          React.createElement("div", { className: "pr-reviewer-reason" }, r.reason)
+                          React.createElement("div", { className: "pr-reviewer-name" }, r.layer),
+                          React.createElement("div", { className: "pr-reviewer-reason" }, r.count, " file", r.count === 1 ? "" : "s", " in affected folders")
                         )
                       );
                     })
@@ -65429,7 +65457,16 @@ This problem is likely caused by another plugin injecting
                       testImpact.slice(0, 5).map(function(t, i) {
                         return React.createElement(
                           "div",
-                          { key: i, className: "pr-test-file" },
+                          { key: i, className: "pr-test-file", role: "button", tabIndex: 0, onClick: function() {
+                            goToFile(t.path);
+                            setShowPR(false);
+                          }, onKeyDown: function(e) {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              goToFile(t.path);
+                              setShowPR(false);
+                            }
+                          }, style: { cursor: "pointer" } },
                           React.createElement("span", { className: "pr-test-icon" }, React.createElement(Icon, { name: t.suggested ? "spark" : "security", size: "s" })),
                           React.createElement("span", { style: { flex: 1 } }, t.file),
                           t.suggested && React.createElement("span", { className: "badge badge-info" }, "suggested")
@@ -65934,14 +65971,14 @@ This problem is likely caused by another plugin injecting
             ),
             React.createElement("div", { style: Object.assign(getAccentBlockStyle("rgba(255,159,67,0.34)", "rgba(255,159,67,0.08)"), { fontSize: 10, color: "var(--t3)", marginBottom: 12, padding: "8px 12px", borderRadius: 6 }) }, "Source analysis found no callers for these functions. Callbacks, macros and dynamic invocation can remain undetected; verify usage before removing code."),
             data.deadFunctions.map(function(fn, i) {
-              var isExpanded = expandedFns.has("dead-" + fn.name);
+              var isExpanded = expandedUnusedFns.has("dead-" + fn.name);
               return React.createElement(
                 "div",
                 { key: i, className: "unused-fn" },
                 React.createElement(
                   "div",
                   { className: "unused-fn-header", onClick: function() {
-                    toggleFn("dead-" + fn.name);
+                    toggleUnusedFn("dead-" + fn.name);
                   } },
                   React.createElement(
                     "div",
@@ -65984,12 +66021,12 @@ This problem is likely caused by another plugin injecting
             { className: "modal-footer", style: { display: "flex", gap: 8 } },
             React.createElement("button", { className: "top-btn", onClick: function() {
               data.deadFunctions.forEach(function(fn) {
-                expandedFns.add("dead-" + fn.name);
+                expandedUnusedFns.add("dead-" + fn.name);
               });
-              setExpandedFns(new Set(expandedFns));
+              setExpandedUnusedFns(new Set(expandedUnusedFns));
             } }, "Expand All"),
             React.createElement("button", { className: "top-btn", onClick: function() {
-              setExpandedFns(/* @__PURE__ */ new Set());
+              setExpandedUnusedFns(/* @__PURE__ */ new Set());
             } }, "Collapse All"),
             React.createElement("button", { className: "top-btn primary", onClick: function() {
               setShowUnused(false);
