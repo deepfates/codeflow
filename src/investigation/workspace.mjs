@@ -6,6 +6,11 @@ export function restoreWorkspace(saved,data){
     var result={version:1,scope:typeof saved.scope==='string'&&data.files.some(function(f){return f.path.startsWith(saved.scope+'/');})?saved.scope:null,
         selected:paths.has(saved.selected)?saved.selected:null,opened:(Array.isArray(saved.opened)?saved.opened:[]).filter(function(p){return paths.has(p);}),
         view:['graph','code','graph3d','treemap','matrix','dendro','sankey','disjoint','bundle','architecture'].includes(saved.view)?saved.view:'graph',architectureBlockId:(data.architectureDiagram&&data.architectureDiagram.blocks||[]).some(function(block){return block.id===saved.architectureBlockId;})?saved.architectureBlockId:null,placements:{},sizes:{},pinned:[],camera:snapshotZoomTransform(saved.camera)};
+    result.viewCameras={};
+    for(const view of ['treemap','matrix','dendro','sankey','disjoint','bundle']){
+        const camera=saved.viewCameras?.[view];
+        if(camera&&typeof camera==='object')result.viewCameras[view]=snapshotZoomTransform(camera);
+    }
     Object.keys(saved.placements||{}).forEach(function(path){var p=saved.placements[path];if(paths.has(path)&&p&&Number.isFinite(p.x)&&Number.isFinite(p.y))result.placements[path]=p;});
     Object.keys(saved.sizes||{}).forEach(function(path){var size=saved.sizes[path];if(paths.has(path)&&size&&typeof size==='object')result.sizes[path]=size;});
     result.pinned=(Array.isArray(saved.pinned)?saved.pinned:[]).filter(function(path){return paths.has(path);});

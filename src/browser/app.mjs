@@ -730,6 +730,9 @@ function App(){
 
     var currentHydrationId=project.hydrationId;
     const loadedSourceIdentity=project.identity;
+    // Each callback closes over this project's workspace record. An old view's
+    // final event cannot write into the next project's camera snapshots.
+    const workspaceCameras=useMemo(()=>({}),[loadedSourceIdentity?.sourceType,loadedSourceIdentity?.sourceKey]);
     analysisHydrationIdRef.current=currentHydrationId;
     const runtimeInspection=useRuntimeInspection(localTools,cliStatus?.runtimeNode||'');
     const runtimeIndex=useMemo(()=>indexRuntime(runtimeInspection.snapshot,data?.files||[]),[runtimeInspection.snapshot,data]);
@@ -1043,6 +1046,7 @@ function App(){
         }catch(e){}
         if(!restored)return;
         workspaceRestoreRef.current=['graph','code'].includes(restored.view)?restored:null;
+        Object.assign(workspaceCameras,restored.viewCameras);
         setSelectedArchitectureBlock(restored.architectureBlockId);
         setRestoredNativeScene(restored);
         dispatchInvestigation({type:'restore',workspace:restored});
@@ -1052,7 +1056,7 @@ function App(){
         function save(){
             if(!workspaceKeyRef.current||workspaceRestoreRef.current)return;
             try{localStorage.setItem(workspaceKeyRef.current,JSON.stringify({version:1,scope:folderFilter,selected:selected&&selected.path,
-                opened:openedCodePaths,view:graphConfig.vizType,architectureBlockId:selectedArchitectureBlock,navigation:navigation,...nativeCanvasRef.current?.snapshotScene()}));}catch(e){}
+                opened:openedCodePaths,view:graphConfig.vizType,architectureBlockId:selectedArchitectureBlock,navigation:navigation,viewCameras:workspaceCameras,...nativeCanvasRef.current?.snapshotScene()}));}catch(e){}
         }
         var timer=setInterval(save,1000);window.addEventListener('pagehide',save);
         return function(){clearInterval(timer);window.removeEventListener('pagehide',save);};
@@ -1716,12 +1720,12 @@ function App(){
                         )
                     ),
                     graphConfig.vizType==='graph3d'&&React.createElement(Graph3DView,{ref:graph3dViewRef,data,folderFilter,colorMap,colorMode,theme,config:graphConfig,selectedPath:selected&&selected.path,blastRadius,lineThickness,onSelect:function(path){if(path)selectFile(path);else{setSelected(null);setBlastRadius(null);}}}),
-                    graphConfig.vizType==='treemap'&&React.createElement(TreemapView,{ref:alternateViewRef,files:data.files,folderFilter,onSelect:path=>{if(path)selectFile(path);else{setSelected(null);setBlastRadius(null);}},colorMap:folderColors,selectedPath:selected?.path,blastRadius}),
-                    graphConfig.vizType==='matrix'&&React.createElement(MatrixView,{ref:alternateViewRef,files:data.files,folderFilter,onSelect:path=>{if(path)selectFile(path);else{setSelected(null);setBlastRadius(null);}},connections:data.connections}),
-                    graphConfig.vizType==='dendro'&&React.createElement(DendrogramView,{ref:alternateViewRef,files:data.files,folderFilter,onSelect:path=>{if(path)selectFile(path);else{setSelected(null);setBlastRadius(null);}},colorMap:folderColors,lineThickness,onScope:filterByFolder}),
-                    graphConfig.vizType==='sankey'&&React.createElement(SankeyView,{ref:alternateViewRef,files:data.files,folderFilter,connections:data.connections,colorMap:folderColors,lineThickness,onScope:filterByFolder}),
-                    graphConfig.vizType==='disjoint'&&React.createElement(DisjointView,{ref:alternateViewRef,files:data.files,folderFilter,onSelect:path=>{if(path)selectFile(path);else{setSelected(null);setBlastRadius(null);}},connections:data.connections,colorMap:folderColors,lineThickness}),
-                    graphConfig.vizType==='bundle'&&React.createElement(BundleView,{ref:alternateViewRef,files:data.files,folderFilter,onSelect:path=>{if(path)selectFile(path);else{setSelected(null);setBlastRadius(null);}},connections:data.connections,colorMap:folderColors,selectedPath:selected?.path,blastRadius,lineThickness,onScope:filterByFolder}),
+                    graphConfig.vizType==='treemap'&&React.createElement(TreemapView,{ref:alternateViewRef,key:loadedSourceIdentity?.sourceType+':'+loadedSourceIdentity?.sourceKey,restoredCamera:workspaceCameras.treemap,onCameraChange:camera=>{workspaceCameras.treemap=camera;},files:data.files,folderFilter,onSelect:path=>{if(path)selectFile(path);else{setSelected(null);setBlastRadius(null);}},colorMap:folderColors,selectedPath:selected?.path,blastRadius}),
+                    graphConfig.vizType==='matrix'&&React.createElement(MatrixView,{ref:alternateViewRef,key:loadedSourceIdentity?.sourceType+':'+loadedSourceIdentity?.sourceKey,restoredCamera:workspaceCameras.matrix,onCameraChange:camera=>{workspaceCameras.matrix=camera;},files:data.files,folderFilter,onSelect:path=>{if(path)selectFile(path);else{setSelected(null);setBlastRadius(null);}},connections:data.connections}),
+                    graphConfig.vizType==='dendro'&&React.createElement(DendrogramView,{ref:alternateViewRef,key:loadedSourceIdentity?.sourceType+':'+loadedSourceIdentity?.sourceKey,restoredCamera:workspaceCameras.dendro,onCameraChange:camera=>{workspaceCameras.dendro=camera;},files:data.files,folderFilter,onSelect:path=>{if(path)selectFile(path);else{setSelected(null);setBlastRadius(null);}},colorMap:folderColors,lineThickness,onScope:filterByFolder}),
+                    graphConfig.vizType==='sankey'&&React.createElement(SankeyView,{ref:alternateViewRef,key:loadedSourceIdentity?.sourceType+':'+loadedSourceIdentity?.sourceKey,restoredCamera:workspaceCameras.sankey,onCameraChange:camera=>{workspaceCameras.sankey=camera;},files:data.files,folderFilter,connections:data.connections,colorMap:folderColors,lineThickness,onScope:filterByFolder}),
+                    graphConfig.vizType==='disjoint'&&React.createElement(DisjointView,{ref:alternateViewRef,key:loadedSourceIdentity?.sourceType+':'+loadedSourceIdentity?.sourceKey,restoredCamera:workspaceCameras.disjoint,onCameraChange:camera=>{workspaceCameras.disjoint=camera;},files:data.files,folderFilter,onSelect:path=>{if(path)selectFile(path);else{setSelected(null);setBlastRadius(null);}},connections:data.connections,colorMap:folderColors,lineThickness}),
+                    graphConfig.vizType==='bundle'&&React.createElement(BundleView,{ref:alternateViewRef,key:loadedSourceIdentity?.sourceType+':'+loadedSourceIdentity?.sourceKey,restoredCamera:workspaceCameras.bundle,onCameraChange:camera=>{workspaceCameras.bundle=camera;},files:data.files,folderFilter,onSelect:path=>{if(path)selectFile(path);else{setSelected(null);setBlastRadius(null);}},connections:data.connections,colorMap:folderColors,selectedPath:selected?.path,blastRadius,lineThickness,onScope:filterByFolder}),
                     graphConfig.vizType==='architecture'&&React.createElement(ArchitectureView,{ref:architectureViewRef,diagram:data&&data.architectureDiagram,theme,includeTests:architectureIncludeTests,includeBuildOutput:architectureIncludeBuildOutput,selectedBlock:selectedArchitectureBlock,onSelect:selectArchitectureBlock}),
                     vizUsesLineThickness(graphConfig.vizType)&&React.createElement('div',{className:'canvas-toolbar'},
                         vizHasGraphToolbar(graphConfig.vizType)&&React.createElement('button',{className:'tool-btn',onClick:zoomIn,'aria-label':'Zoom in'},'+'),

@@ -1,3 +1,4 @@
+import {snapshotZoomTransform} from './camera.mjs';
 import {sankeyCircular} from 'd3-sankey-circular';
 import {scaleStrokeWidth} from './graph-style.mjs';
 import {renderTooltipHtml} from '../browser/html.mjs';
@@ -16,8 +17,28 @@ export function createAlternateViews({React,d3,colors:COLORS}){
         },[]);
         return size;
     }
-    const TreemapView=React.forwardRef(function TreemapView({files:sourceFiles,folderFilter,colorMap,selectedPath,blastRadius,onSelect},ref){
-        const containerRef=useRef(null),cameraRef=useRef(d3.zoomIdentity),paintRef=useRef(null),stateRef=useRef(null);
+    function useViewCamera(restoredCamera,onCameraChange,initialCamera){
+        const cameraRef=useRef(restoredCamera?asTransform(restoredCamera):initialCamera);
+        const applyRef=useRef(null),reportRef=useRef(onCameraChange);
+        reportRef.current=onCameraChange;
+        function asTransform(camera){const {x,y,k}=snapshotZoomTransform(camera);return d3.zoomIdentity.translate(x,y).scale(k);}
+        useEffect(()=>{
+            if(!restoredCamera)return;
+            cameraRef.current=asTransform(restoredCamera);
+            applyRef.current?.(cameraRef.current);
+        },[restoredCamera]);
+        function bindCamera(svg,zoom){
+            applyRef.current=transform=>svg.call(zoom.transform,transform);
+            // Keep the renderer's existing zoom listener; the workspace receives
+            // only serializable camera snapshots, never D3 or DOM resources.
+            zoom.on('zoom.workspace',event=>reportRef.current?.(snapshotZoomTransform(event.transform)));
+        }
+        return {cameraRef,bindCamera};
+    }
+
+    const TreemapView=React.forwardRef(function TreemapView({files:sourceFiles,folderFilter,colorMap,selectedPath,blastRadius,onSelect,restoredCamera,onCameraChange},ref){
+        const containerRef=useRef(null),paintRef=useRef(null),stateRef=useRef(null);
+        const {cameraRef,bindCamera}=useViewCamera(restoredCamera,onCameraChange,d3.zoomIdentity);
         stateRef.current={onSelect,colorMap,selected:selectedPath?{path:selectedPath}:null,blastRadius};
         useImperativeHandle(ref,()=>({get svgElement(){return containerRef.current?.querySelector('svg')||null;}}),[]);
         const size=useSize(containerRef);
@@ -28,6 +49,7 @@ export function createAlternateViews({React,d3,colors:COLORS}){
             var svg=container.append('svg').attr('width',w).attr('height',h).style('cursor','grab');
             var g=svg.append('g');
             var zoom=d3.zoom().scaleExtent([0.3,4]).on('zoom',function(e){g.attr('transform',e.transform);svg.style('cursor',e.transform.k>1?'grab':'default');});
+            bindCamera(svg,zoom);
             svg.call(zoom);
             function cleanup(){cameraRef.current=d3.zoomTransform(svg.node());paintRef.current=null;svg.interrupt();svg.selectAll('*').interrupt();svg.on('.zoom',null);container.selectAll('*').remove();}
             svg.call(zoom.transform,cameraRef.current);
@@ -98,8 +120,9 @@ export function createAlternateViews({React,d3,colors:COLORS}){
         return React.createElement('div',{ref:containerRef,className:'treemap-container',style:{width:'100%',height:'100%',position:'relative',overflow:'hidden'}});
     });
 
-    const MatrixView=React.forwardRef(function MatrixView({files:sourceFiles,connections,folderFilter,onSelect},ref){
-        const containerRef=useRef(null),cameraRef=useRef(d3.zoomIdentity),paintRef=useRef(null),stateRef=useRef(null);
+    const MatrixView=React.forwardRef(function MatrixView({files:sourceFiles,connections,folderFilter,onSelect,restoredCamera,onCameraChange},ref){
+        const containerRef=useRef(null),paintRef=useRef(null),stateRef=useRef(null);
+        const {cameraRef,bindCamera}=useViewCamera(restoredCamera,onCameraChange,d3.zoomIdentity);
         stateRef.current={onSelect};
         useImperativeHandle(ref,()=>({get svgElement(){return containerRef.current?.querySelector('svg')||null;}}),[]);
         const size=useSize(containerRef);
@@ -183,6 +206,7 @@ export function createAlternateViews({React,d3,colors:COLORS}){
                 g.attr('transform','translate('+(left+transform.x)+','+(top+transform.y)+') scale('+transform.k+')');
                 clearHover();if(frame===null)frame=requestAnimationFrame(drawViewport);
             });
+            bindCamera(svg,zoom);
             svg.call(zoom).call(zoom.transform,transform);
             function cleanup(){if(frame!==null)cancelAnimationFrame(frame);cameraRef.current=d3.zoomTransform(svg.node());paintRef.current=null;svg.interrupt();svg.selectAll('*').interrupt();svg.on('.zoom',null);container.selectAll('*').remove();}
             var legend=container.append('div').attr('class','heatmap-legend').style('position','absolute').style('bottom','60px').style('right','20px');
@@ -193,8 +217,9 @@ export function createAlternateViews({React,d3,colors:COLORS}){
         return React.createElement('div',{ref:containerRef,className:'matrix-container',style:{width:'100%',height:'100%',position:'relative',overflow:'auto',display:'flex',alignItems:'center',justifyContent:'center'}});
     });
 
-    const DendrogramView=React.forwardRef(function DendrogramView({files:sourceFiles,folderFilter,colorMap,lineThickness,onSelect,onScope},ref){
-        const containerRef=useRef(null),cameraRef=useRef(d3.zoomIdentity),paintRef=useRef(null),stateRef=useRef(null);
+    const DendrogramView=React.forwardRef(function DendrogramView({files:sourceFiles,folderFilter,colorMap,lineThickness,onSelect,onScope,restoredCamera,onCameraChange},ref){
+        const containerRef=useRef(null),paintRef=useRef(null),stateRef=useRef(null);
+        const {cameraRef,bindCamera}=useViewCamera(restoredCamera,onCameraChange,d3.zoomIdentity);
         stateRef.current={onSelect,onScope,colorMap,lineThickness};
         useImperativeHandle(ref,()=>({get svgElement(){return containerRef.current?.querySelector('svg')||null;}}),[]);
         const size=useSize(containerRef);
@@ -205,6 +230,7 @@ export function createAlternateViews({React,d3,colors:COLORS}){
             var svg=container.append('svg').attr('width',w).attr('height',h);
             var g=svg.append('g').attr('transform','translate(80,20)');
             var zoom=d3.zoom().scaleExtent([0.3,3]).on('zoom',function(e){g.attr('transform','translate('+(80+e.transform.x)+','+(20+e.transform.y)+') scale('+e.transform.k+')');});
+            bindCamera(svg,zoom);
             svg.call(zoom);
             function cleanup(){cameraRef.current=d3.zoomTransform(svg.node());paintRef.current=null;svg.interrupt();svg.selectAll('*').interrupt();svg.on('.zoom',null);container.selectAll('*').remove();}
             svg.call(zoom.transform,cameraRef.current);
@@ -263,8 +289,9 @@ export function createAlternateViews({React,d3,colors:COLORS}){
         return React.createElement('div',{ref:containerRef,className:'dendro-container',style:{width:'100%',height:'100%',position:'relative',overflow:'hidden'}});
     });
 
-    const SankeyView=React.forwardRef(function SankeyView({files:sourceFiles,connections,folderFilter,colorMap,lineThickness,onScope},ref){
-        const containerRef=useRef(null),cameraRef=useRef(null),paintRef=useRef(null),stateRef=useRef(null);
+    const SankeyView=React.forwardRef(function SankeyView({files:sourceFiles,connections,folderFilter,colorMap,lineThickness,onScope,restoredCamera,onCameraChange},ref){
+        const containerRef=useRef(null),paintRef=useRef(null),stateRef=useRef(null);
+        const {cameraRef,bindCamera}=useViewCamera(restoredCamera,onCameraChange,null);
         stateRef.current={onScope,colorMap,lineThickness};
         useImperativeHandle(ref,()=>({get svgElement(){return containerRef.current?.querySelector('svg')||null;}}),[]);
         const size=useSize(containerRef);
@@ -275,6 +302,7 @@ export function createAlternateViews({React,d3,colors:COLORS}){
             var svg=container.append('svg').attr('width',w).attr('height',h);
             var g=svg.append('g').attr('transform','translate(20,20)');
             var zoom=d3.zoom().scaleExtent([0.5,2]).on('zoom',function(e){g.attr('transform','translate('+(20+e.transform.x)+','+(20+e.transform.y)+') scale('+e.transform.k+')');});
+            bindCamera(svg,zoom);
             svg.call(zoom);
             function cleanup(){cameraRef.current=d3.zoomTransform(svg.node());paintRef.current=null;svg.interrupt();svg.selectAll('*').interrupt();svg.on('.zoom',null);container.selectAll('*').remove();}
             svg.call(zoom.transform,cameraRef.current||d3.zoomIdentity);
@@ -358,8 +386,9 @@ export function createAlternateViews({React,d3,colors:COLORS}){
         return React.createElement('div',{ref:containerRef,className:'sankey-container',style:{width:'100%',height:'100%',position:'relative',overflow:'hidden'}});
     });
 
-    const DisjointView=React.forwardRef(function DisjointView({files:sourceFiles,connections,folderFilter,colorMap,lineThickness,onSelect},ref){
-        const containerRef=useRef(null),cameraRef=useRef(null),paintRef=useRef(null),stateRef=useRef(null);
+    const DisjointView=React.forwardRef(function DisjointView({files:sourceFiles,connections,folderFilter,colorMap,lineThickness,onSelect,restoredCamera,onCameraChange},ref){
+        const containerRef=useRef(null),paintRef=useRef(null),stateRef=useRef(null);
+        const {cameraRef,bindCamera}=useViewCamera(restoredCamera,onCameraChange,null);
         stateRef.current={onSelect,colorMap,lineThickness};
         useImperativeHandle(ref,()=>({get svgElement(){return containerRef.current?.querySelector('svg')||null;}}),[]);
         const size=useSize(containerRef);
@@ -370,6 +399,7 @@ export function createAlternateViews({React,d3,colors:COLORS}){
             var svg=container.append('svg').attr('width',w).attr('height',h);
             var g=svg.append('g');
             var zoom=d3.zoom().scaleExtent([0.2,4]).on('zoom',function(e){g.attr('transform',e.transform);});
+            bindCamera(svg,zoom);
             svg.call(zoom);
             function cleanup(){cameraRef.current=d3.zoomTransform(svg.node());paintRef.current=null;svg.interrupt();svg.selectAll('*').interrupt();svg.on('.zoom',null);container.selectAll('*').remove();sim?.stop();}
             svg.call(zoom.transform,cameraRef.current||d3.zoomIdentity);
@@ -453,8 +483,9 @@ export function createAlternateViews({React,d3,colors:COLORS}){
         return React.createElement('div',{ref:containerRef,className:'disjoint-container',style:{width:'100%',height:'100%',position:'relative',overflow:'hidden'}});
     });
 
-    const BundleView=React.forwardRef(function BundleView({files:sourceFiles,connections,folderFilter,colorMap,selectedPath,blastRadius,lineThickness,onSelect,onScope},ref){
-        const containerRef=useRef(null),cameraRef=useRef(null),paintRef=useRef(null),stateRef=useRef(null);
+    const BundleView=React.forwardRef(function BundleView({files:sourceFiles,connections,folderFilter,colorMap,selectedPath,blastRadius,lineThickness,onSelect,onScope,restoredCamera,onCameraChange},ref){
+        const containerRef=useRef(null),paintRef=useRef(null),stateRef=useRef(null);
+        const {cameraRef,bindCamera}=useViewCamera(restoredCamera,onCameraChange,null);
         stateRef.current={onSelect,onScope,colorMap,selected:selectedPath?{path:selectedPath}:null,blastRadius,lineThickness};
         useImperativeHandle(ref,()=>({get svgElement(){return containerRef.current?.querySelector('svg')||null;}}),[]);
         const size=useSize(containerRef);
@@ -465,6 +496,7 @@ export function createAlternateViews({React,d3,colors:COLORS}){
             var svg=container.append('svg').attr('width',w).attr('height',h);
             var mainG=svg.append('g').attr('transform','translate('+w/2+','+h/2+')');
             var zoom=d3.zoom().scaleExtent([0.4,3]).on('zoom',function(e){mainG.attr('transform','translate('+(w/2+e.transform.x)+','+(h/2+e.transform.y)+') scale('+e.transform.k+')');});
+            bindCamera(svg,zoom);
             svg.call(zoom);
             function cleanup(){cameraRef.current=d3.zoomTransform(svg.node());paintRef.current=null;svg.interrupt();svg.selectAll('*').interrupt();svg.on('.zoom',null);container.selectAll('*').remove();}
             svg.call(zoom.transform,cameraRef.current||d3.zoomIdentity);

@@ -51,3 +51,14 @@ test('workspace retains a selected architecture block only while it exists',()=>
  assert.equal(restoreWorkspace(saved,data).architectureBlockId,'namespace_imp');
  assert.equal(restoreWorkspace(saved,{files:[]}).architectureBlockId,null);
 });
+
+test('workspace restores only known alternate camera snapshots without changing native camera or input',()=>{
+ const saved={version:1,view:'bundle',camera:{k:0.8,x:9,y:12},viewCameras:{
+  treemap:{x:21,y:-17,k:0.6},matrix:{x:Infinity,y:NaN,k:-4},bundle:{x:-90,y:33,k:2},unknown:{x:5,y:6,k:7}
+ }};
+ const before=structuredClone(saved),restored=restoreWorkspace(saved,{files:[]});
+ assert.deepEqual(restored.viewCameras,{treemap:{x:21,y:-17,k:0.6},matrix:{x:0,y:0,k:1},bundle:{x:-90,y:33,k:2}});
+ assert.deepEqual(restored.camera,{k:0.8,x:9,y:12});
+ assert.deepEqual(saved,before);
+ assert.deepEqual(restoreWorkspace({version:1},{files:[]}).viewCameras,{},'legacy workspaces keep each view\'s initial framing');
+});
