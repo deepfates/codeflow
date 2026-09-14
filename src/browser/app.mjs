@@ -1,4 +1,5 @@
 import {calcPRRisk,findReviewAreas,findTestImpact,findDependencyChains} from '../analysis/pull-request.mjs';
+import {createFileInspector} from '../views/file-inspector.mjs';
 import {createSourceNavigationHook} from './source-navigation.mjs';
 import {createProjectHook,parseUrl,buildAppUrl} from './project.mjs';
 import {createAlternateViews} from '../views/alternate.mjs';
@@ -50,6 +51,7 @@ const useRuntimeInspection=createRuntimeInspectionHook(React);
 const useSourceNavigation=createSourceNavigationHook(React);
 const ArchitectureView=createArchitectureView({React,mermaid:globalThis.mermaid});
 const COLORS=['#4d9fff','#a78bfa','#22d3ee','#00ff9d','#ff9f43','#ec4899','#ff5f5f','#84cc16'];
+const FileInspector=createFileInspector({React,Icon,colors:COLORS});
 const LAYER_COLORS={ui:'#4d9fff',components:'#22d3ee',services:'#a78bfa',utils:'#00ff9d',data:'#ff9f43',config:'#ec4899',test:'#f59e0b',modules:'#a78bfa',forms:'#22d3ee',classes:'#ff9f43',note:'#c084fc'};
 const NativeCanvas=createNativeCanvas({React,d3:globalThis.d3,Icon,COLORS,LAYER_COLORS});
 const {TreemapView,MatrixView,DendrogramView,SankeyView,DisjointView,BundleView}=createAlternateViews({React,d3:globalThis.d3,colors:COLORS});
@@ -372,7 +374,7 @@ function App(){
     function loadRecentAnalysis(id){clearPendingRecentDelete();return project.openRecent(id);}
     function currentAnalysisSource(){return project.source;}
     function readLiveFileSource(path){return project.readSource(path);}
-    function resetProjectPresentation({cached=false}={}){setPickerError(null);setSelected(null);setBlastRadius(null);setOwnership(null);setFolderFilter(null);setPrData(null);closeFilePreview();setMobilePanel(null);setShowGraphConfig(false);setActiveSymbol(null);setExpandedPaths(new Set(['']));if(cached)setGraphConfig(cfg=>({...cfg,vizType:cfg.vizType==='architecture'?'graph':cfg.vizType}));}
+    function resetProjectPresentation({cached=false}={}){setPickerError(null);setSelected(null);setBlastRadius(null);setFolderFilter(null);setPrData(null);closeFilePreview();setMobilePanel(null);setShowGraphConfig(false);setActiveSymbol(null);setExpandedPaths(new Set(['']));if(cached)setGraphConfig(cfg=>({...cfg,vizType:cfg.vizType==='architecture'?'graph':cfg.vizType}));}
 
     const [investigation,dispatchInvestigation]=useReducer((state,action)=>reduceInvestigation(state,action,data),undefined,createInvestigationState);
     const selected=useMemo(()=>data&&data.files.find(file=>file.path===investigation.selectedPath)||null,[data,investigation.selectedPath]);
@@ -382,12 +384,10 @@ function App(){
 
     var _i=useState('folder'),colorMode=_i[0],setColorMode=_i[1];
     var _k=useState(new Set([''])),expandedPaths=_k[0],setExpandedPaths=_k[1];
-    var _l=useState(new Set(['blast','fns'])),expandedCards=_l[0],setExpandedCards=_l[1];
     var _leftRail=useState('overview'),leftTab=_leftRail[0],setLeftTab=_leftRail[1];
     var _m=useState('details'),rightTab=_m[0],setRightTab=_m[1];
     var _m2=useState(null),drillDown=_m2[0],setDrillDown=_m2[1];// {type:'issue'|'pattern'|'security'|'suggestion'|'duplicate', data:...}
     var _n=useState(null),blastRadius=_n[0],setBlastRadius=_n[1];
-    var _o=useState(null),ownership=_o[0],setOwnership=_o[1];
     var _p=useState(''),prUrl=_p[0],setPrUrl=_p[1];
     var _q=useState(null),prData=_q[0],setPrData=_q[1];
     var _r=useState(false),showExport=_r[0],setShowExport=_r[1];
@@ -395,8 +395,7 @@ function App(){
     var _t=useState(false),showPrivacy=_t[0],setShowPrivacy=_t[1];
     var _u=useState(null),tooltip=_u[0],setTooltip=_u[1];
     var _v=useState(null),toast=_v[0],setToast=_v[1];
-    var _w=useState(false),ownerLoading=_w[0],setOwnerLoading=_w[1];
-    var _y=useState(new Set()),expandedFns=_y[0],setExpandedFns=_y[1];
+    var _y=useState(new Set()),expandedUnusedFns=_y[0],setExpandedUnusedFns=_y[1];
     var _z=useState(false),showUnused=_z[0],setShowUnused=_z[1];
     const [graphSettings,setGraphSettings]=useState({spacing:200,linkDist:70,viewMode:'force',showLabels:true,curvedLinks:true});
     const graphConfig=useMemo(()=>({...graphSettings,vizType:investigation.view}),[graphSettings,investigation.view]);
@@ -758,20 +757,10 @@ function App(){
     },[data,investigation.selectedPath,graphConfig.vizType]);
     useEffect(function(){
         if(!selected)return;
-        setRightTab('details');setExpandedFns(new Set());
+        setRightTab('details');
         if(isMobile){setMobilePanel('details');setLegendCollapsed(true);}
     },[investigation.selectedPath,navigation]);
-    useEffect(function(){
-        setOwnership(null);setOwnerLoading(false);
-        if(!selected)return;
-        if(localSourceKind){setOwnership([]);return;}
-        if(!repoInfo)return;
-        let cancelled=false;setOwnerLoading(true);
-        GitHub.getBlame(repoInfo.owner,repoInfo.repo,selected.path).then(function(owners){
-            if(!cancelled){setOwnership(owners);setOwnerLoading(false);}
-        }).catch(function(){if(!cancelled)setOwnerLoading(false);});
-        return function(){cancelled=true;};
-    },[investigation.selectedPath,repoInfo,localSourceKind]);
+    const readOwnership=useMemo(()=>localSourceKind||!repoInfo?null:path=>GitHub.getBlame(repoInfo.owner,repoInfo.repo,path),[localSourceKind,repoInfo]);
     function openCodeFile(path,replace,range){
         dispatchInvestigation({type:'open',path,replace,range,camera:snapshotZoomTransform(nativeCanvasRef.current?.snapshotScene().camera)});
         nativeCanvasRef.current?.focus(path);
@@ -819,8 +808,7 @@ function App(){
     }
 
     var togglePath=useCallback(function(p){setExpandedPaths(function(prev){var n=new Set(prev);if(n.has(p))n.delete(p);else n.add(p);return n;});},[]);
-    var toggleCard=useCallback(function(id){setExpandedCards(function(prev){var n=new Set(prev);if(n.has(id))n.delete(id);else n.add(id);return n;});},[]);
-    var toggleFn=useCallback(function(name){setExpandedFns(function(prev){var n=new Set(prev);if(n.has(name))n.delete(name);else n.add(name);return n;});},[]);
+    var toggleUnusedFn=useCallback(function(name){setExpandedUnusedFns(function(prev){var n=new Set(prev);if(n.has(name))n.delete(name);else n.add(name);return n;});},[]);
 
     function canReadLiveFileSource(){return project.sourceAvailable;}
 
@@ -1712,173 +1700,10 @@ function App(){
                     ),
                     React.createElement('div',{className:'panel-content'},
                         data.beam&&rightTab==='runtime'&&React.createElement(RuntimePanel,{index:runtimeIndex,inspection:runtimeInspection,onOpen:openSourceLocation}),
-                        rightTab==='details'&&(selected?React.createElement(React.Fragment,null,
-                            React.createElement('button',{className:'top-btn',style:{width:'100%',marginBottom:12},onClick:function(){setSelected(null);setBlastRadius(null);}},'← Back to Issues'),
-                            React.createElement('div',{className:'panel-header',style:{margin:'0 -12px 12px',padding:12}},
-                                React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}},
-                                    React.createElement('div',null,
-                                        React.createElement('div',{className:'panel-title'},React.createElement(Icon,{name:'file',size:'m'}),' ',selected.name),
-                                        React.createElement('div',{className:'panel-subtitle'},selected.folder||'root',' • ',selected.layer,' • ',selected.lines,' lines',selected.complexity&&selected.complexity.score>0?' • Complexity: '+selected.complexity.score:'')
-                                    ),
-                                    React.createElement('button',{className:'view-file-btn',onClick:function(){openFilePreview(selected.path);}},iconLabel('eye','View Source'))
-                                )
-                            ),
+                        rightTab==='details'&&(selected?React.createElement(FileInspector,{key:loadedSourceIdentity?.sourceType+':'+loadedSourceIdentity?.sourceKey,file:selected,analysis:data,blastRadius,readOwnership,onLocate:goToFile,onPreview:openFilePreview,onBack:()=>{setSelected(null);setBlastRadius(null);}},
                             React.createElement(SourceProcesses,{index:runtimeIndex,path:selected.path,onSelect:id=>{runtimeInspection.setFocus(id);setRightTab('runtime');}}),
                             React.createElement(SourceFindings,{summary:findingsByFile.get(selected.path),onOpen:openSourceLocation}),
-                            data.beam&&React.createElement(SourceNavigation,{path:selected.path,symbols:beamSymbols,locations:beamLocations,error:beamNavigationError,onOpen:openSourceLocation,onReferences:(path,position)=>navigateBeamSymbol('references',path,position)}),
-                            blastRadius&&React.createElement('div',{className:'card',style:{marginBottom:12}},
-                                React.createElement('div',{className:'card-header',onClick:function(){toggleCard('blast');}},React.createElement('div',{className:'card-title'},React.createElement('span',{className:'card-toggle'+(expandedCards.has('blast')?' open':'')},'▶'),React.createElement(Icon,{name:'impact',size:'s'}),' Impact Analysis'),React.createElement('span',{className:'badge badge-'+(blastRadius.level==='low'?'success':blastRadius.level==='medium'?'warning':'danger')},blastRadius.level.toUpperCase())),
-                                expandedCards.has('blast')&&React.createElement('div',{className:'card-body'},
-                                    React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:10}},
-                                        React.createElement('div',{style:{background:'var(--bg0)',padding:8,borderRadius:6,textAlign:'center'}},
-                                            React.createElement('div',{style:{fontSize:16,fontWeight:600,color:'var(--acc)'}},blastRadius.count),
-                                            React.createElement('div',{style:{fontSize:9,color:'var(--t3)'}},'Direct Dependents')
-                                        ),
-                                        React.createElement('div',{style:{background:'var(--bg0)',padding:8,borderRadius:6,textAlign:'center'}},
-                                            React.createElement('div',{style:{fontSize:16,fontWeight:600,color:'var(--purple)'}},blastRadius.transitiveCount||0),
-                                            React.createElement('div',{style:{fontSize:9,color:'var(--t3)'}},'Transitive')
-                                        ),
-                                        React.createElement('div',{style:{background:'var(--bg0)',padding:8,borderRadius:6,textAlign:'center'}},
-                                            React.createElement('div',{style:{fontSize:16,fontWeight:600,color:'var(--green)'}},blastRadius.fnsUsed||0),
-                                            React.createElement('div',{style:{fontSize:9,color:'var(--t3)'}},'Fns Exported')
-                                        ),
-                                        React.createElement('div',{style:{background:'var(--bg0)',padding:8,borderRadius:6,textAlign:'center'}},
-                                            React.createElement('div',{style:{fontSize:16,fontWeight:600,color:'var(--orange)'}},(blastRadius.dependencies||[]).length),
-                                            React.createElement('div',{style:{fontSize:9,color:'var(--t3)'}},'Dependencies')
-                                        )
-                                    ),
-                                    (blastRadius.count>0||blastRadius.fnsUsed>0)&&React.createElement('div',{style:{fontSize:9,color:'var(--t3)',marginBottom:8,padding:'6px 8px',background:'var(--bg0)',borderRadius:4}},
-                                        blastRadius.count>0?blastRadius.count+' file'+(blastRadius.count>1?'s':'')+' directly depend on this file':'',
-                                        blastRadius.count>0&&blastRadius.fnsUsed>0?' • ':'',
-                                        blastRadius.fnsUsed>0?blastRadius.fnsUsed+' function'+(blastRadius.fnsUsed>1?'s':'')+' used '+blastRadius.totalCalls+' times':''
-                                    ),
-                                    blastRadius.affected.length>0&&React.createElement('div',{className:'blast-detail'},
-                                        React.createElement('div',{style:{fontSize:9,fontWeight:600,marginBottom:6}},'Files that import from this:'),
-                                        blastRadius.affected.slice(0,8).map(function(path){return React.createElement('div',{key:path,className:'blast-file',onClick:function(){goToFile(path);}},React.createElement(Icon,{name:'file',size:'s'}),' ',path.split('/').pop());}),
-                                        blastRadius.affected.length>8&&React.createElement('div',{style:{fontSize:9,color:'var(--t3)',marginTop:4}},'+',blastRadius.affected.length-8,' more')
-                                    ),
-                                    (blastRadius.dependencies||[]).length>0&&React.createElement('div',{className:'blast-detail',style:{marginTop:8}},
-                                        React.createElement('div',{style:{fontSize:9,fontWeight:600,marginBottom:6,color:'var(--orange)'}},'Dependencies (risk if these change):'),
-                                        blastRadius.dependencies.slice(0,5).map(function(path){return React.createElement('div',{key:path,className:'blast-file',onClick:function(){goToFile(path);}},React.createElement(Icon,{name:'file',size:'s'}),' ',path.split('/').pop());}),
-                                        blastRadius.dependencies.length>5&&React.createElement('div',{style:{fontSize:9,color:'var(--t3)',marginTop:4}},'+',blastRadius.dependencies.length-5,' more')
-                                    )
-                                )
-                            ),
-                            (function(){
-                                var outgoing=[],incoming=[];
-                                var connByFile={out:{},in:{}};
-                                data.connections.forEach(function(c){
-                                    var src=typeof c.source==='object'?c.source.id:c.source;
-                                    var tgt=typeof c.target==='object'?c.target.id:c.target;
-                                    if(src===selected.path){
-                                        if(!connByFile.out[tgt])connByFile.out[tgt]={file:tgt,fns:[]};
-                                        connByFile.out[tgt].fns.push({name:c.evidence==='mix xref'?c.kind:c.fn,count:c.count,evidence:c.evidence});
-                                    }
-                                    if(tgt===selected.path){
-                                        if(!connByFile.in[src])connByFile.in[src]={file:src,fns:[]};
-                                        connByFile.in[src].fns.push({name:c.evidence==='mix xref'?c.kind:c.fn,count:c.count,evidence:c.evidence});
-                                    }
-                                });
-                                outgoing=Object.values(connByFile.out).sort(function(a,b){return b.fns.length-a.fns.length;});
-                                incoming=Object.values(connByFile.in).sort(function(a,b){return b.fns.length-a.fns.length;});
-                                var totalConns=outgoing.length+incoming.length;
-                                return totalConns>0&&React.createElement('div',{className:'card',style:{marginBottom:12}},
-                                    React.createElement('div',{className:'card-header',onClick:function(){toggleCard('conns');}},React.createElement('div',{className:'card-title'},React.createElement('span',{className:'card-toggle'+(expandedCards.has('conns')?' open':'')},'▶'),React.createElement(Icon,{name:'link',size:'s'}),' Connections'),React.createElement('span',{className:'badge badge-default'},totalConns)),
-                                    expandedCards.has('conns')&&React.createElement('div',{className:'card-body',style:{padding:0}},
-                                        outgoing.length>0&&React.createElement(React.Fragment,null,
-                                            React.createElement('div',{style:{fontSize:9,fontWeight:600,color:'var(--t3)',padding:'8px 12px',background:'var(--bg2)',borderBottom:'1px solid var(--border)'}},'Used by (',outgoing.length,' files)'),
-                                            outgoing.map(function(conn){
-                                                var isOpen=expandedCards.has('conn-out-'+conn.file);
-                                                return React.createElement('div',{key:conn.file,className:'conn-item'},
-                                                    React.createElement('div',{className:'conn-header',onClick:function(e){e.stopPropagation();toggleCard('conn-out-'+conn.file);}},
-                                                        React.createElement('span',{className:'card-toggle'+(isOpen?' open':''),style:{fontSize:8,marginRight:6}},'▶'),
-                                                        React.createElement('span',{className:'conn-file-icon'},React.createElement(Icon,{name:'file',size:'s'})),
-                                                        React.createElement('span',{className:'conn-file-name'},conn.file.split('/').pop()),
-                                                        React.createElement('span',{className:'badge badge-default',style:{marginLeft:'auto'}},conn.fns.length,' relationship',conn.fns.length!==1?'s':'')
-                                                    ),
-                                                    isOpen&&React.createElement('div',{className:'conn-fns'},
-                                                        conn.fns.map(function(fn,i){return React.createElement('div',{key:i,className:'conn-fn'},
-                                                            React.createElement('span',{className:'conn-fn-name'},fn.name,fn.evidence==='mix xref'?'':'()'),
-                                                            React.createElement('span',{className:'conn-fn-count'},fn.evidence==='mix xref'?'mix xref':fn.count+'×')
-                                                        );}),
-                                                        React.createElement('div',{className:'conn-goto',onClick:function(){goToFile(conn.file);}},'→ View ',conn.file.split('/').pop())
-                                                    )
-                                                );
-                                            }),
-                                        ),
-                                        incoming.length>0&&React.createElement(React.Fragment,null,
-                                            React.createElement('div',{style:{fontSize:9,fontWeight:600,color:'var(--t3)',padding:'8px 12px',background:'var(--bg2)',borderBottom:'1px solid var(--border)',borderTop:outgoing.length>0?'1px solid var(--border)':'none'}},'Depends on (',incoming.length,' files)'),
-                                            incoming.map(function(conn){
-                                                var isOpen=expandedCards.has('conn-in-'+conn.file);
-                                                return React.createElement('div',{key:conn.file,className:'conn-item'},
-                                                    React.createElement('div',{className:'conn-header',onClick:function(e){e.stopPropagation();toggleCard('conn-in-'+conn.file);}},
-                                                        React.createElement('span',{className:'card-toggle'+(isOpen?' open':''),style:{fontSize:8,marginRight:6}},'▶'),
-                                                        React.createElement('span',{className:'conn-file-icon'},React.createElement(Icon,{name:'file',size:'s'})),
-                                                        React.createElement('span',{className:'conn-file-name'},conn.file.split('/').pop()),
-                                                        React.createElement('span',{className:'badge badge-default',style:{marginLeft:'auto'}},conn.fns.length,' relationship',conn.fns.length!==1?'s':'')
-                                                    ),
-                                                    isOpen&&React.createElement('div',{className:'conn-fns'},
-                                                        conn.fns.map(function(fn,i){return React.createElement('div',{key:i,className:'conn-fn'},
-                                                            React.createElement('span',{className:'conn-fn-name'},fn.name,fn.evidence==='mix xref'?'':'()'),
-                                                            React.createElement('span',{className:'conn-fn-count'},fn.evidence==='mix xref'?'mix xref':fn.count+'×')
-                                                        );}),
-                                                        React.createElement('div',{className:'conn-goto',onClick:function(){goToFile(conn.file);}},'→ View ',conn.file.split('/').pop())
-                                                    )
-                                                );
-                                            }),
-                                        )
-                                    )
-                                );
-                            })(),
-                            React.createElement('div',{className:'card',style:{marginBottom:12}},
-                                React.createElement('div',{className:'card-header',onClick:function(){toggleCard('own');}},React.createElement('div',{className:'card-title'},React.createElement('span',{className:'card-toggle'+(expandedCards.has('own')?' open':'')},'▶'),React.createElement(Icon,{name:'users',size:'s'}),' Ownership')),
-                                expandedCards.has('own')&&React.createElement('div',{className:'card-body'},
-                                    ownerLoading?React.createElement('div',{className:'loading-owner'},'Loading ownership data...'):
-                                    ownership&&ownership.length>0?React.createElement(React.Fragment,null,
-                                        React.createElement('div',{className:'owner-bar'},ownership.slice(0,5).map(function(o,i){return React.createElement('div',{key:i,className:'owner-segment',style:{width:o.percent+'%',background:COLORS[i%COLORS.length]}});})),
-                                        React.createElement('div',{className:'owner-list'},ownership.slice(0,5).map(function(o,i){return React.createElement('div',{key:i,className:'owner-item'},React.createElement('div',{className:'owner-avatar',style:{background:COLORS[i%COLORS.length]}},o.name[0].toUpperCase()),React.createElement('span',{className:'owner-name'},o.name),React.createElement('span',{className:'owner-percent'},o.percent,'%'));}))
-                                    ):React.createElement('div',{style:{fontSize:10,color:'var(--t3)',padding:8}},'No ownership data available')
-                                )
-                            ),
-                            React.createElement('div',{className:'card'},
-                                React.createElement('div',{className:'card-header',onClick:function(){toggleCard('fns');}},React.createElement('div',{className:'card-title'},React.createElement('span',{className:'card-toggle'+(expandedCards.has('fns')?' open':'')},'▶'),React.createElement(Icon,{name:'bolt',size:'s'}),' Functions (',selected.functions.length,')')),
-                                expandedCards.has('fns')&&React.createElement('div',{className:'card-body',style:{padding:8}},
-                                    selected.functions.length===0?React.createElement('div',{style:{fontSize:10,color:'var(--t3)',padding:8,textAlign:'center'}},'No functions detected'):
-                                    selected.functions.map(function(fn){
-                                        var statKey=fn.key||Parser.functionKey(fn);
-                                        var st=data.fnStats[statKey]||data.fnStats[fn.name];
-                                        var expandKey=statKey||fn.name;
-                                        var isExpanded=expandedFns.has(expandKey);
-                                        var intCalls=st?st.internal:0,extCalls=st?st.external:0;
-                                        return React.createElement('div',{key:expandKey,className:'fn-item'},
-                                            React.createElement('div',{className:'fn-header',onClick:function(){toggleFn(expandKey);}},
-                                                React.createElement('span',{className:'fn-name'},fn.name,fn.evidence==='mix xref'?'':'()'),
-                                                React.createElement('span',{style:{display:'flex',alignItems:'center',gap:4}},
-                                                    React.createElement('button',{className:'view-file-btn',onClick:function(e){e.stopPropagation();openFilePreview(selected.path,fn.line);},title:'View source'},React.createElement(Icon,{name:'eye',size:'s'})),
-                                                    React.createElement('span',{className:'fn-line'},'L',fn.line),
-                                                    React.createElement('span',{className:'badge badge-default',title:'Internal calls (same file)'},intCalls,' int'),
-                                                    React.createElement('span',{className:'badge '+(extCalls>10?'badge-danger':extCalls>0?'badge-warning':'badge-default'),title:'External calls (other files)'},extCalls,' ext')
-                                                )
-                                            ),
-                                            isExpanded&&React.createElement(React.Fragment,null,
-                                                fn.code&&React.createElement('div',{className:'fn-code'},fn.code),
-                                                st&&st.callers&&st.callers.length>0&&React.createElement('div',{className:'fn-callers'},
-                                                    React.createElement('div',{className:'fn-callers-title'},'External callers:'),
-                                                    st.callers.map(function(c,i){return React.createElement('div',{key:i,className:'fn-caller',onClick:function(){goToFile(c.file);}},
-                                                        React.createElement(Icon,{name:'file',size:'s'}),
-                                                        React.createElement('span',null,c.name),
-                                                        React.createElement('span',{style:{marginLeft:'auto',color:'var(--t3)'}},c.count,'×')
-                                                    );})
-                                                ),
-                                                intCalls===0&&extCalls===0&&React.createElement('div',{style:{fontSize:9,color:'var(--orange)',padding:8,textAlign:'center',background:'rgba(255,159,67,0.1)',borderRadius:4}},
-                                                    React.createElement(Icon,{name:'warning',size:'s'}),
-                                                    st&&st.usageCertainty==='unverified'?' No callers found by source analysis; runtime use is unknown.':' No callers found by source analysis.'
-                                                )
-                                            )
-                                        );
-                                    })
-                                )
-                            )
+                            data.beam&&React.createElement(SourceNavigation,{path:selected.path,symbols:beamSymbols,locations:beamLocations,error:beamNavigationError,onOpen:openSourceLocation,onReferences:(path,position)=>navigateBeamSymbol('references',path,position)})
                         ):graphConfig.vizType==='architecture'?renderArchitectureSummary():React.createElement(React.Fragment,null,
                             React.createElement(AnalysisTools,{assessments:data.assessments}),
                             React.createElement('div',{style:{fontSize:12,fontWeight:600,marginBottom:12}},React.createElement(Icon,{name:'search',size:'m'}),' Architecture Issues (',data.issues.length,')'),
@@ -2376,9 +2201,9 @@ function App(){
                     ),
                     React.createElement('div',{style:Object.assign(getAccentBlockStyle('rgba(255,159,67,0.34)','rgba(255,159,67,0.08)'),{fontSize:10,color:'var(--t3)',marginBottom:12,padding:'8px 12px',borderRadius:6})},'Source analysis found no callers for these functions. Callbacks, macros and dynamic invocation can remain undetected; verify usage before removing code.'),
                     data.deadFunctions.map(function(fn,i){
-                        var isExpanded=expandedFns.has('dead-'+fn.name);
+                        var isExpanded=expandedUnusedFns.has('dead-'+fn.name);
                         return React.createElement('div',{key:i,className:'unused-fn'},
-                            React.createElement('div',{className:'unused-fn-header',onClick:function(){toggleFn('dead-'+fn.name);}},
+                            React.createElement('div',{className:'unused-fn-header',onClick:function(){toggleUnusedFn('dead-'+fn.name);}},
                                 React.createElement('div',null,
                                     React.createElement('span',{className:'unused-fn-name'},fn.name,fn.evidence==='mix xref'?'':'()'),
                                     React.createElement('div',{className:'unused-fn-path'},
@@ -2401,8 +2226,8 @@ function App(){
                     })
                 ),
                 React.createElement('div',{className:'modal-footer',style:{display:'flex',gap:8}},
-                    React.createElement('button',{className:'top-btn',onClick:function(){data.deadFunctions.forEach(function(fn){expandedFns.add('dead-'+fn.name);});setExpandedFns(new Set(expandedFns));}},'Expand All'),
-                    React.createElement('button',{className:'top-btn',onClick:function(){setExpandedFns(new Set());}},'Collapse All'),
+                    React.createElement('button',{className:'top-btn',onClick:function(){data.deadFunctions.forEach(function(fn){expandedUnusedFns.add('dead-'+fn.name);});setExpandedUnusedFns(new Set(expandedUnusedFns));}},'Expand All'),
+                    React.createElement('button',{className:'top-btn',onClick:function(){setExpandedUnusedFns(new Set());}},'Collapse All'),
                     React.createElement('button',{className:'top-btn primary',onClick:function(){setShowUnused(false);}},'Close')
                 )
             )
