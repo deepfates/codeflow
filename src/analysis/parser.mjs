@@ -1,3 +1,4 @@
+import {maxAnalyzableFileBytes,isOversized} from '../project/size-policy.mjs';
 import { codeExts, scriptContainerExts, textExts, textNames, binExts, isCode, isText, isBinary, isIncluded, isScriptContainer, isVBA, isPascal, isHTML, isCSS, isJSON, isElixir, isMarkdown, isTestFile, detectLayer, isNonProductionPath, isArchitectureTestFile, isSecretScanExemptPath, isArchitectureBackendPath } from "./file-types.mjs";
 import { getSecurityScanContent, isSanitizedPreviewRenderer, inspectJavaScriptSecurity } from "./security-source.mjs";
 
@@ -11,8 +12,8 @@ const Parser={
     _tsLanguages:Object.create(null),
     _tsParsers:Object.create(null),
     _callCandidateThreshold:250,
-    maxAnalyzableFileBytes:2*1024*1024,
-    isOversized:function(size){return Number.isFinite(size)&&size>Parser.maxAnalyzableFileBytes;},
+    maxAnalyzableFileBytes,
+    isOversized,
     treeSitterWasmBase:vendorBase+'tree-sitter-wasms/',
     treeSitterGrammars:{
         python:{grammar:'python',exts:['.py','.pyw','.pyi'],coverage:'calls'},

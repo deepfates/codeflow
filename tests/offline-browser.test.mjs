@@ -56,3 +56,32 @@ test('offline ZIP and selected-folder imports share grammar evidence and exact s
  assert.deepEqual(errors,[]);
  assert.deepEqual(network,[],'offline source analysis must not require network requests');
 });
+
+test('directory picker reports enumeration failure and can recover with another folder', {
+ skip:!process.env.CODEFLOW_TEST_BROWSER,timeout:30000
+},async t=>{
+ const {chromium}=await import('playwright');
+ const browser=await chromium.launch({headless:true,...(process.env.CODEFLOW_BROWSER_CHANNEL?{channel:process.env.CODEFLOW_BROWSER_CHANNEL}:{})});
+ t.after(()=>browser.close());
+ const page=await browser.newPage({viewport:{width:1400,height:1000}});
+ const errors=[];page.on('pageerror',error=>errors.push(error.message));
+ await page.addInitScript(()=>{
+  let attempts=0;
+  window.showDirectoryPicker=async()=>({name:'example',kind:'directory',async *values(){
+   if(++attempts===1)throw new Error('Directory permission revoked');
+   yield {name:'example.ex',kind:'file',getFile:async()=>new File(['defmodule Example do\n def run, do: :ok\nend'],'example.ex')};
+  }});
+ });
+ await page.goto(new URL('../index.html',import.meta.url).href);
+ const picker=page.getByRole('button',{name:'Open local folder',exact:true});
+ await picker.click();
+ await page.getByRole('alert').filter({hasText:'Failed to analyze selected folder: Directory permission revoked'}).waitFor();
+ assert.equal(await picker.isEnabled(),true,'failed traversal releases the loading state');
+ await picker.click();
+ await page.getByRole('combobox',{name:'Visualization type'}).waitFor();
+ await page.getByRole('tab',{name:'Files',exact:true}).click();
+ const search=page.getByRole('searchbox',{name:'Find files and symbols'});
+ await search.fill('Example.run/0');await search.press('Enter');
+ await page.locator('[data-code-card="example.ex"] [data-line="2"].highlighted').waitFor();
+ assert.deepEqual(errors,[]);
+});

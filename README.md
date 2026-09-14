@@ -57,7 +57,7 @@ distinct definitions within the same file.
 Code view uses the existing source cards. The File panel adds an ElixirLS outline;
 Command-click (or Ctrl-click) source text to go to a definition, and add Shift to
 find references. Compiler diagnostics and Credo findings appear in Issues with
-source locations and provider attribution, and are included in analysis exports.
+source locations and tool attribution, and are included in analysis exports.
 Patterns, Security, Actions, Block Diagram and reports remain available. Tool
 failure is reported as unavailable, not as a clean assessment.
 
@@ -264,7 +264,7 @@ Click the "Open Folder" button to analyze code from your computer:
 - **Drag & Drop:** Drag files or folders directly onto the page
 - **Custom Excludes:** Add patterns like `uploads/**`, `**/cache/**`, or `*.png` before scanning
 
-Generated dependencies, caches, build output, local worktrees, and test artifacts are pruned automatically (for example `node_modules`, `.next`, `.turbo`, `.local`, `dist`, and `playwright-report`). Individual files over 2 MB remain visible in results but their contents are not parsed.
+Generated dependencies, caches, build output, local worktrees, and test artifacts are pruned automatically (for example `node_modules`, `.next`, `.turbo`, `.local`, `dist`, and `playwright-report`). Individual files over 2 MB remain visible in results but their contents are not parsed. GitHub imports request every eligible file after the large-import confirmation; API read failures remain visible in the inventory.
 
 All processing happens locally in your browser - nothing is uploaded.
 
@@ -441,7 +441,7 @@ We love contributions! Here's how:
 
 The HTML file owns the document and styles. The application code lives in modules:
 
-- `src/project/`: shared exclusion policy, source identity, change tracking, tree and export; `loading.mjs` owns the active load cancellation signal; selecting another project cancels the prior analysis worker and CLI reads, and loaders discard obsolete results. Source cards use project-bound readers for CLI checkouts, GitHub, folders and archives; retained handles cannot supply source for a different project. `local-tools.mjs` binds language navigation and runtime requests to the matching CLI checkout and cancels them when switching projects. GitHub access has an explicit adapter. `cli-analysis.mjs` polls local tool results and owns request cancellation, refresh timing and duplicate-update suppression.
+- `src/project/`: shared exclusion policy, source identity, change tracking, tree and export; `collection.mjs` enumerates directories, selected files and archives and reads source for all five browser import paths, retaining failed and oversized files; `loading.mjs` owns the active load cancellation signal; selecting another project cancels the prior analysis worker and CLI reads, and loaders discard obsolete results. Source cards use project-bound readers for CLI checkouts, GitHub, folders and archives; retained handles cannot supply source for a different project. `local-tools.mjs` binds language navigation and runtime requests to the matching CLI checkout and cancels them when switching projects. GitHub access has an explicit adapter. `cli-analysis.mjs` polls local tool results and owns request cancellation, refresh timing and duplicate-update suppression.
 - `src/analysis/`: parser runtime factory, shared file classification, code indexing, architecture, metrics and merging compiler and linter results.
 - `src/investigation/`: `state.mjs` owns selection, source ranges, folder scope, view, open cards and history as one reducer. Opening, closing, Back/Forward and workspace restoration commit these changes together; the selected file is read from the current code index. Workspace, preferences and recent-analysis persistence live alongside it. Camera movement and card placement remain rendering concerns.
 - `src/views/`: card geometry, graph styling, links, camera, minimap and source rendering.

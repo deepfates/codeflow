@@ -41917,6 +41917,12 @@ ${JSON.stringify(t2, null, 2)}`);
     } };
   }
 
+  // src/project/size-policy.mjs
+  var maxAnalyzableFileBytes = 2 * 1024 * 1024;
+  function isOversized(size) {
+    return Number.isFinite(size) && size > maxAnalyzableFileBytes;
+  }
+
   // src/analysis/file-types.mjs
   var codeExts = [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".py", ".pyw", ".pyi", ".java", ".go", ".rb", ".php", ".rs", ".c", ".cpp", ".cc", ".h", ".hpp", ".cs", ".swift", ".kt", ".kts", ".scala", ".clj", ".ex", ".exs", ".erl", ".hs", ".lua", ".r", ".R", ".jl", ".dart", ".elm", ".fs", ".fsx", ".ml", ".pl", ".pm", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".psm1", ".groovy", ".gradle", ".vba", ".bas", ".cls", ".xlsm", ".xlam", ".xlsb", ".xla", ".xlw", ".pas", ".pp", ".dpr", ".dpk", ".lpr", ".inc"];
   var scriptContainerExts = [".html", ".htm", ".xhtml", ".vue", ".svelte"];
@@ -42179,10 +42185,8 @@ ${JSON.stringify(t2, null, 2)}`);
       _tsLanguages: /* @__PURE__ */ Object.create(null),
       _tsParsers: /* @__PURE__ */ Object.create(null),
       _callCandidateThreshold: 250,
-      maxAnalyzableFileBytes: 2 * 1024 * 1024,
-      isOversized: function(size) {
-        return Number.isFinite(size) && size > Parser3.maxAnalyzableFileBytes;
-      },
+      maxAnalyzableFileBytes,
+      isOversized,
       treeSitterWasmBase: vendorBase + "tree-sitter-wasms/",
       treeSitterGrammars: {
         python: { grammar: "python", exts: [".py", ".pyw", ".pyi"], coverage: "calls" },

@@ -5027,12 +5027,109 @@
     return false;
   }
 
-  // src/browser/collection.mjs
-  function makeOversizedAnalysisFile(file, size) {
-    return { path: file.path, name: file.name, folder: file.folder, size: size || 0, analysisSkipped: "oversized" };
+  // src/project/size-policy.mjs
+  var maxAnalyzableFileBytes = 2 * 1024 * 1024;
+  function isOversized(size) {
+    return Number.isFinite(size) && size > maxAnalyzableFileBytes;
   }
-  function makeFetchFailedAnalysisFile(file) {
-    return { path: file.path, name: file.name, folder: file.folder, size: file.size || 0, analysisSkipped: "fetch-failed" };
+
+  // src/project/collection.mjs
+  function descriptor(path, size, read) {
+    path = normalizeExcludePath(path);
+    return { path, name: path.split("/").pop(), folder: path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "root", size: size || 0, read };
+  }
+  function include(file, patterns) {
+    return filterAnalyzableLocalFiles([file], patterns).length > 0;
+  }
+  async function collectDirectory(handle, { patterns = [], signal, progress = () => {
+  } } = {}) {
+    const files = [];
+    async function walk(directory, prefix) {
+      signal?.throwIfAborted();
+      for await (const entry of directory.values()) {
+        signal?.throwIfAborted();
+        const path = prefix ? prefix + "/" + entry.name : entry.name;
+        if (entry.kind === "directory") {
+          if (!shouldIgnoreDirectory(path, entry.name, patterns)) await walk(entry, path);
+        } else if (entry.kind === "file") {
+          const file = descriptor(path, 0, async () => {
+            const source = await entry.getFile();
+            signal?.throwIfAborted();
+            file.size = source.size;
+            return isOversized(file.size) ? "" : source.text();
+          });
+          if (include(file, patterns)) files.push(file);
+        }
+        if (files.length && files.length % 50 === 0) progress("Scanning files... " + files.length + " found");
+      }
+    }
+    await walk(handle, "");
+    signal?.throwIfAborted();
+    return { files, rootPrefix: "" };
+  }
+  function collectEntries(entries, options, make) {
+    const { patterns = [], signal, progress = () => {
+    } } = options;
+    signal?.throwIfAborted();
+    const rootPrefix = getArchiveRootPrefix(entries.map((entry) => entry.path));
+    const files = [], entriesByPath = /* @__PURE__ */ Object.create(null);
+    for (const entry of entries) {
+      signal?.throwIfAborted();
+      const raw = normalizeExcludePath(entry.path);
+      const path = rootPrefix && raw.startsWith(rootPrefix) ? raw.slice(rootPrefix.length) : raw;
+      const file = make(entry.value, path);
+      if (!include(file, patterns)) continue;
+      files.push(file);
+      entriesByPath[file.path] = entry.value;
+      if (files.length % 50 === 0) progress("Scanning files... " + files.length + " found");
+    }
+    return { files, rootPrefix, entriesByPath };
+  }
+  async function collectSelectedFiles(fileObjs, options = {}) {
+    const { files, rootPrefix } = collectEntries(
+      Array.from(fileObjs, (file) => ({ path: file.webkitRelativePath || file.name, value: file })),
+      options,
+      (file, path) => descriptor(path, file.size, () => file.text())
+    );
+    return { files, rootPrefix };
+  }
+  async function collectArchive(zip, options = {}) {
+    const entries = Object.keys(zip.files).sort().map((key) => zip.files[key]).filter((entry) => entry && !entry.dir);
+    return collectEntries(
+      entries.map((entry) => ({ path: entry.name, value: entry })),
+      options,
+      (entry, path) => descriptor(path, entry._data?.uncompressedSize, () => entry.async("string"))
+    );
+  }
+  async function readCollectedFiles(files, { signal, progress = () => {
+  }, yieldFn = () => Promise.resolve() } = {}) {
+    const records = [];
+    for (let i = 0; i < files.length; i++) {
+      signal?.throwIfAborted();
+      if (i && i % 50 === 0) {
+        await yieldFn();
+        signal?.throwIfAborted();
+      }
+      const file = files[i];
+      progress("Reading " + (i + 1) + "/" + files.length + ": " + file.name);
+      const record = { path: file.path, name: file.name, folder: file.folder, size: file.size };
+      try {
+        const result = isOversized(file.size) ? "" : await file.read();
+        signal?.throwIfAborted();
+        const content = typeof result === "string" ? result : result?.content;
+        if (typeof content !== "string") throw new Error("Source read did not return text");
+        record.size = result && typeof result === "object" && result.size !== void 0 ? result.size : file.size;
+        if (result && typeof result === "object" && result.churn !== void 0) record.churn = result.churn;
+        if (isOversized(record.size) || isOversized(content.length)) record.analysisSkipped = "oversized";
+        else record.content = content;
+      } catch (error) {
+        if (signal?.aborted || error?.name === "AbortError") throw error;
+        record.analysisSkipped = "fetch-failed";
+      }
+      records.push(record);
+    }
+    signal?.throwIfAborted();
+    return records;
   }
 
   // src/browser/html.mjs
@@ -5164,10 +5261,8 @@
       _tsLanguages: /* @__PURE__ */ Object.create(null),
       _tsParsers: /* @__PURE__ */ Object.create(null),
       _callCandidateThreshold: 250,
-      maxAnalyzableFileBytes: 2 * 1024 * 1024,
-      isOversized: function(size) {
-        return Number.isFinite(size) && size > Parser2.maxAnalyzableFileBytes;
-      },
+      maxAnalyzableFileBytes,
+      isOversized,
       treeSitterWasmBase: vendorBase + "tree-sitter-wasms/",
       treeSitterGrammars: {
         python: { grammar: "python", exts: [".py", ".pyw", ".pyi"], coverage: "calls" },
@@ -50314,6 +50409,12 @@ This problem is likely caused by another plugin injecting
     } };
   }
 
+  // src/project/size-policy.mjs
+  var maxAnalyzableFileBytes = 2 * 1024 * 1024;
+  function isOversized(size) {
+    return Number.isFinite(size) && size > maxAnalyzableFileBytes;
+  }
+
   // src/analysis/file-types.mjs
   var codeExts = [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".py", ".pyw", ".pyi", ".java", ".go", ".rb", ".php", ".rs", ".c", ".cpp", ".cc", ".h", ".hpp", ".cs", ".swift", ".kt", ".kts", ".scala", ".clj", ".ex", ".exs", ".erl", ".hs", ".lua", ".r", ".R", ".jl", ".dart", ".elm", ".fs", ".fsx", ".ml", ".pl", ".pm", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".psm1", ".groovy", ".gradle", ".vba", ".bas", ".cls", ".xlsm", ".xlam", ".xlsb", ".xla", ".xlw", ".pas", ".pp", ".dpr", ".dpk", ".lpr", ".inc"];
   var scriptContainerExts = [".html", ".htm", ".xhtml", ".vue", ".svelte"];
@@ -50576,10 +50677,8 @@ This problem is likely caused by another plugin injecting
       _tsLanguages: /* @__PURE__ */ Object.create(null),
       _tsParsers: /* @__PURE__ */ Object.create(null),
       _callCandidateThreshold: 250,
-      maxAnalyzableFileBytes: 2 * 1024 * 1024,
-      isOversized: function(size) {
-        return Number.isFinite(size) && size > Parser3.maxAnalyzableFileBytes;
-      },
+      maxAnalyzableFileBytes,
+      isOversized,
       treeSitterWasmBase: vendorBase + "tree-sitter-wasms/",
       treeSitterGrammars: {
         python: { grammar: "python", exts: [".py", ".pyw", ".pyi"], coverage: "calls" },
@@ -55623,7 +55722,7 @@ This problem is likely caused by another plugin injecting
   var { useState, useReducer, useEffect, useLayoutEffect, useRef, useMemo, useCallback } = React;
   var COLORS = ["#4d9fff", "#a78bfa", "#22d3ee", "#00ff9d", "#ff9f43", "#ec4899", "#ff5f5f", "#84cc16"];
   var LAYER_COLORS = { ui: "#4d9fff", components: "#22d3ee", services: "#a78bfa", utils: "#00ff9d", data: "#ff9f43", config: "#ec4899", test: "#f59e0b", modules: "#a78bfa", forms: "#22d3ee", classes: "#ff9f43", note: "#c084fc" };
-  var ANALYSIS_LIMITS = { repoSoft: 300, repoMax: 750, localSoft: 500 };
+  var ANALYSIS_LIMITS = { repoSoft: 300, localSoft: 500 };
   function calcPRRisk(prData, repoData) {
     if (!prData || !repoData) return { score: 0, level: "low", factors: [] };
     var score = 0;
@@ -56946,33 +57045,18 @@ This problem is likely caused by another plugin injecting
         var list = await listRes.json();
         var files = filterAnalyzableLocalFiles(list && list.files ? list.files : [], activeExcludePatterns);
         if (!files.length) throw new Error(activeExcludePatterns.length ? "No code files found in the watched folder after applying exclude patterns" : "No code files found in the watched folder");
-        var analyzed = [];
-        for (var i = 0; i < files.length; i++) {
-          if (loadSignal.aborted) return;
-          var f = files[i];
-          if (i > 0 && i % 40 === 0) await yieldToBrowser();
-          setProgress("Analyzing " + (i + 1) + "/" + files.length + ": " + f.name);
-          if (Parser.isOversized(Number(f.size))) {
-            analyzed.push(makeOversizedAnalysisFile(f, f.size));
-            continue;
-          }
-          var fileRes = await fetch("/__codeflow/file?path=" + encodeURIComponent(f.path), { signal: loadSignal });
-          if (!fileRes.ok) {
-            analyzed.push(makeFetchFailedAnalysisFile(f));
-            continue;
-          }
-          if (loadSignal.aborted) return;
-          var pathKey = normalizeCliWatchPath(f.path);
-          cliWatchReadRef.current[pathKey] = true;
-          var snapRev = cliWatchSnapRevFromResponse(fileRes);
-          if (snapRev != null) cliWatchSnapRevRef.current[pathKey] = snapRev;
-          var content = await fileRes.text();
-          if (Parser.isOversized(content.length)) {
-            analyzed.push(makeOversizedAnalysisFile(f, content.length));
-            continue;
-          }
-          analyzed.push({ path: f.path, name: f.name, folder: f.folder || "root", content: content || "", churn: 0 });
-        }
+        const analyzed = await readCollectedFiles(files.map((file) => ({ ...file, read: async () => {
+          const response = await fetch("/__codeflow/file?path=" + encodeURIComponent(file.path), { signal: loadSignal });
+          if (!response.ok) throw new Error("CLI source request failed");
+          loadSignal.throwIfAborted();
+          const path = normalizeCliWatchPath(file.path);
+          cliWatchReadRef.current[path] = true;
+          const revision = cliWatchSnapRevFromResponse(response);
+          if (revision != null) cliWatchSnapRevRef.current[path] = revision;
+          return response.text();
+        } })), { signal: loadSignal, progress: (message) => {
+          if (!loadSignal.aborted) setProgress(message);
+        }, yieldFn: yieldToBrowser });
         var snapshot = null;
         if (status.beam) {
           var beamRes = await fetch("/__codeflow/beam", { signal: loadSignal });
@@ -57180,58 +57264,18 @@ This problem is likely caused by another plugin injecting
         loadSignal.throwIfAborted();
         if (!files) return;
         if (!files.length) throw new Error(currentExcludePatterns.length ? "No code files found after applying exclude patterns" : "No code files found");
-        var SOFT_LIMIT = ANALYSIS_LIMITS.repoSoft, HARD_LIMIT = ANALYSIS_LIMITS.repoMax;
-        function beginRepoAnalysis() {
-          if (files.length > HARD_LIMIT) {
-            showNotification("Found " + files.length + " files. Using a " + HARD_LIMIT + "-file API sample. Use Open ZIP for full analysis.", "warning");
-          }
-          var max = Math.min(files.length, HARD_LIMIT);
-          var analyzed = [];
-          function processFile(i) {
-            if (loadSignal.aborted) return;
-            if (i >= max) {
-              finishAnalysis();
-              return;
-            }
-            var f = files[i];
-            setProgress("Analyzing " + (i + 1) + "/" + max + ": " + f.name);
-            var isCodeFile = f.isCode !== false && Parser.isCode(f.name);
-            if (Parser.isOversized(f.size)) {
-              analyzed.push(makeOversizedAnalysisFile(f, f.size));
-              processFile(i + 1);
-              return;
-            }
-            if (isCodeFile) {
-              Promise.all([
-                GitHub.getFile(p.owner, p.repo, f.path),
-                GitHub.getCommits(p.owner, p.repo, f.path, 10).catch(function() {
-                  return [];
-                })
-              ]).then(function(results) {
-                loadSignal.throwIfAborted();
-                var content = results[0];
-                var commits = results[1];
-                if (typeof content === "string") {
-                  analyzed.push({ path: f.path, name: f.name, folder: f.folder, content, churn: Array.isArray(commits) ? commits.length : 0 });
-                } else {
-                  analyzed.push(makeFetchFailedAnalysisFile(f));
-                }
-                processFile(i + 1);
-              }).catch(function() {
-                analyzed.push(makeFetchFailedAnalysisFile(f));
-                processFile(i + 1);
-              });
-            } else {
-              GitHub.getFile(p.owner, p.repo, f.path).then(function(content) {
-                loadSignal.throwIfAborted();
-                analyzed.push({ path: f.path, name: f.name, folder: f.folder, content: content || "", churn: 0 });
-                processFile(i + 1);
-              }).catch(function() {
-                analyzed.push(makeFetchFailedAnalysisFile(f));
-                processFile(i + 1);
-              });
-            }
-          }
+        var SOFT_LIMIT = ANALYSIS_LIMITS.repoSoft;
+        async function beginRepoAnalysis() {
+          const analyzed = await readCollectedFiles(files.map((file) => ({ ...file, read: async () => {
+            const [content, commits] = await Promise.all([
+              GitHub.getFile(p.owner, p.repo, file.path),
+              Parser.isCode(file.name) ? GitHub.getCommits(p.owner, p.repo, file.path, 10).catch(() => []) : Promise.resolve([])
+            ]);
+            if (typeof content !== "string") throw new Error("GitHub source request failed");
+            return { content, churn: Array.isArray(commits) ? commits.length : 0 };
+          } })), { signal: loadSignal, progress: (message) => {
+            if (!loadSignal.aborted) setProgress(message);
+          }, yieldFn: yieldToBrowser });
           async function finishAnalysis() {
             if (loadSignal.aborted) return;
             try {
@@ -57265,32 +57309,15 @@ This problem is likely caused by another plugin injecting
               setLoading(false);
             }
           }
-          processFile(0);
-          return null;
+          await finishAnalysis();
         }
-        if (files.length > SOFT_LIMIT && files.length <= HARD_LIMIT) {
+        if (files.length > SOFT_LIMIT) {
           return requestConfirm({
             tone: "warning",
             icon: "warning",
             title: "Analyze a large repository?",
             message: "This repository has " + files.length + " files.\n\nAnalyzing larger repositories can take longer and may hit GitHub API rate limits.\n\nThe folder picker is faster when the API is rate-limited. You can also download a ZIP and use Open ZIP.\n\nTip: add a token or GitHub App for higher limits.",
             confirmLabel: "Analyze repository"
-          }).then(function(proceed) {
-            loadSignal.throwIfAborted();
-            if (!proceed) {
-              setLoading(false);
-              return Promise.reject("cancelled");
-            }
-            return beginRepoAnalysis();
-          });
-        }
-        if (files.length > HARD_LIMIT) {
-          return requestConfirm({
-            tone: "warning",
-            icon: "archive",
-            title: "Analyze a GitHub API sample?",
-            message: "This GitHub repository has " + files.length + " analyzable files.\n\nThe folder picker is faster when the API is rate-limited. Download the ZIP yourself, then use Open ZIP to read it in-page.\n\nThe browser cannot fetch GitHub zipballs directly because GitHub redirects those downloads to a CORS-restricted host.\n\nContinue now with a " + HARD_LIMIT + "-file API sample?",
-            confirmLabel: "Analyze sample"
           }).then(function(proceed) {
             loadSignal.throwIfAborted();
             if (!proceed) {
@@ -57442,320 +57469,95 @@ This problem is likely caused by another plugin injecting
       }
       analyze(true);
     }
-    async function readLocalFolder(dirHandle, compiledPatterns, path = "") {
-      const loadSignal = projectLoading.signal;
-      var files = [];
-      var SOFT_LIMIT = ANALYSIS_LIMITS.localSoft;
-      var fileCount = 0;
-      setProgress("Scanning local folder...");
-      async function readDirectory(handle, currentPath) {
-        for await (const entry of handle.values()) {
-          if (loadSignal.aborted) return;
-          var entryPath = currentPath ? currentPath + "/" + entry.name : entry.name;
-          if (entry.kind === "directory") {
-            if (!shouldIgnoreDirectory(entryPath, entry.name, compiledPatterns)) {
-              await readDirectory(entry, entryPath);
-            }
-          } else if (entry.kind === "file") {
-            var name = entry.name;
-            if (shouldExcludeFile(entryPath, name, compiledPatterns)) continue;
-            var folder = currentPath || "root";
-            fileCount++;
-            files.push({ path: entryPath, name, folder, size: 0, isCode: Parser.isCode(name), handle: entry });
-            if (fileCount % 50 === 0) {
-              setProgress("Scanning files... " + fileCount + " found");
-            }
-          }
+    function readLocalFolder(dirHandle, patterns) {
+      return loadLocalCollection({
+        kind: "folder",
+        patterns,
+        title: dirHandle.name,
+        collect: (options) => collectDirectory(dirHandle, options)
+      });
+    }
+    function readLocalFolderFromFiles(fileObjs, patterns) {
+      return loadLocalCollection({
+        kind: "folder",
+        patterns,
+        collect: (options) => collectSelectedFiles(fileObjs, options)
+      });
+    }
+    function readZipArchive(zipFile, patterns) {
+      return loadLocalCollection({
+        kind: "zip",
+        patterns,
+        zipFile,
+        collect: async (options) => {
+          if (!window.JSZip) throw new Error("ZIP support failed to load");
+          const zip = await JSZip.loadAsync(zipFile);
+          options.signal.throwIfAborted();
+          return { ...await collectArchive(zip, options), zip };
         }
-      }
-      await readDirectory(dirHandle, "");
-      if (loadSignal.aborted) return;
-      if (fileCount > SOFT_LIMIT) {
-        var proceed = await requestConfirm({
-          tone: "warning",
-          icon: "folder",
-          title: "Analyze " + fileCount + " files?",
-          message: "This folder has " + fileCount + " analyzable files.\n\nCodeFlow will analyze every eligible file. Large folders can take minutes and use significant browser memory.\n\nContinue with all " + fileCount + " files?",
-          confirmLabel: "Analyze all files"
-        });
-        if (loadSignal.aborted) return;
-        if (!proceed) {
-          setLoading(false);
-          return;
-        }
-      }
-      var max = files.length;
-      var analyzed = [];
-      async function processFiles() {
-        for (var i = 0; i < files.length; i++) {
-          if (loadSignal.aborted) return;
-          var f = files[i];
-          if (i > 0 && i % 50 === 0) await yieldToBrowser();
-          setProgress("Reading " + (i + 1) + "/" + files.length + ": " + f.name);
-          try {
-            var fileObj = await f.handle.getFile();
-            if (Parser.isOversized(fileObj.size)) {
-              analyzed.push(makeOversizedAnalysisFile(f, fileObj.size));
-              continue;
-            }
-            analyzed.push({ path: f.path, name: f.name, folder: f.folder, content: await fileObj.text() });
-          } catch (error2) {
-            analyzed.push(makeFetchFailedAnalysisFile(f));
-          }
-        }
-        await finishAnalysis();
-      }
-      async function finishAnalysis() {
-        if (loadSignal.aborted) return;
-        try {
-          var dataObj = await runAnalysisData({
-            signal: loadSignal,
-            files: analyzed,
-            excludePatterns: (compiledPatterns || []).map(function(x) {
-              return x.raw;
-            }),
-            progress: function(message) {
-              if (!loadSignal.aborted) setProgress(message);
-            },
-            yieldFn: yieldToBrowser
+      });
+    }
+    async function loadLocalCollection({ kind, patterns = activeExcludePatterns, title, zipFile, collect }) {
+      const signal = projectLoading.signal;
+      const progress2 = (message) => {
+        if (!signal.aborted) setProgress(message);
+      };
+      const archive = kind === "zip";
+      const label = archive ? "ZIP archive" : "selected folder";
+      try {
+        progress2(archive ? "Reading ZIP archive..." : "Scanning local folder...");
+        const collection = await collect({ patterns, signal, progress: progress2 });
+        signal.throwIfAborted();
+        if (!collection.files.length) throw new Error("No code files found in the " + label + (patterns.length ? " after applying exclude patterns" : ""));
+        if (collection.files.length > ANALYSIS_LIMITS.localSoft) {
+          const proceed = await requestConfirm({
+            tone: "warning",
+            icon: archive ? "archive" : "folder",
+            title: "Analyze " + collection.files.length + " files?",
+            message: "CodeFlow will analyze every eligible file. Large " + (archive ? "archives" : "folders") + " can take minutes and use significant browser memory.",
+            confirmLabel: "Analyze all files"
           });
-          if (loadSignal.aborted) return;
+          signal.throwIfAborted();
+          if (!proceed) {
+            if (archive) {
+              setLocalSourceKind(null);
+              zipFileRef.current = null;
+            }
+            setLoading(false);
+            return;
+          }
+        }
+        const files = await readCollectedFiles(collection.files, { signal, progress: progress2, yieldFn: yieldToBrowser });
+        const dataObj = await runAnalysisData({ signal, files, excludePatterns: patterns.map((x) => x.raw), progress: progress2, yieldFn: yieldToBrowser });
+        signal.throwIfAborted();
+        let meta, info;
+        if (archive) {
+          meta = zipArchiveCacheMeta({ name: zipFile.name, size: zipFile.size, lastModified: zipFile.lastModified, paths: files.map((f) => f.path) });
+          info = { owner: "local", repo: "zip", name: meta.title, zipKey: meta.sourceKey };
+          zipArchiveRef.current = { zip: collection.zip, entriesByPath: collection.entriesByPath, name: zipFile.name };
+          zipFileRef.current = zipFile;
+          zipKeyRef.current = meta.sourceKey;
+          setLocalDirHandle(null);
+          setLocalSourceKind("zip");
+        } else {
           if (!localFolderSelectionRef.current) localFolderSelectionRef.current = newLocalSelectionId();
-          if (loadSignal.aborted) return;
-          var folderMeta = localFolderCacheMeta({ title: dirHandle && dirHandle.name, paths: analyzed.map(function(af) {
-            return af.path;
-          }), selectionId: localFolderSelectionRef.current });
-          var folderInfo = { owner: "local", repo: "folder", name: folderMeta.title, folderKey: folderMeta.sourceKey, folderSelectionId: folderMeta.selectionId };
-          localFolderKeyRef.current = folderMeta.sourceKey;
-          if (loadSignal.aborted) return;
-          setData(dataObj);
-          setExpandedPaths(/* @__PURE__ */ new Set([""]));
-          setRepoInfo(folderInfo);
-          setCachedFromId(null);
-          persistCurrentAnalysis(dataObj, { sourceType: "folder", sourceKey: folderMeta.sourceKey, title: folderMeta.title, repoUrl: "", repoInfo: folderInfo, localSourceKind: "folder" });
-          setLoading(false);
-        } catch (err) {
-          if (loadSignal.aborted) return;
-          setError("Analysis failed: " + (err.message || err) + ". Try a smaller folder or subfolder.");
-          setLoading(false);
+          meta = localFolderCacheMeta({ title, rootPrefix: collection.rootPrefix, paths: files.map((f) => f.path), selectionId: localFolderSelectionRef.current });
+          info = { owner: "local", repo: "folder", name: meta.title, folderKey: meta.sourceKey, folderSelectionId: meta.selectionId };
+          localFolderKeyRef.current = meta.sourceKey;
         }
-      }
-      if (files.length === 0) {
-        setError(compiledPatterns && compiledPatterns.length ? "No code files found in the selected folder after applying exclude patterns" : "No code files found in the selected folder");
-        setLoading(false);
-        return;
-      }
-      await processFiles();
-    }
-    async function readLocalFolderFromFiles(fileObjs, compiledPatterns) {
-      const loadSignal = projectLoading.signal;
-      var patterns = compiledPatterns || activeExcludePatterns;
-      var SOFT_LIMIT = ANALYSIS_LIMITS.localSoft;
-      try {
-        setProgress("Scanning local folder...");
-        var rawPaths = fileObjs.map(function(f2) {
-          return f2.webkitRelativePath || f2.name;
-        });
-        var rootPrefix = getArchiveRootPrefix(rawPaths);
-        var files = [];
-        var fileCount = 0;
-        var dirCache = /* @__PURE__ */ new Map();
-        fileObjs.forEach(function(fileObj) {
-          var rawPath = normalizeExcludePath(fileObj.webkitRelativePath || fileObj.name);
-          if (!rawPath || rawPath.endsWith("/")) return;
-          var entryPath = rootPrefix && rawPath.indexOf(rootPrefix) === 0 ? rawPath.slice(rootPrefix.length) : rawPath;
-          entryPath = normalizeExcludePath(entryPath);
-          if (!entryPath || shouldSkipArchivePath(entryPath, patterns, dirCache)) return;
-          var parts = entryPath.split("/").filter(Boolean);
-          var name = parts[parts.length - 1] || "";
-          if (!name || name === ".DS_Store" || shouldExcludeFile(entryPath, name, patterns)) return;
-          var folder = parts.length > 1 ? parts.slice(0, -1).join("/") : "root";
-          fileCount++;
-          files.push({ path: entryPath, name, folder, size: fileObj.size || 0, isCode: Parser.isCode(name), file: fileObj });
-          if (fileCount % 50 === 0) {
-            setProgress("Scanning files... " + fileCount + " found");
-          }
-        });
-        if (fileCount === 0) {
-          setError(patterns && patterns.length ? "No code files found in the selected folder after applying exclude patterns" : "No code files found in the selected folder");
-          setLoading(false);
-          return;
-        }
-        if (fileCount > SOFT_LIMIT) {
-          var proceed = await requestConfirm({
-            tone: "warning",
-            icon: "folder",
-            title: "Analyze " + fileCount + " files?",
-            message: "This folder has " + fileCount + " analyzable files.\n\nCodeFlow will analyze every eligible file. Large folders can take minutes and use significant browser memory.\n\nContinue with all " + fileCount + " files?",
-            confirmLabel: "Analyze all files"
-          });
-          if (loadSignal.aborted) return;
-          if (!proceed) {
-            setLoading(false);
-            return;
-          }
-        }
-        var max = files.length;
-        var analyzed = [];
-        for (var i = 0; i < max; i++) {
-          if (loadSignal.aborted) return;
-          var f = files[i];
-          if (i > 0 && i % 50 === 0) await yieldToBrowser();
-          setProgress("Analyzing " + (i + 1) + "/" + max + ": " + f.name);
-          try {
-            if (Parser.isOversized(f.size)) {
-              analyzed.push(makeOversizedAnalysisFile(f, f.size));
-              continue;
-            }
-            var content = await f.file.text();
-            analyzed.push({ path: f.path, name: f.name, folder: f.folder, content, churn: 0 });
-          } catch (e) {
-            analyzed.push({ path: f.path, name: f.name, folder: f.folder, content: "", churn: 0, analysisSkipped: "fetch-failed" });
-          }
-        }
-        var dataObj = await runAnalysisData({
-          signal: loadSignal,
-          files: analyzed,
-          excludePatterns: (patterns || []).map(function(x) {
-            return x.raw;
-          }),
-          progress: function(message) {
-            if (!loadSignal.aborted) setProgress(message);
-          },
-          yieldFn: yieldToBrowser
-        });
-        if (!localFolderSelectionRef.current) localFolderSelectionRef.current = newLocalSelectionId();
-        if (loadSignal.aborted) return;
-        var folderMeta = localFolderCacheMeta({ title: "", rootPrefix, paths: analyzed.map(function(af) {
-          return af.path;
-        }), selectionId: localFolderSelectionRef.current });
-        var folderInfo = { owner: "local", repo: "folder", name: folderMeta.title, folderKey: folderMeta.sourceKey, folderSelectionId: folderMeta.selectionId };
-        localFolderKeyRef.current = folderMeta.sourceKey;
-        if (loadSignal.aborted) return;
         setData(dataObj);
         setExpandedPaths(/* @__PURE__ */ new Set([""]));
-        setRepoInfo(folderInfo);
+        setRepoInfo(info);
         setCachedFromId(null);
-        persistCurrentAnalysis(dataObj, { sourceType: "folder", sourceKey: folderMeta.sourceKey, title: folderMeta.title, repoUrl: "", repoInfo: folderInfo, localSourceKind: "folder" });
+        persistCurrentAnalysis(dataObj, { sourceType: kind, sourceKey: meta.sourceKey, title: meta.title, repoUrl: "", repoInfo: info, localSourceKind: kind });
         setLoading(false);
-      } catch (err) {
-        if (loadSignal.aborted) return;
-        setError("Analysis failed: " + (err.message || err) + ". Try a smaller folder or subfolder.");
-        setLoading(false);
-      }
-    }
-    async function readZipArchive(zipFile, compiledPatterns) {
-      const loadSignal = projectLoading.signal;
-      var patterns = compiledPatterns || activeExcludePatterns;
-      var SOFT_LIMIT = ANALYSIS_LIMITS.localSoft;
-      try {
-        if (!window.JSZip) throw new Error("ZIP support failed to load");
-        setProgress("Reading ZIP archive...");
-        var zip = await JSZip.loadAsync(zipFile);
-        if (loadSignal.aborted) return;
-        var rawEntries = Object.keys(zip.files).sort().map(function(name) {
-          return zip.files[name];
-        }).filter(function(entry) {
-          return entry && !entry.dir;
-        });
-        var rootPrefix = getArchiveRootPrefix(rawEntries.map(function(entry) {
-          return entry.name;
-        }));
-        var files = [];
-        var entriesByPath = /* @__PURE__ */ Object.create(null);
-        var fileCount = 0;
-        var dirCache = /* @__PURE__ */ new Map();
-        rawEntries.forEach(function(entry) {
-          var rawPath = normalizeExcludePath(entry.name);
-          if (!rawPath || rawPath.endsWith("/")) return;
-          var entryPath = rootPrefix && rawPath.indexOf(rootPrefix) === 0 ? rawPath.slice(rootPrefix.length) : rawPath;
-          entryPath = normalizeExcludePath(entryPath);
-          if (!entryPath || shouldSkipArchivePath(entryPath, patterns, dirCache)) return;
-          var parts = entryPath.split("/").filter(Boolean);
-          var name = parts[parts.length - 1] || "";
-          if (!name || name === ".DS_Store" || shouldExcludeFile(entryPath, name, patterns)) return;
-          var folder = parts.length > 1 ? parts.slice(0, -1).join("/") : "root";
-          fileCount++;
-          files.push({ path: entryPath, name, folder, size: entry._data && entry._data.uncompressedSize ? entry._data.uncompressedSize : 0, isCode: Parser.isCode(name), entry });
-          entriesByPath[entryPath] = entry;
-        });
-        if (fileCount === 0) {
-          setError(patterns && patterns.length ? "No code files found in the ZIP archive after applying exclude patterns" : "No code files found in the ZIP archive");
-          setLoading(false);
-          return;
+      } catch (error2) {
+        if (signal.aborted) return;
+        if (archive) {
+          setLocalSourceKind(null);
+          zipArchiveRef.current = null;
         }
-        if (fileCount > SOFT_LIMIT) {
-          var proceed = await requestConfirm({
-            tone: "warning",
-            icon: "archive",
-            title: "Analyze " + fileCount + " files?",
-            message: "This ZIP archive has " + fileCount + " analyzable files.\n\nCodeFlow will analyze every eligible file. Large archives can take minutes and use significant browser memory.\n\nContinue with all " + fileCount + " files?",
-            confirmLabel: "Analyze all files"
-          });
-          if (loadSignal.aborted) return;
-          if (!proceed) {
-            setLocalSourceKind(null);
-            zipFileRef.current = null;
-            setLoading(false);
-            return;
-          }
-        }
-        zipArchiveRef.current = { zip, entriesByPath, name: zipFile.name };
-        zipFileRef.current = zipFile;
-        setLocalDirHandle(null);
-        setLocalSourceKind("zip");
-        var max = files.length;
-        var analyzed = [];
-        for (var i = 0; i < max; i++) {
-          if (loadSignal.aborted) return;
-          var f = files[i];
-          if (i > 0 && i % 50 === 0) await yieldToBrowser();
-          setProgress("Analyzing " + (i + 1) + "/" + max + ": " + f.name);
-          try {
-            if (Parser.isOversized(f.size)) {
-              analyzed.push(makeOversizedAnalysisFile(f, f.size));
-              continue;
-            }
-            var content = await f.entry.async("string");
-            analyzed.push({ path: f.path, name: f.name, folder: f.folder, content, churn: 0 });
-          } catch (e) {
-            analyzed.push({ path: f.path, name: f.name, folder: f.folder, content: "", churn: 0, analysisSkipped: "fetch-failed" });
-          }
-        }
-        var dataObj = await runAnalysisData({
-          signal: loadSignal,
-          files: analyzed,
-          excludePatterns: (patterns || []).map(function(x) {
-            return x.raw;
-          }),
-          progress: function(message) {
-            if (!loadSignal.aborted) setProgress(message);
-          },
-          yieldFn: yieldToBrowser
-        });
-        if (loadSignal.aborted) return;
-        var zipMeta = zipArchiveCacheMeta({
-          name: zipFile.name,
-          size: zipFile.size,
-          lastModified: zipFile.lastModified,
-          paths: analyzed.map(function(af) {
-            return af.path;
-          })
-        });
-        var zipInfo = { owner: "local", repo: "zip", name: zipMeta.title, zipKey: zipMeta.sourceKey };
-        zipKeyRef.current = zipMeta.sourceKey;
-        if (loadSignal.aborted) return;
-        setData(dataObj);
-        setExpandedPaths(/* @__PURE__ */ new Set([""]));
-        setRepoInfo(zipInfo);
-        setCachedFromId(null);
-        persistCurrentAnalysis(dataObj, { sourceType: "zip", sourceKey: zipMeta.sourceKey, title: zipMeta.title, repoUrl: "", repoInfo: zipInfo, localSourceKind: "zip" });
-        setLoading(false);
-      } catch (err) {
-        if (loadSignal.aborted) return;
-        setLocalSourceKind(null);
-        zipArchiveRef.current = null;
-        setError("Failed to analyze ZIP archive: " + (err.message || err));
+        setError("Failed to analyze " + label + ": " + (error2.message || error2));
         setLoading(false);
       }
     }
