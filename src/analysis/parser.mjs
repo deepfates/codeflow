@@ -3,6 +3,18 @@ import {maxAnalyzableFileBytes,isOversized} from '../project/size-policy.mjs';
 import { codeExts, scriptContainerExts, textExts, textNames, binExts, isCode, isText, isBinary, isIncluded, isScriptContainer, isVBA, isPascal, isHTML, isCSS, isJSON, isElixir, isMarkdown, isTestFile, detectLayer, isNonProductionPath, isArchitectureTestFile, isSecretScanExemptPath, isArchitectureBackendPath } from "./file-types.mjs";
 import { getSecurityScanContent, isSanitizedPreviewRenderer, inspectJavaScriptSecurity } from "./security-source.mjs";
 
+// web-tree-sitter 0.20.8 shares an Emscripten dynamic linker across languages.
+// Concurrent Language.load calls corrupt its symbol resolution on Node 20
+// ("bad export type for quoted_content_infos"). Serialize grammar linking per
+// runtime, including separate analyzers, until the runtime supports concurrency.
+const grammarLoads=new WeakMap();
+function loadRuntimeLanguage(runtime,source){
+    const previous=grammarLoads.get(runtime)||Promise.resolve();
+    const pending=previous.then(()=>runtime.Language.load(source));
+    grammarLoads.set(runtime,pending.catch(()=>{}));
+    return pending;
+}
+
 // Syntax runtimes and grammar bytes are supplied by the browser or Node entry.
 export function createParser({TreeSitter,acorn,Babel,vendorBase="vendor/",runtimeWasm,loadGrammar}={}) {
 const Parser={
@@ -78,7 +90,7 @@ const Parser={
             var runtime=await Parser.initTreeSitter();
             if(!runtime)return null;
             try{
-                var lang=await Parser._withTimeout(Promise.resolve(loadGrammar?loadGrammar(config.grammar):Parser.treeSitterWasmBase+'tree-sitter-'+config.grammar+'.wasm').then(function(source){return runtime.Language.load(source);}),Parser.treeSitterFetchTimeoutMs);
+                var lang=await Parser._withTimeout(Promise.resolve(loadGrammar?loadGrammar(config.grammar):Parser.treeSitterWasmBase+'tree-sitter-'+config.grammar+'.wasm').then(function(source){return loadRuntimeLanguage(runtime,source);}),Parser.treeSitterFetchTimeoutMs);
                 var parser=new runtime();
                 parser.setLanguage(lang);
                 Parser._tsLanguages[config.grammar]=lang;
