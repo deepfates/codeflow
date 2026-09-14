@@ -1,3 +1,5 @@
+import {createLocalTools} from '../project/local-tools.mjs';
+import {createProjectSource} from '../project/access.mjs';
 import {subscribeCliAnalysis} from '../project/cli-analysis.mjs';
 import {exportAnalysis} from '../project/export.mjs';
 import {highlightSyntax} from '../views/highlight.mjs';
@@ -537,11 +539,9 @@ function App(){
     var [beamNavigationError,setBeamNavigationError]=useState(null);
     var [runtimeFocus,setRuntimeFocus]=useState(null);
     var [runtimeNode,setRuntimeNode]=useState(''),[runtimeSnapshot,setRuntimeSnapshot]=useState(null),[runtimeBusy,setRuntimeBusy]=useState(false);
-    async function beamLanguage(method,path,position){
-        var query=new URLSearchParams({method:method,path:path});
-        if(position){query.set('line',position.line);query.set('character',position.character);}
-        var response=await fetch('/__codeflow/language?'+query);var result=await response.json();
-        if(!response.ok)throw new Error(result.error||'Navigation unavailable');return result;
+    function beamLanguage(method,path,position){
+        if(!localTools)return Promise.reject(new Error('Open this checkout with the CLI to use language navigation.'));
+        return localTools.language(method,path,position);
     }
     function openSourceLocation(location){
         if(!location.path){setBeamNavigationError('Source is outside this project.');return;}
@@ -558,7 +558,7 @@ function App(){
     async function navigateBeamSymbol(method,path,position){
         setBeamNavigationError(null);
         try{var locations=await beamLanguage(method,path,position);if(method==='definition'&&locations.length===1)openSourceLocation(locations[0]);else setBeamLocations({title:method==='references'?'References':'Definitions',items:locations});}
-        catch(error){setBeamNavigationError(error.message);}
+        catch(error){if(error.name!=='AbortError')setBeamNavigationError(error.message);}
     }
     function beamSourceClick(event,path,line){
         if(!event.metaKey&&!event.ctrlKey)return;
@@ -571,10 +571,11 @@ function App(){
         navigateBeamSymbol(event.shiftKey?'references':'definition',path,{line:line,character:range.toString().length});
     }
     async function connectBeamRuntime(event){
-        if(event)event.preventDefault();setRuntimeBusy(true);
-        try{var response=await fetch('/__codeflow/runtime?'+new URLSearchParams({node:runtimeNode}));var result=await response.json();setRuntimeSnapshot(result);}
-        catch(error){setRuntimeSnapshot({status:'unavailable',reason:error.message});}
-        finally{setRuntimeBusy(false);}
+        if(event)event.preventDefault();
+        if(!localTools){setRuntimeSnapshot({status:'unavailable',reason:'Open this checkout with the CLI to inspect its runtime.'});return;}
+        setRuntimeBusy(true);
+        try{setRuntimeSnapshot(await localTools.runtime(runtimeNode));setRuntimeBusy(false);}
+        catch(error){if(error.name!=='AbortError'){setRuntimeSnapshot({status:'unavailable',reason:error.message});setRuntimeBusy(false);}}
     }
 
     var _cliDirty=useState([]),cliDirty=_cliDirty[0],setCliDirty=_cliDirty[1];
@@ -890,23 +891,30 @@ function App(){
         return analysisHydrationIdFromParts(loadedSourceIdentity,analysisGraphIdentity);
     },[loadedSourceIdentity,analysisGraphIdentity]);
     analysisHydrationIdRef.current=currentHydrationId;
+    var localTools=useMemo(function(){return createLocalTools({identity:loadedSourceIdentity,status:cliStatus});},
+        [loadedSourceIdentity&&loadedSourceIdentity.sourceType,loadedSourceIdentity&&loadedSourceIdentity.sourceKey,cliStatus&&cliStatus.root,cliStatus&&cliStatus.ok]);
+    useEffect(function(){
+        setRuntimeSnapshot(null);setRuntimeFocus(null);setRuntimeBusy(false);
+        setBeamAnalysis(null);setBeamLocations(null);setBeamNavigationError(null);
+        return function(){if(localTools)localTools.dispose();};
+    },[localTools]);
 
     useEffect(function(){
-        if(loading||!data||!data.beam||!cliStatus||!cliStatus.ok||!loadedSourceIdentity||loadedSourceIdentity.sourceType!=='cli')return;
+        if(loading||!data||!data.beam||!localTools)return;
         setRuntimeNode(cliStatus.runtimeNode||'');
         return subscribeCliAnalysis({onUpdate:function(update){
             if(update.analysis)setBeamAnalysis(update.analysis);
             if(update.diagnostics)setData(function(prev){return prev?enrichAnalysisFindings(prev,update.diagnostics):prev;});
             if(update.graph)setData(function(prev){return prev&&prev.beam?buildBeamAnalysisData({data:prev,snapshot:update.graph}):prev;});
         }});
-    },[loading,loadedSourceIdentity&&loadedSourceIdentity.sourceType,loadedSourceIdentity&&loadedSourceIdentity.sourceKey,cliStatus&&cliStatus.root,!!(data&&data.beam)]);
+    },[loading,localTools,!!(data&&data.beam)]);
     useEffect(function(){
         setBeamSymbols([]);setBeamLocations(null);setBeamNavigationError(null);
-        if(loading||!data||!data.beam||!selected||!/\.exs?$/.test(selected.path)||!beamAnalysis||beamAnalysis.language.state!=='ready')return;
+        if(loading||!localTools||!data||!data.beam||!selected||!/\.exs?$/.test(selected.path)||!beamAnalysis||beamAnalysis.language.state!=='ready')return;
         var cancelled=false;
-        beamLanguage('symbols',selected.path).then(function(items){if(!cancelled)setBeamSymbols(items);}).catch(function(error){if(!cancelled)setBeamNavigationError(error.message);});
+        beamLanguage('symbols',selected.path).then(function(items){if(!cancelled)setBeamSymbols(items);}).catch(function(error){if(!cancelled&&error.name!=='AbortError')setBeamNavigationError(error.message);});
         return function(){cancelled=true;};
-    },[loading,loadedSourceIdentity&&loadedSourceIdentity.sourceKey,selected&&selected.path,beamAnalysis&&beamAnalysis.language.build&&beamAnalysis.language.build.completedAt,beamAnalysis&&beamAnalysis.language.state]);
+    },[loading,localTools,selected&&selected.path,beamAnalysis&&beamAnalysis.language.build&&beamAnalysis.language.build.completedAt,beamAnalysis&&beamAnalysis.language.state]);
 
     function refreshRecentList(){
         listRecentAnalyses().then(function(rows){
@@ -1417,7 +1425,7 @@ function App(){
                         ]).then(function(results){
                             var content=results[0];
                             var commits=results[1];
-                            if(content){
+                            if(typeof content==='string'){
 
                                 analyzed.push({path:f.path,name:f.name,folder:f.folder,content:content,churn:Array.isArray(commits)?commits.length:0});
 
@@ -2059,43 +2067,15 @@ function App(){
     var toggleCard=useCallback(function(id){setExpandedCards(function(prev){var n=new Set(prev);if(n.has(id))n.delete(id);else n.add(id);return n;});},[]);
     var toggleFn=useCallback(function(name){setExpandedFns(function(prev){var n=new Set(prev);if(n.has(name))n.delete(name);else n.add(name);return n;});},[]);
 
-    // Syntax highlighting function
+    const projectSource=createProjectSource({
+        identity:currentAnalysisSource(),cli:cliStatus,
+        folder:{handle:localDirHandle,sourceKey:localFolderKeyRef.current},
+        archive:{entriesByPath:zipArchiveRef.current&&zipArchiveRef.current.entriesByPath,
+            sourceKey:zipKeyRef.current,file:zipFileRef.current},
+        github:repoInfo?{owner:repoInfo.owner,repo:repoInfo.repo,client:GitHub}:null
+    });
 
-    function folderSourceIsLive(){
-        var currentSource=currentAnalysisSource();
-        return !!(localSourceKind==='folder'&&localDirHandle&&(!currentSource||currentSource.sourceType!=='folder'||retainedFolderMatchesRecord(currentSource,{sourceKey:localFolderKeyRef.current})));
-    }
-
-    function zipSourceIsLive(){
-        var currentSource=currentAnalysisSource();
-        return !!(localSourceKind==='zip'&&zipFileRef.current&&(!currentSource||currentSource.sourceType!=='zip'||retainedZipMatchesRecord(currentSource,{sourceKey:zipKeyRef.current,identity:zipFileIdentity(zipFileRef.current)})));
-    }
-
-    function liveSourceKindForRead(){
-        if(localSourceKind==='cli'&&cliStatus&&cliStatus.ok)return 'cli';
-        if(folderSourceIsLive())return 'folder';
-        if(zipSourceIsLive())return 'zip';
-        if(repoInfo&&repoInfo.owner&&repoInfo.repo&&repoInfo.owner!=='local')return 'github';
-        if(cliStatus&&cliStatus.ok&&localSourceKind!=='folder'&&localSourceKind!=='zip')return 'cli';
-        return null;
-    }
-
-    function canReadLiveFileSource(){
-        return !!liveSourceKindForRead();
-    }
-
-    function readFolderFileByPath(rootHandle,filePath){
-        var parts=String(filePath||'').split('/').filter(Boolean);
-        if(!parts.length||!rootHandle)return Promise.reject(new Error('File is not available in the open folder'));
-        var dirPromise=Promise.resolve(rootHandle);
-        var fileName=parts.pop();
-        parts.forEach(function(part){
-            dirPromise=dirPromise.then(function(dir){return dir.getDirectoryHandle(part);});
-        });
-        return dirPromise.then(function(dir){return dir.getFileHandle(fileName);})
-            .then(function(handle){return handle.getFile();})
-            .then(function(fileObj){return fileObj.text();});
-    }
+    function canReadLiveFileSource(){return !!projectSource;}
 
     function readCliWatchLiveSource(path){
         if(!path)return Promise.resolve({kind:'error'});
@@ -2110,24 +2090,10 @@ function App(){
         }).catch(function(){return{kind:'error'};});
     }
 
-    function readLiveFileSource(path){
-        var kind=liveSourceKindForRead();
-        if(!path||!kind)return Promise.resolve(null);
-        if(kind==='cli'){
-            return fetch('/__codeflow/file?path='+encodeURIComponent(path))
-                .then(function(res){return res.ok?res.text():null;})
-                .catch(function(){return null;});
-        }
-        if(kind==='folder'){
-            return readFolderFileByPath(localDirHandle,path).catch(function(){return null;});
-        }
-        if(kind==='zip'){
-            var archive=zipArchiveRef.current;
-            var entry=archive&&archive.entriesByPath?archive.entriesByPath[path]:null;
-            if(!entry||typeof entry.async!=='function')return Promise.resolve(null);
-            return entry.async('string').catch(function(){return null;});
-        }
-        return GitHub.getFile(repoInfo.owner,repoInfo.repo,path).then(function(content){return typeof content==='string'?content:null;}).catch(function(){return null;});
+    async function readLiveFileSource(path){
+        if(!projectSource)return null;
+        const result=await projectSource.read(path);
+        return result.status==='ready'?result.content:null;
     }
 
     function rememberHydratedSources(updates){

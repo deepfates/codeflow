@@ -270,6 +270,17 @@ Process.sleep(:infinity)
  assert.match(await focused.innerText(),/queue.* B .*reductions/);
  await focused.getByRole('button',{name:'Source',exact:true}).click();
  await page.locator('[data-code-card="worker.exs"]').waitFor();
+ // Another project can contain the same path without owning this node's processes.
+ const other=await mkdtemp(join(tmpdir(),'codeflow-other-runtime-project-'));
+ t.after(()=>rm(other,{recursive:true,force:true}));
+ await writeFile(join(other,'worker.exs'),'defmodule OtherWorker do\n def run(), do: :ok\nend');
+ await page.locator('input[type="file"][webkitdirectory]').setInputFiles(other);
+ await page.getByRole('combobox',{name:'Visualization type'}).waitFor();
+ await page.getByRole('tab',{name:'Files',exact:true}).click();
+ const search=page.getByRole('searchbox',{name:'Find files and symbols'});
+ await search.fill('OtherWorker.run/0');await search.press('Enter');
+ await page.locator('[data-code-card="worker.exs"] [data-line="2"].highlighted').waitFor();
+ assert.equal(await page.locator('.card').filter({hasText:'Running processes'}).count(),0,'the previous project runtime must not attach to this source');
  assert.deepEqual(errors,[]);
 });
 

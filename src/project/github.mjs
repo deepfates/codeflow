@@ -25,8 +25,9 @@ function splitRepoPath(path){
 }
 
 function decodeBase64Utf8(content){
+    if(content==null)return null;
     var normalized=String(content||'').replace(/\s+/g,'');
-    if(!normalized)return null;
+    if(!normalized)return '';
     var binary=atob(normalized);
     var bytes=new Uint8Array(binary.length);
     for(var i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
@@ -171,7 +172,7 @@ var GitHub={
         }).catch(function(){return self.rateLimit;});
     },
     getFile:function(o,r,p){
-        return this.fetch(buildRepoApiUrl(o,r,['contents'].concat(splitRepoPath(p)))).then(function(d){return d.content?decodeBase64Utf8(d.content):null;}).catch(function(){return null;});
+        return this.fetch(buildRepoApiUrl(o,r,['contents'].concat(splitRepoPath(p)))).then(function(d){return typeof d.content==='string'?decodeBase64Utf8(d.content):null;}).catch(function(){return null;});
     },
     getCommits:function(o,r,path,limit){
         if(this.rateLimit.remaining<20&&!this.token)return Promise.resolve([]);// Skip when rate limited

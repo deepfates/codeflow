@@ -131,147 +131,6 @@
     }
   });
 
-  // src/project/cli-analysis.mjs
-  function subscribeCliAnalysis({ onUpdate, fetch: request = globalThis.fetch, interval = 2500 }) {
-    const controller = new AbortController();
-    let timer, graphRevision, diagnosticsRevision, lastAnalysis;
-    async function read(path) {
-      const response = await request(path, { signal: controller.signal });
-      if (!response.ok) throw new Error(`Local project service returned ${response.status}`);
-      return response.json();
-    }
-    function diagnosticsFor(analysis) {
-      return [
-        {
-          id: "elixir-ls",
-          name: "ElixirLS",
-          status: analysis.language.state,
-          reason: analysis.language.reason,
-          findings: analysis.language.diagnostics
-        },
-        {
-          id: "credo",
-          name: "Credo",
-          status: analysis.assessment.status,
-          reason: analysis.assessment.reason,
-          findings: analysis.assessment.findings
-        }
-      ];
-    }
-    async function poll() {
-      try {
-        const analysis = await read("/__codeflow/analysis");
-        if (controller.signal.aborted) return;
-        lastAnalysis = analysis;
-        const diagnostics = diagnosticsFor(analysis);
-        const revision = JSON.stringify(diagnostics);
-        onUpdate({ analysis, diagnostics: revision === diagnosticsRevision ? null : diagnostics });
-        diagnosticsRevision = revision;
-        if (analysis.graphRevision && analysis.graphRevision !== graphRevision) {
-          try {
-            const graph = await read("/__codeflow/beam");
-            if (controller.signal.aborted) return;
-            onUpdate({ graph, diagnostics: [{
-              id: "mix",
-              name: "Mix compiler graph",
-              status: graph.status,
-              reason: (graph.warnings || []).join("\n") || null
-            }] });
-            graphRevision = analysis.graphRevision;
-          } catch (error) {
-            if (controller.signal.aborted) return;
-            onUpdate({ diagnostics: [{
-              id: "mix",
-              name: "Mix compiler graph",
-              status: "unavailable",
-              reason: error.message
-            }] });
-          }
-        }
-      } catch (error) {
-        if (controller.signal.aborted) return;
-        const analysis = {
-          language: { ...lastAnalysis?.language, state: "unavailable", reason: error.message },
-          assessment: { ...lastAnalysis?.assessment, status: "unavailable", reason: error.message }
-        };
-        onUpdate({ analysis, diagnostics: diagnosticsFor(analysis) });
-        diagnosticsRevision = null;
-      } finally {
-        if (!controller.signal.aborted) timer = setTimeout(poll, interval);
-      }
-    }
-    void poll();
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
-  }
-
-  // src/project/export.mjs
-  function exportAnalysis(data) {
-    return {
-      ...data,
-      schemaVersion: 1,
-      files: data.files.map((file) => ({ ...file, fns: file.functions.length })),
-      connections: data.connections.map((edge) => ({
-        ...edge,
-        source: typeof edge.source === "object" ? edge.source.id : edge.source,
-        target: typeof edge.target === "object" ? edge.target.id : edge.target
-      })),
-      security: data.securityIssues
-    };
-  }
-
-  // src/views/highlight.mjs
-  function highlightSyntax(code, filename) {
-    if (!code) return [""];
-    var ext = (filename || "").split(".").pop().toLowerCase();
-    var isJS = ["js", "jsx", "ts", "tsx", "mjs", "cjs"].includes(ext);
-    var isPy = ["py", "pyw", "pyi"].indexOf(ext) >= 0;
-    var isJava = ["java", "kt", "scala", "cs", "go"].includes(ext);
-    var isHTML2 = ["html", "htm", "vue", "svelte"].includes(ext);
-    var isCSS2 = ["css", "scss", "sass", "less"].includes(ext);
-    var isJSON2 = ["json", "yaml", "yml", "toml"].includes(ext);
-    var isRuby = ["rb", "rake"].includes(ext);
-    var isPHP = ext === "php";
-    var isVBA2 = ["vba", "bas", "cls", "xlsm", "xlam", "xlsb", "xla", "xlw"].includes(ext);
-    function esc(s) {
-      return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    }
-    function highlight(text, pattern, replacement) {
-      return text.split(/(<[^>]*>)/g).map(function(part, i) {
-        return i % 2 ? part : part.replace(pattern, replacement);
-      }).join("");
-    }
-    var result = code.split("\n").map(function(line) {
-      var escaped = esc(line);
-      if (isJS || isJava || isPHP || isCSS2) escaped = highlight(escaped, /(\/\/.*$)/gm, '<span class="syn-com">$1</span>');
-      if (isPy || isRuby) escaped = highlight(escaped, /(#.*$)/gm, '<span class="syn-com">$1</span>');
-      if (isHTML2) escaped = highlight(escaped, /(&lt;!--[\s\S]*?--&gt;)/g, '<span class="syn-com">$1</span>');
-      escaped = highlight(escaped, /(&quot;[^&]*&quot;|'[^']*'|`[^`]*`)/g, '<span class="syn-str">$1</span>');
-      escaped = highlight(escaped, /\b(\d+\.?\d*)\b/g, '<span class="syn-num">$1</span>');
-      if (isJS) escaped = highlight(escaped, /\b(const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|try|catch|finally|throw|new|class|extends|import|export|from|default|async|await|yield|typeof|instanceof|in|of|this|super|null|undefined|true|false|void|static|get|set)\b/g, '<span class="syn-kw">$1</span>');
-      if (isPy) {
-        escaped = highlight(escaped, /\b(async|await|def|class|return|if|elif|else|for|while|try|except|finally|raise|import|from|as|with|pass|break|continue|lambda|yield|global|nonlocal|assert|True|False|None|and|or|not|in|is|del|match|case|type)\b/g, '<span class="syn-kw">$1</span>');
-        escaped = highlight(escaped, /(@\w+)/g, '<span class="syn-fn">$1</span>');
-        escaped = highlight(escaped, /\b(self|cls)\b/g, '<span class="syn-kw" style="opacity:0.7">$1</span>');
-      }
-      if (isJava) escaped = highlight(escaped, /\b(public|private|protected|static|final|void|class|interface|extends|implements|return|if|else|for|while|do|switch|case|break|continue|try|catch|finally|throw|new|import|package|this|super|null|true|false)\b/g, '<span class="syn-kw">$1</span>');
-      if (isRuby) escaped = highlight(escaped, /\b(def|class|module|end|return|if|elsif|else|unless|case|when|for|while|until|do|begin|rescue|ensure|raise|require|include|extend|attr_accessor|attr_reader|attr_writer|true|false|nil|self)\b/g, '<span class="syn-kw">$1</span>');
-      if (isPHP) escaped = highlight(escaped, /\b(function|class|return|if|else|elseif|for|foreach|while|do|switch|case|break|continue|try|catch|finally|throw|new|public|private|protected|static|const|use|namespace|extends|implements|true|false|null)\b/g, '<span class="syn-kw">$1</span>');
-      if (isVBA2) escaped = highlight(escaped, /\b(Public|Private|Friend|Static|Dim|Set|Let|Get|Call|Function|Sub|End Sub|End Function|Exit Sub|Exit Function|If|Then|Else|ElseIf|End If|For|To|Step|Next|Do|Loop|While|Wend|Select|Case|End Select|With|End With|On Error|Resume|GoTo|ByVal|ByRef|Optional|ParamArray|As|Type|Enum|Const|True|False|Nothing|Empty|Null|Me|Application|ThisWorkbook|Worksheets|Cells|Range|MsgBox|InputBox|Debug\.Print)\b/gi, '<span class="syn-kw">$1</span>');
-      if (isCSS2) escaped = highlight(escaped, /(@media|@import|@keyframes|@font-face|!important)/g, '<span class="syn-kw">$1</span>');
-      if (isHTML2) {
-        escaped = highlight(escaped, /(&lt;\/?)([\w-]+)/g, '$1<span class="syn-tag">$2</span>');
-        escaped = highlight(escaped, /([\w-]+)(=)/g, '<span class="syn-attr">$1</span>$2');
-      }
-      escaped = highlight(escaped, /\b([a-zA-Z_]\w*)(\s*)\(/g, '<span class="syn-fn">$1</span>$2(');
-      if (isJS || isJava) escaped = highlight(escaped, /(:\s*)([A-Z]\w*)/g, '$1<span class="syn-type">$2</span>');
-      return escaped;
-    });
-    return result;
-  }
-
   // src/project/identity.mjs
   function newLocalSelectionId() {
     return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
@@ -420,6 +279,249 @@
   function hydratedSourceIsCurrent(update, currentId) {
     if (!update || !update.path || typeof update.content !== "string") return false;
     return hydrationRequestIsCurrent(update.hydrationId, currentId);
+  }
+
+  // src/project/local-tools.mjs
+  function createLocalTools({ identity, status, fetch: request = globalThis.fetch }) {
+    if (identity?.sourceType !== "cli" || !cliRecordMatchesStatus(identity, status)) return null;
+    const requests = /* @__PURE__ */ new Map();
+    let disposed = false;
+    async function read(channel, path) {
+      if (disposed) throw new DOMException("Project connection closed", "AbortError");
+      requests.get(channel)?.abort();
+      const controller = new AbortController();
+      requests.set(channel, controller);
+      try {
+        const response = await request(path, { signal: controller.signal });
+        const result = await response.json();
+        controller.signal.throwIfAborted();
+        if (!response.ok) throw new Error(result.error || `Local tool request failed (${response.status})`);
+        return result;
+      } finally {
+        if (requests.get(channel) === controller) requests.delete(channel);
+      }
+    }
+    return {
+      language(method, path, position) {
+        const query = new URLSearchParams({ method, path });
+        if (position) {
+          query.set("line", position.line);
+          query.set("character", position.character);
+        }
+        return read(method === "symbols" ? "outline" : "navigation", "/__codeflow/language?" + query);
+      },
+      runtime(node) {
+        return read("runtime", "/__codeflow/runtime?" + new URLSearchParams({ node }));
+      },
+      dispose() {
+        disposed = true;
+        for (const controller of requests.values()) controller.abort();
+        requests.clear();
+      }
+    };
+  }
+
+  // src/project/access.mjs
+  async function readFolder(root, path) {
+    const parts = path.split("/");
+    const name = parts.pop();
+    let directory = root;
+    for (const part of parts) directory = await directory.getDirectoryHandle(part);
+    const handle = await directory.getFileHandle(name);
+    return (await handle.getFile()).text();
+  }
+  function createProjectSource({ identity, cli, folder, archive, github, fetch: request = globalThis.fetch }) {
+    if (!identity) return null;
+    let read;
+    switch (identity.sourceType) {
+      case "cli":
+        if (!cliRecordMatchesStatus(identity, cli)) return null;
+        read = async (path, signal) => {
+          const response = await request("/__codeflow/file?path=" + encodeURIComponent(path), { signal });
+          if (response.status === 404) return null;
+          if (!response.ok) throw new Error(`Source request failed (${response.status})`);
+          return response.text();
+        };
+        break;
+      case "folder":
+        if (!folder?.handle || !retainedFolderMatchesRecord(identity, folder)) return null;
+        read = (path) => readFolder(folder.handle, path);
+        break;
+      case "zip":
+        if (!archive?.entriesByPath || !retainedZipMatchesRecord(identity, {
+          sourceKey: archive.sourceKey,
+          identity: zipFileIdentity(archive.file)
+        })) return null;
+        read = (path) => archive.entriesByPath[path]?.async("string") ?? null;
+        break;
+      case "github":
+        if (!github?.owner || !github.repo || !github.client) return null;
+        if (identity.sourceKey.split("|excl:")[0] !== github.owner + "/" + github.repo) return null;
+        read = (path) => github.client.getFile(github.owner, github.repo, path);
+        break;
+      default:
+        return null;
+    }
+    return {
+      identity: { ...identity },
+      async read(path, { signal } = {}) {
+        if (!path || path.startsWith("/") || path.split("/").some((part) => !part || part === ".." || part === ".")) {
+          return { status: "unavailable", reason: "Expected a project-relative file path" };
+        }
+        try {
+          signal?.throwIfAborted();
+          const content = await read(path, signal);
+          signal?.throwIfAborted();
+          if (typeof content === "string") return { status: "ready", content };
+          return identity.sourceType === "github" ? { status: "unavailable", reason: "GitHub did not return file contents" } : { status: "missing" };
+        } catch (error) {
+          if (signal?.aborted) throw error;
+          if (error.name === "NotFoundError") return { status: "missing" };
+          return { status: "unavailable", reason: error.message };
+        }
+      }
+    };
+  }
+
+  // src/project/cli-analysis.mjs
+  function subscribeCliAnalysis({ onUpdate, fetch: request = globalThis.fetch, interval = 2500 }) {
+    const controller = new AbortController();
+    let timer, graphRevision, diagnosticsRevision, lastAnalysis;
+    async function read(path) {
+      const response = await request(path, { signal: controller.signal });
+      if (!response.ok) throw new Error(`Local project service returned ${response.status}`);
+      return response.json();
+    }
+    function diagnosticsFor(analysis) {
+      return [
+        {
+          id: "elixir-ls",
+          name: "ElixirLS",
+          status: analysis.language.state,
+          reason: analysis.language.reason,
+          findings: analysis.language.diagnostics
+        },
+        {
+          id: "credo",
+          name: "Credo",
+          status: analysis.assessment.status,
+          reason: analysis.assessment.reason,
+          findings: analysis.assessment.findings
+        }
+      ];
+    }
+    async function poll() {
+      try {
+        const analysis = await read("/__codeflow/analysis");
+        if (controller.signal.aborted) return;
+        lastAnalysis = analysis;
+        const diagnostics = diagnosticsFor(analysis);
+        const revision = JSON.stringify(diagnostics);
+        onUpdate({ analysis, diagnostics: revision === diagnosticsRevision ? null : diagnostics });
+        diagnosticsRevision = revision;
+        if (analysis.graphRevision && analysis.graphRevision !== graphRevision) {
+          try {
+            const graph = await read("/__codeflow/beam");
+            if (controller.signal.aborted) return;
+            onUpdate({ graph, diagnostics: [{
+              id: "mix",
+              name: "Mix compiler graph",
+              status: graph.status,
+              reason: (graph.warnings || []).join("\n") || null
+            }] });
+            graphRevision = analysis.graphRevision;
+          } catch (error) {
+            if (controller.signal.aborted) return;
+            onUpdate({ diagnostics: [{
+              id: "mix",
+              name: "Mix compiler graph",
+              status: "unavailable",
+              reason: error.message
+            }] });
+          }
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        const analysis = {
+          language: { ...lastAnalysis?.language, state: "unavailable", reason: error.message },
+          assessment: { ...lastAnalysis?.assessment, status: "unavailable", reason: error.message }
+        };
+        onUpdate({ analysis, diagnostics: diagnosticsFor(analysis) });
+        diagnosticsRevision = null;
+      } finally {
+        if (!controller.signal.aborted) timer = setTimeout(poll, interval);
+      }
+    }
+    void poll();
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }
+
+  // src/project/export.mjs
+  function exportAnalysis(data) {
+    return {
+      ...data,
+      schemaVersion: 1,
+      files: data.files.map((file) => ({ ...file, fns: file.functions.length })),
+      connections: data.connections.map((edge) => ({
+        ...edge,
+        source: typeof edge.source === "object" ? edge.source.id : edge.source,
+        target: typeof edge.target === "object" ? edge.target.id : edge.target
+      })),
+      security: data.securityIssues
+    };
+  }
+
+  // src/views/highlight.mjs
+  function highlightSyntax(code, filename) {
+    if (!code) return [""];
+    var ext = (filename || "").split(".").pop().toLowerCase();
+    var isJS = ["js", "jsx", "ts", "tsx", "mjs", "cjs"].includes(ext);
+    var isPy = ["py", "pyw", "pyi"].indexOf(ext) >= 0;
+    var isJava = ["java", "kt", "scala", "cs", "go"].includes(ext);
+    var isHTML2 = ["html", "htm", "vue", "svelte"].includes(ext);
+    var isCSS2 = ["css", "scss", "sass", "less"].includes(ext);
+    var isJSON2 = ["json", "yaml", "yml", "toml"].includes(ext);
+    var isRuby = ["rb", "rake"].includes(ext);
+    var isPHP = ext === "php";
+    var isVBA2 = ["vba", "bas", "cls", "xlsm", "xlam", "xlsb", "xla", "xlw"].includes(ext);
+    function esc(s) {
+      return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+    function highlight(text, pattern, replacement) {
+      return text.split(/(<[^>]*>)/g).map(function(part, i) {
+        return i % 2 ? part : part.replace(pattern, replacement);
+      }).join("");
+    }
+    var result = code.split("\n").map(function(line) {
+      var escaped = esc(line);
+      if (isJS || isJava || isPHP || isCSS2) escaped = highlight(escaped, /(\/\/.*$)/gm, '<span class="syn-com">$1</span>');
+      if (isPy || isRuby) escaped = highlight(escaped, /(#.*$)/gm, '<span class="syn-com">$1</span>');
+      if (isHTML2) escaped = highlight(escaped, /(&lt;!--[\s\S]*?--&gt;)/g, '<span class="syn-com">$1</span>');
+      escaped = highlight(escaped, /(&quot;[^&]*&quot;|'[^']*'|`[^`]*`)/g, '<span class="syn-str">$1</span>');
+      escaped = highlight(escaped, /\b(\d+\.?\d*)\b/g, '<span class="syn-num">$1</span>');
+      if (isJS) escaped = highlight(escaped, /\b(const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|try|catch|finally|throw|new|class|extends|import|export|from|default|async|await|yield|typeof|instanceof|in|of|this|super|null|undefined|true|false|void|static|get|set)\b/g, '<span class="syn-kw">$1</span>');
+      if (isPy) {
+        escaped = highlight(escaped, /\b(async|await|def|class|return|if|elif|else|for|while|try|except|finally|raise|import|from|as|with|pass|break|continue|lambda|yield|global|nonlocal|assert|True|False|None|and|or|not|in|is|del|match|case|type)\b/g, '<span class="syn-kw">$1</span>');
+        escaped = highlight(escaped, /(@\w+)/g, '<span class="syn-fn">$1</span>');
+        escaped = highlight(escaped, /\b(self|cls)\b/g, '<span class="syn-kw" style="opacity:0.7">$1</span>');
+      }
+      if (isJava) escaped = highlight(escaped, /\b(public|private|protected|static|final|void|class|interface|extends|implements|return|if|else|for|while|do|switch|case|break|continue|try|catch|finally|throw|new|import|package|this|super|null|true|false)\b/g, '<span class="syn-kw">$1</span>');
+      if (isRuby) escaped = highlight(escaped, /\b(def|class|module|end|return|if|elsif|else|unless|case|when|for|while|until|do|begin|rescue|ensure|raise|require|include|extend|attr_accessor|attr_reader|attr_writer|true|false|nil|self)\b/g, '<span class="syn-kw">$1</span>');
+      if (isPHP) escaped = highlight(escaped, /\b(function|class|return|if|else|elseif|for|foreach|while|do|switch|case|break|continue|try|catch|finally|throw|new|public|private|protected|static|const|use|namespace|extends|implements|true|false|null)\b/g, '<span class="syn-kw">$1</span>');
+      if (isVBA2) escaped = highlight(escaped, /\b(Public|Private|Friend|Static|Dim|Set|Let|Get|Call|Function|Sub|End Sub|End Function|Exit Sub|Exit Function|If|Then|Else|ElseIf|End If|For|To|Step|Next|Do|Loop|While|Wend|Select|Case|End Select|With|End With|On Error|Resume|GoTo|ByVal|ByRef|Optional|ParamArray|As|Type|Enum|Const|True|False|Nothing|Empty|Null|Me|Application|ThisWorkbook|Worksheets|Cells|Range|MsgBox|InputBox|Debug\.Print)\b/gi, '<span class="syn-kw">$1</span>');
+      if (isCSS2) escaped = highlight(escaped, /(@media|@import|@keyframes|@font-face|!important)/g, '<span class="syn-kw">$1</span>');
+      if (isHTML2) {
+        escaped = highlight(escaped, /(&lt;\/?)([\w-]+)/g, '$1<span class="syn-tag">$2</span>');
+        escaped = highlight(escaped, /([\w-]+)(=)/g, '<span class="syn-attr">$1</span>$2');
+      }
+      escaped = highlight(escaped, /\b([a-zA-Z_]\w*)(\s*)\(/g, '<span class="syn-fn">$1</span>$2(');
+      if (isJS || isJava) escaped = highlight(escaped, /(:\s*)([A-Z]\w*)/g, '$1<span class="syn-type">$2</span>');
+      return escaped;
+    });
+    return result;
   }
 
   // src/project/source.mjs
@@ -55163,8 +55265,9 @@ This problem is likely caused by another plugin injecting
     return (path || "").split("/").filter(Boolean);
   }
   function decodeBase64Utf8(content) {
+    if (content == null) return null;
     var normalized = String(content || "").replace(/\s+/g, "");
-    if (!normalized) return null;
+    if (!normalized) return "";
     var binary = atob(normalized);
     var bytes = new Uint8Array(binary.length);
     for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
@@ -55298,7 +55401,7 @@ This problem is likely caused by another plugin injecting
       },
       getFile: function(o, r, p) {
         return this.fetch(buildRepoApiUrl(o, r, ["contents"].concat(splitRepoPath(p)))).then(function(d) {
-          return d.content ? decodeBase64Utf8(d.content) : null;
+          return typeof d.content === "string" ? decodeBase64Utf8(d.content) : null;
         }).catch(function() {
           return null;
         });
@@ -55967,16 +56070,9 @@ This problem is likely caused by another plugin injecting
     var [beamNavigationError, setBeamNavigationError] = useState(null);
     var [runtimeFocus, setRuntimeFocus] = useState(null);
     var [runtimeNode, setRuntimeNode] = useState(""), [runtimeSnapshot, setRuntimeSnapshot] = useState(null), [runtimeBusy, setRuntimeBusy] = useState(false);
-    async function beamLanguage(method, path, position) {
-      var query = new URLSearchParams({ method, path });
-      if (position) {
-        query.set("line", position.line);
-        query.set("character", position.character);
-      }
-      var response = await fetch("/__codeflow/language?" + query);
-      var result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Navigation unavailable");
-      return result;
+    function beamLanguage(method, path, position) {
+      if (!localTools) return Promise.reject(new Error("Open this checkout with the CLI to use language navigation."));
+      return localTools.language(method, path, position);
     }
     function openSourceLocation(location) {
       if (!location.path) {
@@ -56009,7 +56105,7 @@ This problem is likely caused by another plugin injecting
         if (method === "definition" && locations.length === 1) openSourceLocation(locations[0]);
         else setBeamLocations({ title: method === "references" ? "References" : "Definitions", items: locations });
       } catch (error2) {
-        setBeamNavigationError(error2.message);
+        if (error2.name !== "AbortError") setBeamNavigationError(error2.message);
       }
     }
     function beamSourceClick(event, path, line) {
@@ -56027,15 +56123,19 @@ This problem is likely caused by another plugin injecting
     }
     async function connectBeamRuntime(event) {
       if (event) event.preventDefault();
+      if (!localTools) {
+        setRuntimeSnapshot({ status: "unavailable", reason: "Open this checkout with the CLI to inspect its runtime." });
+        return;
+      }
       setRuntimeBusy(true);
       try {
-        var response = await fetch("/__codeflow/runtime?" + new URLSearchParams({ node: runtimeNode }));
-        var result = await response.json();
-        setRuntimeSnapshot(result);
-      } catch (error2) {
-        setRuntimeSnapshot({ status: "unavailable", reason: error2.message });
-      } finally {
+        setRuntimeSnapshot(await localTools.runtime(runtimeNode));
         setRuntimeBusy(false);
+      } catch (error2) {
+        if (error2.name !== "AbortError") {
+          setRuntimeSnapshot({ status: "unavailable", reason: error2.message });
+          setRuntimeBusy(false);
+        }
       }
     }
     var _cliDirty = useState([]), cliDirty = _cliDirty[0], setCliDirty = _cliDirty[1];
@@ -56388,8 +56488,25 @@ This problem is likely caused by another plugin injecting
       return analysisHydrationIdFromParts(loadedSourceIdentity, analysisGraphIdentity);
     }, [loadedSourceIdentity, analysisGraphIdentity]);
     analysisHydrationIdRef.current = currentHydrationId;
+    var localTools = useMemo(
+      function() {
+        return createLocalTools({ identity: loadedSourceIdentity, status: cliStatus });
+      },
+      [loadedSourceIdentity && loadedSourceIdentity.sourceType, loadedSourceIdentity && loadedSourceIdentity.sourceKey, cliStatus && cliStatus.root, cliStatus && cliStatus.ok]
+    );
     useEffect(function() {
-      if (loading || !data || !data.beam || !cliStatus || !cliStatus.ok || !loadedSourceIdentity || loadedSourceIdentity.sourceType !== "cli") return;
+      setRuntimeSnapshot(null);
+      setRuntimeFocus(null);
+      setRuntimeBusy(false);
+      setBeamAnalysis(null);
+      setBeamLocations(null);
+      setBeamNavigationError(null);
+      return function() {
+        if (localTools) localTools.dispose();
+      };
+    }, [localTools]);
+    useEffect(function() {
+      if (loading || !data || !data.beam || !localTools) return;
       setRuntimeNode(cliStatus.runtimeNode || "");
       return subscribeCliAnalysis({ onUpdate: function(update) {
         if (update.analysis) setBeamAnalysis(update.analysis);
@@ -56400,22 +56517,22 @@ This problem is likely caused by another plugin injecting
           return prev && prev.beam ? buildBeamAnalysisData({ data: prev, snapshot: update.graph }) : prev;
         });
       } });
-    }, [loading, loadedSourceIdentity && loadedSourceIdentity.sourceType, loadedSourceIdentity && loadedSourceIdentity.sourceKey, cliStatus && cliStatus.root, !!(data && data.beam)]);
+    }, [loading, localTools, !!(data && data.beam)]);
     useEffect(function() {
       setBeamSymbols([]);
       setBeamLocations(null);
       setBeamNavigationError(null);
-      if (loading || !data || !data.beam || !selected || !/\.exs?$/.test(selected.path) || !beamAnalysis || beamAnalysis.language.state !== "ready") return;
+      if (loading || !localTools || !data || !data.beam || !selected || !/\.exs?$/.test(selected.path) || !beamAnalysis || beamAnalysis.language.state !== "ready") return;
       var cancelled = false;
       beamLanguage("symbols", selected.path).then(function(items) {
         if (!cancelled) setBeamSymbols(items);
       }).catch(function(error2) {
-        if (!cancelled) setBeamNavigationError(error2.message);
+        if (!cancelled && error2.name !== "AbortError") setBeamNavigationError(error2.message);
       });
       return function() {
         cancelled = true;
       };
-    }, [loading, loadedSourceIdentity && loadedSourceIdentity.sourceKey, selected && selected.path, beamAnalysis && beamAnalysis.language.build && beamAnalysis.language.build.completedAt, beamAnalysis && beamAnalysis.language.state]);
+    }, [loading, localTools, selected && selected.path, beamAnalysis && beamAnalysis.language.build && beamAnalysis.language.build.completedAt, beamAnalysis && beamAnalysis.language.state]);
     function refreshRecentList() {
       listRecentAnalyses().then(function(rows) {
         setRecentAnalyses((rows || []).map(function(row) {
@@ -56934,7 +57051,7 @@ This problem is likely caused by another plugin injecting
               ]).then(function(results) {
                 var content = results[0];
                 var commits = results[1];
-                if (content) {
+                if (typeof content === "string") {
                   analyzed.push({ path: f.path, name: f.name, folder: f.folder, content, churn: Array.isArray(commits) ? commits.length : 0 });
                 } else {
                   analyzed.push(makeFetchFailedAnalysisFile(f));
@@ -57621,42 +57738,19 @@ This problem is likely caused by another plugin injecting
         return n;
       });
     }, []);
-    function folderSourceIsLive() {
-      var currentSource = currentAnalysisSource();
-      return !!(localSourceKind === "folder" && localDirHandle && (!currentSource || currentSource.sourceType !== "folder" || retainedFolderMatchesRecord(currentSource, { sourceKey: localFolderKeyRef.current })));
-    }
-    function zipSourceIsLive() {
-      var currentSource = currentAnalysisSource();
-      return !!(localSourceKind === "zip" && zipFileRef.current && (!currentSource || currentSource.sourceType !== "zip" || retainedZipMatchesRecord(currentSource, { sourceKey: zipKeyRef.current, identity: zipFileIdentity(zipFileRef.current) })));
-    }
-    function liveSourceKindForRead() {
-      if (localSourceKind === "cli" && cliStatus && cliStatus.ok) return "cli";
-      if (folderSourceIsLive()) return "folder";
-      if (zipSourceIsLive()) return "zip";
-      if (repoInfo && repoInfo.owner && repoInfo.repo && repoInfo.owner !== "local") return "github";
-      if (cliStatus && cliStatus.ok && localSourceKind !== "folder" && localSourceKind !== "zip") return "cli";
-      return null;
-    }
+    const projectSource = createProjectSource({
+      identity: currentAnalysisSource(),
+      cli: cliStatus,
+      folder: { handle: localDirHandle, sourceKey: localFolderKeyRef.current },
+      archive: {
+        entriesByPath: zipArchiveRef.current && zipArchiveRef.current.entriesByPath,
+        sourceKey: zipKeyRef.current,
+        file: zipFileRef.current
+      },
+      github: repoInfo ? { owner: repoInfo.owner, repo: repoInfo.repo, client: GitHub } : null
+    });
     function canReadLiveFileSource() {
-      return !!liveSourceKindForRead();
-    }
-    function readFolderFileByPath(rootHandle, filePath) {
-      var parts = String(filePath || "").split("/").filter(Boolean);
-      if (!parts.length || !rootHandle) return Promise.reject(new Error("File is not available in the open folder"));
-      var dirPromise = Promise.resolve(rootHandle);
-      var fileName = parts.pop();
-      parts.forEach(function(part) {
-        dirPromise = dirPromise.then(function(dir) {
-          return dir.getDirectoryHandle(part);
-        });
-      });
-      return dirPromise.then(function(dir) {
-        return dir.getFileHandle(fileName);
-      }).then(function(handle) {
-        return handle.getFile();
-      }).then(function(fileObj) {
-        return fileObj.text();
-      });
+      return !!projectSource;
     }
     function readCliWatchLiveSource(path) {
       if (!path) return Promise.resolve({ kind: "error" });
@@ -57674,34 +57768,10 @@ This problem is likely caused by another plugin injecting
         return { kind: "error" };
       });
     }
-    function readLiveFileSource(path) {
-      var kind = liveSourceKindForRead();
-      if (!path || !kind) return Promise.resolve(null);
-      if (kind === "cli") {
-        return fetch("/__codeflow/file?path=" + encodeURIComponent(path)).then(function(res) {
-          return res.ok ? res.text() : null;
-        }).catch(function() {
-          return null;
-        });
-      }
-      if (kind === "folder") {
-        return readFolderFileByPath(localDirHandle, path).catch(function() {
-          return null;
-        });
-      }
-      if (kind === "zip") {
-        var archive = zipArchiveRef.current;
-        var entry = archive && archive.entriesByPath ? archive.entriesByPath[path] : null;
-        if (!entry || typeof entry.async !== "function") return Promise.resolve(null);
-        return entry.async("string").catch(function() {
-          return null;
-        });
-      }
-      return GitHub.getFile(repoInfo.owner, repoInfo.repo, path).then(function(content) {
-        return typeof content === "string" ? content : null;
-      }).catch(function() {
-        return null;
-      });
+    async function readLiveFileSource(path) {
+      if (!projectSource) return null;
+      const result = await projectSource.read(path);
+      return result.status === "ready" ? result.content : null;
     }
     function rememberHydratedSources(updates) {
       if (!updates || !updates.length) return;
