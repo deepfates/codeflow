@@ -1996,12 +1996,11 @@ function App(){
                                                 fn.code&&React.createElement('div',{className:'fn-code'},fn.code),
                                                 st&&st.callers&&st.callers.length>0&&React.createElement('div',{className:'fn-callers'},
                                                     React.createElement('div',{className:'fn-callers-title'},'External callers:'),
-                                                    st.callers.slice(0,8).map(function(c,i){return React.createElement('div',{key:i,className:'fn-caller',onClick:function(){goToFile(c.file);}},
+                                                    st.callers.map(function(c,i){return React.createElement('div',{key:i,className:'fn-caller',onClick:function(){goToFile(c.file);}},
                                                         React.createElement(Icon,{name:'file',size:'s'}),
                                                         React.createElement('span',null,c.name),
                                                         React.createElement('span',{style:{marginLeft:'auto',color:'var(--t3)'}},c.count,'×')
-                                                    );}),
-                                                    st.callers.length>8&&React.createElement('div',{style:{fontSize:9,color:'var(--t3)',padding:'4px 6px'}},'+',st.callers.length-8,' more')
+                                                    );})
                                                 ),
                                                 intCalls===0&&extCalls===0&&React.createElement('div',{style:{fontSize:9,color:'var(--orange)',padding:8,textAlign:'center',background:'rgba(255,159,67,0.1)',borderRadius:4}},
                                                     React.createElement(Icon,{name:'warning',size:'s'}),
