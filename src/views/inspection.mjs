@@ -43,7 +43,7 @@ export function createInspectionPanels(React){
                         const line=location.range?location.range.start.line+1:location.line;
                         return React.createElement('button',{key:j,className:'top-btn',style:{display:'block',width:'100%',textAlign:'left',whiteSpace:'normal',marginBottom:6},onClick:()=>onOpen(location)},
                             React.createElement('div',null,grouped?(entry.item?.name||location.path):(issue.title||issue.message||issue.type)),
-                            React.createElement('div',{style:{fontSize:10,color:'var(--t3)'}},issue.provider||(entry.kind==='security'?'Security':'Source analysis'),line?' · L'+line:''));
+                            React.createElement('div',{style:{fontSize:10,color:'var(--t3)'}},issue.provider?(issue.evidence||issue.provider):(entry.kind==='security'?'Security':'Source analysis'),line?' · L'+line:''));
                     }));
             })));
     }

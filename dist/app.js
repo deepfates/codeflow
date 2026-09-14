@@ -4290,18 +4290,31 @@
     }
     function SourceFindings2({ summary, onOpen }) {
       if (!summary?.count) return null;
+      const groups = /* @__PURE__ */ new Map();
+      for (const entry of summary.entries) {
+        if (!groups.has(entry.issue)) groups.set(entry.issue, []);
+        groups.get(entry.issue).push(entry);
+      }
       return React2.createElement(
         "div",
         { className: "card", "aria-label": "File findings" },
         React2.createElement("div", { className: "card-header" }, "Findings (", summary.count, ")"),
-        React2.createElement("div", { className: "card-body" }, summary.entries.map((entry, i) => {
-          const issue = entry.issue, location = entry.sourceLocation;
-          const line = location.range ? location.range.start.line + 1 : location.line;
+        React2.createElement("div", { className: "card-body" }, Array.from(groups, ([issue, entries], i) => {
+          const grouped = entries[0].kind === "issue" && !issue.sourceLocation;
           return React2.createElement(
-            "button",
-            { key: i, className: "top-btn", style: { display: "block", width: "100%", textAlign: "left", whiteSpace: "normal", marginBottom: 6 }, onClick: () => onOpen(location) },
-            React2.createElement("div", null, entry.kind === "issue" && !issue.sourceLocation ? issue.desc || issue.title : issue.title || issue.message || issue.type),
-            React2.createElement("div", { style: { fontSize: 10, color: "var(--t3)" } }, issue.evidence || issue.provider || (entry.kind === "security" ? "Security" : "Source analysis"), line ? " \xB7 L" + line : "")
+            "div",
+            { key: i, style: { marginBottom: 10 } },
+            grouped && React2.createElement("div", { style: { fontSize: 11, color: "var(--t2)", marginBottom: 6 } }, issue.desc || issue.title),
+            entries.map((entry, j) => {
+              const location = entry.sourceLocation;
+              const line = location.range ? location.range.start.line + 1 : location.line;
+              return React2.createElement(
+                "button",
+                { key: j, className: "top-btn", style: { display: "block", width: "100%", textAlign: "left", whiteSpace: "normal", marginBottom: 6 }, onClick: () => onOpen(location) },
+                React2.createElement("div", null, grouped ? entry.item?.name || location.path : issue.title || issue.message || issue.type),
+                React2.createElement("div", { style: { fontSize: 10, color: "var(--t3)" } }, issue.provider ? issue.evidence || issue.provider : entry.kind === "security" ? "Security" : "Source analysis", line ? " \xB7 L" + line : "")
+              );
+            })
           );
         }))
       );
@@ -58658,6 +58671,12 @@ This problem is likely caused by another plugin injecting
       openCodeFile(location.path, false, location.range);
       setRightTab("details");
     }
+    function openAssessmentSource(item) {
+      const location = item.sourceLocation || { path: typeof item === "string" ? item : item.path || item.file, line: item.line, range: item.range };
+      if (location.range || Number.isInteger(location.line) && location.line > 0) openSourceLocation(location);
+      else goToFile(location.path);
+      setDrillDown(null);
+    }
     async function navigateBeamSymbol(method, path, position) {
       setBeamNavigationError(null);
       try {
@@ -59928,10 +59947,13 @@ This problem is likely caused by another plugin injecting
     }
     useEffect(function() {
       if (filePreview && filePreview.content && filePreview.line && filePreviewRef.current) {
-        setTimeout(function() {
+        const timer = setTimeout(function() {
           var el = filePreviewRef.current.querySelector(".file-preview-line.highlighted");
           if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
         }, 100);
+        return function() {
+          clearTimeout(timer);
+        };
       }
     }, [filePreview]);
     const findingsByFile = useMemo(() => indexSourceFindings(data), [data]);
@@ -62401,12 +62423,12 @@ This problem is likely caused by another plugin injecting
                     } }, iconLabel("eye", "View Source"))
                   )
                 ),
-                React.createElement(SourceFindings, { summary: findingsByFile.get(selected.path), onOpen: openSourceLocation }),
-                data.beam && React.createElement(SourceNavigation, { path: selected.path, symbols: beamSymbols, locations: beamLocations, error: beamNavigationError, onOpen: openSourceLocation, onReferences: (path, position) => navigateBeamSymbol("references", path, position) }),
                 React.createElement(SourceProcesses, { index: runtimeIndex, path: selected.path, onSelect: (id) => {
                   runtimeInspection.setFocus(id);
                   setRightTab("runtime");
                 } }),
+                React.createElement(SourceFindings, { summary: findingsByFile.get(selected.path), onOpen: openSourceLocation }),
+                data.beam && React.createElement(SourceNavigation, { path: selected.path, symbols: beamSymbols, locations: beamLocations, error: beamNavigationError, onOpen: openSourceLocation, onReferences: (path, position) => navigateBeamSymbol("references", path, position) }),
                 blastRadius && React.createElement(
                   "div",
                   { className: "card", style: { marginBottom: 12 } },
@@ -63264,8 +63286,7 @@ This problem is likely caused by another plugin injecting
                       } }, iconLabel("eye", "View")),
                       React.createElement("button", { style: { fontSize: 9, padding: "4px 8px", background: "var(--acc)", color: "var(--bg0)", border: "none", borderRadius: 4, cursor: "pointer" }, onClick: function(e) {
                         e.stopPropagation();
-                        goToFile(item.file);
-                        setDrillDown(null);
+                        openAssessmentSource(item);
                       } }, "Go to file \u2192")
                     )
                   ),
@@ -63290,8 +63311,7 @@ This problem is likely caused by another plugin injecting
                         "div",
                         { key: k, style: { fontSize: 9, color: "var(--t2)", padding: "4px 8px", background: "var(--bg2)", borderRadius: 4, marginBottom: 4, display: "flex", justifyContent: "space-between", alignItems: "center" } },
                         React.createElement("span", { style: { fontFamily: "monospace", cursor: "pointer", flex: 1 }, onClick: function() {
-                          goToFile(f.file || f);
-                          setDrillDown(null);
+                          openAssessmentSource(f);
                         } }, typeof f === "string" ? f.split("/").pop() : (f.file || "").split("/").pop(), f.line ? " :" + f.line : ""),
                         React.createElement(
                           "div",
@@ -63301,8 +63321,7 @@ This problem is likely caused by another plugin injecting
                             openFilePreview(f.file || f, f.line);
                           } }, React.createElement(Icon, { name: "eye", size: "s" })),
                           React.createElement("span", { style: { color: "var(--acc)", cursor: "pointer" }, onClick: function() {
-                            goToFile(f.file || f);
-                            setDrillDown(null);
+                            openAssessmentSource(f);
                           } }, "\u2192")
                         )
                       );
@@ -63377,8 +63396,7 @@ This problem is likely caused by another plugin injecting
                   "div",
                   { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
                   React.createElement("div", { style: { fontWeight: 600, fontSize: 11, cursor: "pointer" }, onClick: function() {
-                    goToFile(drillDown.data.path);
-                    setDrillDown(null);
+                    openAssessmentSource(drillDown.data);
                   } }, drillDown.data.file),
                   React.createElement("button", { className: "view-file-btn", onClick: function(e) {
                     e.stopPropagation();
@@ -63386,8 +63404,7 @@ This problem is likely caused by another plugin injecting
                   } }, iconLabel("eye", "View"))
                 ),
                 React.createElement("div", { style: { fontSize: 10, color: "var(--t3)", marginTop: 4, fontFamily: "monospace", cursor: "pointer" }, onClick: function() {
-                  goToFile(drillDown.data.path);
-                  setDrillDown(null);
+                  openAssessmentSource(drillDown.data);
                 } }, drillDown.data.path),
                 drillDown.data.line && React.createElement("div", { style: { fontSize: 10, color: "var(--orange)", marginTop: 4 } }, "Line ", drillDown.data.line)
               ),
@@ -63422,8 +63439,7 @@ This problem is likely caused by another plugin injecting
                     "div",
                     { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
                     React.createElement("div", { style: { fontWeight: 600, fontSize: 11, cursor: "pointer" }, onClick: function() {
-                      goToFile(f.file);
-                      setDrillDown(null);
+                      openAssessmentSource(f);
                     } }, f.name || drillDown.data.name),
                     React.createElement("button", { className: "view-file-btn", onClick: function(e) {
                       e.stopPropagation();
@@ -63431,8 +63447,7 @@ This problem is likely caused by another plugin injecting
                     } }, iconLabel("eye", "View"))
                   ),
                   React.createElement("div", { style: { fontSize: 10, color: "var(--t3)", marginTop: 4, fontFamily: "monospace", cursor: "pointer" }, onClick: function() {
-                    goToFile(f.file);
-                    setDrillDown(null);
+                    openAssessmentSource(f);
                   } }, f.file),
                   f.line && React.createElement("div", { style: { fontSize: 10, color: "var(--orange)", marginTop: 4 } }, "Line ", f.line)
                 );
@@ -63625,7 +63640,7 @@ This problem is likely caused by another plugin injecting
                       React.createElement("span", null, "\u2192"),
                       React.createElement("span", { className: "unused-fn-file", onClick: function(e) {
                         e.stopPropagation();
-                        goToFile(fn.file);
+                        openAssessmentSource(fn);
                         setShowUnused(false);
                       } }, fn.file.split("/").pop())
                     )

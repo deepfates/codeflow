@@ -3307,9 +3307,9 @@ function App(){
                                     React.createElement('button',{className:'view-file-btn',onClick:function(){openFilePreview(selected.path);}},iconLabel('eye','View Source'))
                                 )
                             ),
+                            React.createElement(SourceProcesses,{index:runtimeIndex,path:selected.path,onSelect:id=>{runtimeInspection.setFocus(id);setRightTab('runtime');}}),
                             React.createElement(SourceFindings,{summary:findingsByFile.get(selected.path),onOpen:openSourceLocation}),
                             data.beam&&React.createElement(SourceNavigation,{path:selected.path,symbols:beamSymbols,locations:beamLocations,error:beamNavigationError,onOpen:openSourceLocation,onReferences:(path,position)=>navigateBeamSymbol('references',path,position)}),
-                            React.createElement(SourceProcesses,{index:runtimeIndex,path:selected.path,onSelect:id=>{runtimeInspection.setFocus(id);setRightTab('runtime');}}),
                             blastRadius&&React.createElement('div',{className:'card',style:{marginBottom:12}},
                                 React.createElement('div',{className:'card-header',onClick:function(){toggleCard('blast');}},React.createElement('div',{className:'card-title'},React.createElement('span',{className:'card-toggle'+(expandedCards.has('blast')?' open':'')},'▶'),React.createElement(Icon,{name:'impact',size:'s'}),' Impact Analysis'),React.createElement('span',{className:'badge badge-'+(blastRadius.level==='low'?'success':blastRadius.level==='medium'?'warning':'danger')},blastRadius.level.toUpperCase())),
                                 expandedCards.has('blast')&&React.createElement('div',{className:'card-body'},
