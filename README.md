@@ -441,7 +441,7 @@ We love contributions! Here's how:
 
 The HTML file owns the document and styles. The application code lives in modules:
 
-- `src/project/`: shared exclusion policy, source identity, change tracking, tree and export; Source cards use project-bound readers for CLI checkouts, GitHub, folders and archives; retained handles cannot supply source for a different project. `local-tools.mjs` binds language navigation and runtime requests to the matching CLI checkout and cancels them when switching projects. GitHub access has an explicit adapter. `cli-analysis.mjs` polls local tool results and owns request cancellation, refresh timing and duplicate-update suppression.
+- `src/project/`: shared exclusion policy, source identity, change tracking, tree and export; `loading.mjs` owns the active load cancellation signal; selecting another project cancels the prior analysis worker and CLI reads, and loaders discard obsolete results. Source cards use project-bound readers for CLI checkouts, GitHub, folders and archives; retained handles cannot supply source for a different project. `local-tools.mjs` binds language navigation and runtime requests to the matching CLI checkout and cancels them when switching projects. GitHub access has an explicit adapter. `cli-analysis.mjs` polls local tool results and owns request cancellation, refresh timing and duplicate-update suppression.
 - `src/analysis/`: parser runtime factory, shared file classification, code indexing, architecture, metrics and merging compiler and linter results.
 - `src/investigation/`: source navigation, history, workspace, preferences and recent-analysis persistence.
 - `src/views/`: card geometry, graph styling, links, camera, minimap and source rendering.

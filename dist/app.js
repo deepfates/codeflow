@@ -131,6 +131,24 @@
     }
   });
 
+  // src/project/loading.mjs
+  function createProjectLoading() {
+    let active;
+    return {
+      begin() {
+        active?.abort();
+        active = new AbortController();
+        return active.signal;
+      },
+      get signal() {
+        return active?.signal;
+      },
+      dispose() {
+        active?.abort();
+      }
+    };
+  }
+
   // src/project/identity.mjs
   function newLocalSelectionId() {
     return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
@@ -55202,21 +55220,41 @@ This problem is likely caused by another plugin injecting
   // src/browser/analysis-client.mjs
   function createAnalysisClient({ analyzeFiles: analyzeFiles2, yieldFn, Worker = globalThis.Worker }) {
     return function runAnalysisData2(options) {
-      if (!Worker) return analyzeFiles2({ ...options, yieldFn });
+      const signal = options.signal;
+      async function runLocally() {
+        signal?.throwIfAborted();
+        const result = await analyzeFiles2({ ...options, yieldFn: async () => {
+          await yieldFn();
+          signal?.throwIfAborted();
+        } });
+        signal?.throwIfAborted();
+        return result;
+      }
+      if (!Worker) return runLocally();
       return new Promise((resolve, reject) => {
+        if (signal?.aborted) {
+          reject(signal.reason);
+          return;
+        }
         const url = URL.createObjectURL(new Blob([worker_default], { type: "text/javascript" }));
         let worker;
         const cleanup = () => {
+          signal?.removeEventListener("abort", abort);
           worker?.terminate();
           URL.revokeObjectURL(url);
+        };
+        const abort = () => {
+          cleanup();
+          reject(signal.reason);
         };
         try {
           worker = new Worker(url);
         } catch (error) {
           cleanup();
-          resolve(analyzeFiles2({ ...options, yieldFn }));
+          resolve(runLocally());
           return;
         }
+        signal?.addEventListener("abort", abort, { once: true });
         worker.onmessage = ({ data: message }) => {
           if (message.type === "progress") {
             options.progress?.(message.message);
@@ -55981,6 +56019,8 @@ This problem is likely caused by another plugin injecting
     );
   }
   function App() {
+    const projectLoading = useMemo(createProjectLoading, []);
+    useEffect(() => () => projectLoading.dispose(), [projectLoading]);
     var _a = useState(window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"), theme = _a[0], setTheme = _a[1];
     var _b = useState(""), repoUrl = _b[0], setRepoUrl = _b[1];
     var _c = useState(""), token = _c[0], setToken = _c[1];
@@ -56444,7 +56484,7 @@ This problem is likely caused by another plugin injecting
         }
       }
       refreshRecentList();
-      probeCodeflowCli();
+      return probeCodeflowCli();
     }, []);
     function parseUrl(url) {
       if (!url || typeof url !== "string") return null;
@@ -56571,6 +56611,10 @@ This problem is likely caused by another plugin injecting
     }
     function applyCachedAnalysis(record) {
       if (!record || !record.data) return;
+      projectLoading.begin();
+      setLoading(false);
+      setError(null);
+      cliAnalyzingRef.current = false;
       setData(compactAnalysisForCache(record.data));
       setExpandedPaths(/* @__PURE__ */ new Set([""]));
       setSelected(null);
@@ -56611,8 +56655,10 @@ This problem is likely caused by another plugin injecting
       showNotification("Loaded cached analysis. Re-analyze to refresh.", "success");
     }
     function loadRecentAnalysis(id) {
+      const selectionSignal = projectLoading.begin();
       clearPendingRecentDelete();
       return getRecentAnalysis(id).then(function(record) {
+        if (selectionSignal.aborted) return null;
         if (!record) {
           showNotification("That analysis is no longer cached.", "warning");
           refreshRecentList();
@@ -56621,12 +56667,15 @@ This problem is likely caused by another plugin injecting
         applyCachedAnalysis(record);
         return record;
       }).catch(function() {
+        if (selectionSignal.aborted) return null;
         showNotification("Could not open cached analysis.", "error");
         return null;
       });
     }
     function reanalyzeRecent(id) {
+      const selectionSignal = projectLoading.begin();
       return getRecentAnalysis(id).then(function(record) {
+        if (selectionSignal.aborted) return null;
         if (!record) {
           showNotification("That analysis is no longer cached.", "warning");
           refreshRecentList();
@@ -56634,6 +56683,7 @@ This problem is likely caused by another plugin injecting
         }
         refreshAnalysis(record);
       }).catch(function() {
+        if (selectionSignal.aborted) return null;
         showNotification("Could not open cached analysis.", "error");
       });
     }
@@ -56741,16 +56791,18 @@ This problem is likely caused by another plugin injecting
     }
     enqueueCliWatchDiffRef.current = enqueueCliWatchDiff;
     function probeCodeflowCli() {
-      fetch("/__codeflow/status").then(function(res) {
+      const probeSignal = projectLoading.begin();
+      let src;
+      fetch("/__codeflow/status", { signal: probeSignal }).then(function(res) {
         return res.ok ? res.json() : null;
       }).then(function(status) {
-        if (!status || !status.ok) return;
+        if (probeSignal.aborted || !status || !status.ok) return;
         setCliStatus(status);
         if (!window.location.search || window.location.search.indexOf("repo=") < 0) {
           analyzeFromCli(false, status);
         }
         if (window.EventSource) {
-          var src = new EventSource("/__codeflow/events");
+          src = new EventSource("/__codeflow/events");
           src.onmessage = function(ev) {
             try {
               var payload = JSON.parse(ev.data || "{}");
@@ -56761,6 +56813,9 @@ This problem is likely caused by another plugin injecting
         }
       }).catch(function() {
       });
+      return function() {
+        src?.close();
+      };
     }
     useEffect(function() {
       if (!cliWatchAppliesToAnalysis(localSourceKind, cliStatus, currentAnalysisSource())) return;
@@ -56771,10 +56826,11 @@ This problem is likely caused by another plugin injecting
       flushCliWatchDiffs(missing);
     }, [currentHydrationId, cliDirty, localSourceKind, cliStatus, cliLiveByPath]);
     async function analyzeFromCli(force, statusHint, wantedRoot) {
+      const selectionSignal = projectLoading.begin();
       var status = statusHint || cliStatus;
       if (!status || !status.ok) {
         try {
-          var statusRes = await fetch("/__codeflow/status");
+          var statusRes = await fetch("/__codeflow/status", { signal: selectionSignal });
           if (statusRes.ok) {
             var nextStatus = await statusRes.json();
             if (nextStatus && nextStatus.ok) status = nextStatus;
@@ -56783,6 +56839,7 @@ This problem is likely caused by another plugin injecting
         }
         if ((!status || !status.ok) && !force) return;
       }
+      if (selectionSignal.aborted) return;
       if (wantedRoot && !cliRecordMatchesStatus({ sourceKey: wantedRoot }, status)) {
         showNotification("Restart the CLI in that folder to re-analyze it.", "warning");
         return false;
@@ -56792,8 +56849,9 @@ This problem is likely caused by another plugin injecting
       cliWatchDuringRef.current = [];
       cliWatchReadRef.current = /* @__PURE__ */ Object.create(null);
       cliWatchSnapRevRef.current = /* @__PURE__ */ Object.create(null);
-      cliAnalyzingRef.current = true;
       resetAnalysisState();
+      cliAnalyzingRef.current = true;
+      const loadSignal = projectLoading.signal;
       setLocalDirHandle(null);
       localFolderKeyRef.current = null;
       localFolderSelectionRef.current = null;
@@ -56804,13 +56862,14 @@ This problem is likely caused by another plugin injecting
       setLoading(true);
       setProgress("Reading local folder from CLI...");
       try {
-        var listRes = await fetch("/__codeflow/files");
+        var listRes = await fetch("/__codeflow/files", { signal: loadSignal });
         if (!listRes.ok) throw new Error("CLI file list failed");
         var list = await listRes.json();
         var files = filterAnalyzableLocalFiles(list && list.files ? list.files : [], activeExcludePatterns);
         if (!files.length) throw new Error(activeExcludePatterns.length ? "No code files found in the watched folder after applying exclude patterns" : "No code files found in the watched folder");
         var analyzed = [];
         for (var i = 0; i < files.length; i++) {
+          if (loadSignal.aborted) return;
           var f = files[i];
           if (i > 0 && i % 40 === 0) await yieldToBrowser();
           setProgress("Analyzing " + (i + 1) + "/" + files.length + ": " + f.name);
@@ -56818,11 +56877,12 @@ This problem is likely caused by another plugin injecting
             analyzed.push(makeOversizedAnalysisFile(f, f.size));
             continue;
           }
-          var fileRes = await fetch("/__codeflow/file?path=" + encodeURIComponent(f.path));
+          var fileRes = await fetch("/__codeflow/file?path=" + encodeURIComponent(f.path), { signal: loadSignal });
           if (!fileRes.ok) {
             analyzed.push(makeFetchFailedAnalysisFile(f));
             continue;
           }
+          if (loadSignal.aborted) return;
           var pathKey = normalizeCliWatchPath(f.path);
           cliWatchReadRef.current[pathKey] = true;
           var snapRev = cliWatchSnapRevFromResponse(fileRes);
@@ -56836,18 +56896,22 @@ This problem is likely caused by another plugin injecting
         }
         var snapshot = null;
         if (status.beam) {
-          var beamRes = await fetch("/__codeflow/beam");
+          var beamRes = await fetch("/__codeflow/beam", { signal: loadSignal });
           if (!beamRes.ok) throw new Error("Compiler snapshot request failed");
           snapshot = await beamRes.json();
         }
         var dataObj = await runAnalysisData({
+          signal: loadSignal,
           files: analyzed,
           excludePatterns: activeExcludePatterns.map(function(x) {
             return x.raw;
           }),
-          progress: setProgress,
+          progress: function(message) {
+            if (!loadSignal.aborted) setProgress(message);
+          },
           yieldFn: yieldToBrowser
         });
+        if (loadSignal.aborted) return;
         if (status.beam) dataObj = buildBeamAnalysisData({ data: dataObj, snapshot });
         var cliInfo = { owner: "local", repo: "cli", name: cliMeta.title, cliRoot: cliMeta.sourceKey };
         var keep = retainCliWatchPathsAfterAnalysis(cliWatchDuringRef.current, cliWatchReadRef.current, cliWatchSnapRevRef.current);
@@ -56855,6 +56919,7 @@ This problem is likely caused by another plugin injecting
         cliWatchDuringRef.current = [];
         cliWatchReadRef.current = /* @__PURE__ */ Object.create(null);
         cliWatchSnapRevRef.current = /* @__PURE__ */ Object.create(null);
+        if (loadSignal.aborted) return;
         setData(dataObj);
         setExpandedPaths(/* @__PURE__ */ new Set([""]));
         setRepoInfo(cliInfo);
@@ -56865,6 +56930,7 @@ This problem is likely caused by another plugin injecting
         setLoading(false);
         return true;
       } catch (err) {
+        if (loadSignal.aborted) return;
         cliAnalyzingRef.current = false;
         cliWatchDuringRef.current = [];
         cliWatchReadRef.current = /* @__PURE__ */ Object.create(null);
@@ -56874,6 +56940,8 @@ This problem is likely caused by another plugin injecting
       }
     }
     function resetAnalysisState() {
+      projectLoading.begin();
+      cliAnalyzingRef.current = false;
       setError(null);
       setData(null);
       setSelected(null);
@@ -56941,14 +57009,16 @@ This problem is likely caused by another plugin injecting
       var githubKey = githubCacheSourceKey(p.owner, p.repo, activeExcludePatterns);
       var cacheId = analysisCacheKey("github", githubKey);
       if (!shouldForce) {
+        const cacheSignal = projectLoading.begin();
         getRecentAnalysis(cacheId).then(function(record) {
+          if (cacheSignal.aborted) return;
           if (record && record.data && cachedAnalysisMatchesExcludes(record, activeExcludePatterns)) {
             applyCachedAnalysis(record);
             return;
           }
-          analyze(true);
+          analyze(true, p.owner + "/" + p.repo);
         }).catch(function() {
-          analyze(true);
+          if (!cacheSignal.aborted) analyze(true, p.owner + "/" + p.repo);
         });
         return;
       }
@@ -56968,6 +57038,7 @@ This problem is likely caused by another plugin injecting
         }
       }
       resetAnalysisState();
+      const loadSignal = projectLoading.signal;
       setLocalDirHandle(null);
       setLocalSourceKind(null);
       zipArchiveRef.current = null;
@@ -56995,9 +57066,11 @@ This problem is likely caused by another plugin injecting
         authPromise = Promise.resolve();
       }
       authPromise.then(function() {
+        loadSignal.throwIfAborted();
         setProgress("Checking rate limit...");
         return GitHub.getRateLimit();
       }).then(function(rl) {
+        loadSignal.throwIfAborted();
         var hasAuth = !!GitHub.token || authMethod === "github_app";
         var estimatedRequests = 50;
         if (!hasAuth && rl.remaining < estimatedRequests) {
@@ -57009,17 +57082,23 @@ This problem is likely caused by another plugin injecting
             message: "Remaining requests: " + rl.remaining + "/" + rl.limit + "\nResets at: " + resetTime + "\n\nThe folder picker is faster when the API is rate-limited. Open Folder and analyze locally, or download a ZIP and use Open ZIP.\n\nWithout authentication, you only get 60 requests per hour.\nAdding a token or GitHub App raises that to 5,000 requests per hour.\n\nToken (PAT): GitHub Settings -> Developer Settings -> Personal access tokens\nGitHub App: use App ID + Private Key for organization access\n\nContinue anyway with the remaining requests?",
             confirmLabel: "Continue anyway"
           }).then(function(proceed) {
+            loadSignal.throwIfAborted();
             if (!proceed) {
               setLoading(false);
               return Promise.reject("cancelled");
             }
             setProgress("Scanning repository...");
-            return GitHub.scan(p.owner, p.repo, setProgress, currentExcludePatterns);
+            return GitHub.scan(p.owner, p.repo, function(message) {
+              if (!loadSignal.aborted) setProgress(message);
+            }, currentExcludePatterns);
           });
         }
         setProgress("Scanning repository...");
-        return GitHub.scan(p.owner, p.repo, setProgress, currentExcludePatterns);
+        return GitHub.scan(p.owner, p.repo, function(message) {
+          if (!loadSignal.aborted) setProgress(message);
+        }, currentExcludePatterns);
       }).then(function(files) {
+        loadSignal.throwIfAborted();
         if (!files) return;
         if (!files.length) throw new Error(currentExcludePatterns.length ? "No code files found after applying exclude patterns" : "No code files found");
         var SOFT_LIMIT = ANALYSIS_LIMITS.repoSoft, HARD_LIMIT = ANALYSIS_LIMITS.repoMax;
@@ -57030,6 +57109,7 @@ This problem is likely caused by another plugin injecting
           var max = Math.min(files.length, HARD_LIMIT);
           var analyzed = [];
           function processFile(i) {
+            if (loadSignal.aborted) return;
             if (i >= max) {
               finishAnalysis();
               return;
@@ -57049,6 +57129,7 @@ This problem is likely caused by another plugin injecting
                   return [];
                 })
               ]).then(function(results) {
+                loadSignal.throwIfAborted();
                 var content = results[0];
                 var commits = results[1];
                 if (typeof content === "string") {
@@ -57063,6 +57144,7 @@ This problem is likely caused by another plugin injecting
               });
             } else {
               GitHub.getFile(p.owner, p.repo, f.path).then(function(content) {
+                loadSignal.throwIfAborted();
                 analyzed.push({ path: f.path, name: f.name, folder: f.folder, content: content || "", churn: 0 });
                 processFile(i + 1);
               }).catch(function() {
@@ -57072,13 +57154,17 @@ This problem is likely caused by another plugin injecting
             }
           }
           async function finishAnalysis() {
+            if (loadSignal.aborted) return;
             try {
               var dataObj = await runAnalysisData({
+                signal: loadSignal,
                 files: analyzed,
                 excludePatterns: currentExcludePatterns.map(function(x) {
                   return x.raw;
                 }),
-                progress: setProgress,
+                progress: function(message) {
+                  if (!loadSignal.aborted) setProgress(message);
+                },
                 yieldFn: yieldToBrowser
               });
               var failedCount = analyzed.filter(function(af) {
@@ -57087,6 +57173,7 @@ This problem is likely caused by another plugin injecting
               if (failedCount > 0) {
                 showNotification(failedCount + " of " + analyzed.length + " files could not be fetched (GitHub rate limit?). Results are PARTIAL \u2014 add a token or use Open ZIP for full analysis.", "warning");
               }
+              if (loadSignal.aborted) return;
               setData(dataObj);
               setExpandedPaths(/* @__PURE__ */ new Set([""]));
               setCachedFromId(null);
@@ -57094,6 +57181,7 @@ This problem is likely caused by another plugin injecting
               window.history.replaceState({}, "", buildAppUrl(p.owner + "/" + p.repo, false));
               setLoading(false);
             } catch (err) {
+              if (loadSignal.aborted) return;
               setError("Analysis failed: " + (err.message || err) + ". Try a smaller repository.");
               setLoading(false);
             }
@@ -57109,6 +57197,7 @@ This problem is likely caused by another plugin injecting
             message: "This repository has " + files.length + " files.\n\nAnalyzing larger repositories can take longer and may hit GitHub API rate limits.\n\nThe folder picker is faster when the API is rate-limited. You can also download a ZIP and use Open ZIP.\n\nTip: add a token or GitHub App for higher limits.",
             confirmLabel: "Analyze repository"
           }).then(function(proceed) {
+            loadSignal.throwIfAborted();
             if (!proceed) {
               setLoading(false);
               return Promise.reject("cancelled");
@@ -57124,6 +57213,7 @@ This problem is likely caused by another plugin injecting
             message: "This GitHub repository has " + files.length + " analyzable files.\n\nThe folder picker is faster when the API is rate-limited. Download the ZIP yourself, then use Open ZIP to read it in-page.\n\nThe browser cannot fetch GitHub zipballs directly because GitHub redirects those downloads to a CORS-restricted host.\n\nContinue now with a " + HARD_LIMIT + "-file API sample?",
             confirmLabel: "Analyze sample"
           }).then(function(proceed) {
+            loadSignal.throwIfAborted();
             if (!proceed) {
               setLoading(false);
               return Promise.reject("cancelled");
@@ -57133,7 +57223,7 @@ This problem is likely caused by another plugin injecting
         }
         return beginRepoAnalysis();
       }).catch(function(e) {
-        if (e !== "cancelled") {
+        if (!loadSignal.aborted && e !== "cancelled") {
           setError(e.message || e);
           setLoading(false);
         }
@@ -57274,12 +57364,14 @@ This problem is likely caused by another plugin injecting
       analyze(true);
     }
     async function readLocalFolder(dirHandle, compiledPatterns, path = "") {
+      const loadSignal = projectLoading.signal;
       var files = [];
       var SOFT_LIMIT = ANALYSIS_LIMITS.localSoft;
       var fileCount = 0;
       setProgress("Scanning local folder...");
       async function readDirectory(handle, currentPath) {
         for await (const entry of handle.values()) {
+          if (loadSignal.aborted) return;
           var entryPath = currentPath ? currentPath + "/" + entry.name : entry.name;
           if (entry.kind === "directory") {
             if (!shouldIgnoreDirectory(entryPath, entry.name, compiledPatterns)) {
@@ -57298,6 +57390,7 @@ This problem is likely caused by another plugin injecting
         }
       }
       await readDirectory(dirHandle, "");
+      if (loadSignal.aborted) return;
       if (fileCount > SOFT_LIMIT) {
         var proceed = await requestConfirm({
           tone: "warning",
@@ -57306,6 +57399,7 @@ This problem is likely caused by another plugin injecting
           message: "This folder has " + fileCount + " analyzable files.\n\nCodeFlow will analyze every eligible file. Large folders can take minutes and use significant browser memory.\n\nContinue with all " + fileCount + " files?",
           confirmLabel: "Analyze all files"
         });
+        if (loadSignal.aborted) return;
         if (!proceed) {
           setLoading(false);
           return;
@@ -57315,6 +57409,7 @@ This problem is likely caused by another plugin injecting
       var analyzed = [];
       async function processFiles() {
         for (var i = 0; i < files.length; i++) {
+          if (loadSignal.aborted) return;
           var f = files[i];
           if (i > 0 && i % 50 === 0) await yieldToBrowser();
           setProgress("Reading " + (i + 1) + "/" + files.length + ": " + f.name);
@@ -57332,21 +57427,28 @@ This problem is likely caused by another plugin injecting
         await finishAnalysis();
       }
       async function finishAnalysis() {
+        if (loadSignal.aborted) return;
         try {
           var dataObj = await runAnalysisData({
+            signal: loadSignal,
             files: analyzed,
             excludePatterns: (compiledPatterns || []).map(function(x) {
               return x.raw;
             }),
-            progress: setProgress,
+            progress: function(message) {
+              if (!loadSignal.aborted) setProgress(message);
+            },
             yieldFn: yieldToBrowser
           });
+          if (loadSignal.aborted) return;
           if (!localFolderSelectionRef.current) localFolderSelectionRef.current = newLocalSelectionId();
+          if (loadSignal.aborted) return;
           var folderMeta = localFolderCacheMeta({ title: dirHandle && dirHandle.name, paths: analyzed.map(function(af) {
             return af.path;
           }), selectionId: localFolderSelectionRef.current });
           var folderInfo = { owner: "local", repo: "folder", name: folderMeta.title, folderKey: folderMeta.sourceKey, folderSelectionId: folderMeta.selectionId };
           localFolderKeyRef.current = folderMeta.sourceKey;
+          if (loadSignal.aborted) return;
           setData(dataObj);
           setExpandedPaths(/* @__PURE__ */ new Set([""]));
           setRepoInfo(folderInfo);
@@ -57354,6 +57456,7 @@ This problem is likely caused by another plugin injecting
           persistCurrentAnalysis(dataObj, { sourceType: "folder", sourceKey: folderMeta.sourceKey, title: folderMeta.title, repoUrl: "", repoInfo: folderInfo, localSourceKind: "folder" });
           setLoading(false);
         } catch (err) {
+          if (loadSignal.aborted) return;
           setError("Analysis failed: " + (err.message || err) + ". Try a smaller folder or subfolder.");
           setLoading(false);
         }
@@ -57366,6 +57469,7 @@ This problem is likely caused by another plugin injecting
       await processFiles();
     }
     async function readLocalFolderFromFiles(fileObjs, compiledPatterns) {
+      const loadSignal = projectLoading.signal;
       var patterns = compiledPatterns || activeExcludePatterns;
       var SOFT_LIMIT = ANALYSIS_LIMITS.localSoft;
       try {
@@ -57406,6 +57510,7 @@ This problem is likely caused by another plugin injecting
             message: "This folder has " + fileCount + " analyzable files.\n\nCodeFlow will analyze every eligible file. Large folders can take minutes and use significant browser memory.\n\nContinue with all " + fileCount + " files?",
             confirmLabel: "Analyze all files"
           });
+          if (loadSignal.aborted) return;
           if (!proceed) {
             setLoading(false);
             return;
@@ -57414,6 +57519,7 @@ This problem is likely caused by another plugin injecting
         var max = files.length;
         var analyzed = [];
         for (var i = 0; i < max; i++) {
+          if (loadSignal.aborted) return;
           var f = files[i];
           if (i > 0 && i % 50 === 0) await yieldToBrowser();
           setProgress("Analyzing " + (i + 1) + "/" + max + ": " + f.name);
@@ -57429,19 +57535,24 @@ This problem is likely caused by another plugin injecting
           }
         }
         var dataObj = await runAnalysisData({
+          signal: loadSignal,
           files: analyzed,
           excludePatterns: (patterns || []).map(function(x) {
             return x.raw;
           }),
-          progress: setProgress,
+          progress: function(message) {
+            if (!loadSignal.aborted) setProgress(message);
+          },
           yieldFn: yieldToBrowser
         });
         if (!localFolderSelectionRef.current) localFolderSelectionRef.current = newLocalSelectionId();
+        if (loadSignal.aborted) return;
         var folderMeta = localFolderCacheMeta({ title: "", rootPrefix, paths: analyzed.map(function(af) {
           return af.path;
         }), selectionId: localFolderSelectionRef.current });
         var folderInfo = { owner: "local", repo: "folder", name: folderMeta.title, folderKey: folderMeta.sourceKey, folderSelectionId: folderMeta.selectionId };
         localFolderKeyRef.current = folderMeta.sourceKey;
+        if (loadSignal.aborted) return;
         setData(dataObj);
         setExpandedPaths(/* @__PURE__ */ new Set([""]));
         setRepoInfo(folderInfo);
@@ -57449,17 +57560,20 @@ This problem is likely caused by another plugin injecting
         persistCurrentAnalysis(dataObj, { sourceType: "folder", sourceKey: folderMeta.sourceKey, title: folderMeta.title, repoUrl: "", repoInfo: folderInfo, localSourceKind: "folder" });
         setLoading(false);
       } catch (err) {
+        if (loadSignal.aborted) return;
         setError("Analysis failed: " + (err.message || err) + ". Try a smaller folder or subfolder.");
         setLoading(false);
       }
     }
     async function readZipArchive(zipFile, compiledPatterns) {
+      const loadSignal = projectLoading.signal;
       var patterns = compiledPatterns || activeExcludePatterns;
       var SOFT_LIMIT = ANALYSIS_LIMITS.localSoft;
       try {
         if (!window.JSZip) throw new Error("ZIP support failed to load");
         setProgress("Reading ZIP archive...");
         var zip = await JSZip.loadAsync(zipFile);
+        if (loadSignal.aborted) return;
         var rawEntries = Object.keys(zip.files).sort().map(function(name) {
           return zip.files[name];
         }).filter(function(entry) {
@@ -57499,6 +57613,7 @@ This problem is likely caused by another plugin injecting
             message: "This ZIP archive has " + fileCount + " analyzable files.\n\nCodeFlow will analyze every eligible file. Large archives can take minutes and use significant browser memory.\n\nContinue with all " + fileCount + " files?",
             confirmLabel: "Analyze all files"
           });
+          if (loadSignal.aborted) return;
           if (!proceed) {
             setLocalSourceKind(null);
             zipFileRef.current = null;
@@ -57513,6 +57628,7 @@ This problem is likely caused by another plugin injecting
         var max = files.length;
         var analyzed = [];
         for (var i = 0; i < max; i++) {
+          if (loadSignal.aborted) return;
           var f = files[i];
           if (i > 0 && i % 50 === 0) await yieldToBrowser();
           setProgress("Analyzing " + (i + 1) + "/" + max + ": " + f.name);
@@ -57528,13 +57644,17 @@ This problem is likely caused by another plugin injecting
           }
         }
         var dataObj = await runAnalysisData({
+          signal: loadSignal,
           files: analyzed,
           excludePatterns: (patterns || []).map(function(x) {
             return x.raw;
           }),
-          progress: setProgress,
+          progress: function(message) {
+            if (!loadSignal.aborted) setProgress(message);
+          },
           yieldFn: yieldToBrowser
         });
+        if (loadSignal.aborted) return;
         var zipMeta = zipArchiveCacheMeta({
           name: zipFile.name,
           size: zipFile.size,
@@ -57545,6 +57665,7 @@ This problem is likely caused by another plugin injecting
         });
         var zipInfo = { owner: "local", repo: "zip", name: zipMeta.title, zipKey: zipMeta.sourceKey };
         zipKeyRef.current = zipMeta.sourceKey;
+        if (loadSignal.aborted) return;
         setData(dataObj);
         setExpandedPaths(/* @__PURE__ */ new Set([""]));
         setRepoInfo(zipInfo);
@@ -57552,6 +57673,7 @@ This problem is likely caused by another plugin injecting
         persistCurrentAnalysis(dataObj, { sourceType: "zip", sourceKey: zipMeta.sourceKey, title: zipMeta.title, repoUrl: "", repoInfo: zipInfo, localSourceKind: "zip" });
         setLoading(false);
       } catch (err) {
+        if (loadSignal.aborted) return;
         setLocalSourceKind(null);
         zipArchiveRef.current = null;
         setError("Failed to analyze ZIP archive: " + (err.message || err));
@@ -60558,6 +60680,10 @@ This problem is likely caused by another plugin injecting
       });
     }
     function resetAnalysis() {
+      projectLoading.dispose();
+      setLoading(false);
+      setError(null);
+      cliAnalyzingRef.current = false;
       setData(null);
       setSelected(null);
       setBlastRadius(null);

@@ -1,3 +1,4 @@
+import {createProjectLoading} from '../project/loading.mjs';
 import {createLocalTools} from '../project/local-tools.mjs';
 import {createProjectSource} from '../project/access.mjs';
 import {subscribeCliAnalysis} from '../project/cli-analysis.mjs';
@@ -464,6 +465,8 @@ function HealthRing(props){
 }
 
 function App(){
+    const projectLoading=useMemo(createProjectLoading,[]);
+    useEffect(()=>()=>projectLoading.dispose(),[projectLoading]);
     var _a=useState(window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'),theme=_a[0],setTheme=_a[1];
     var _b=useState(''),repoUrl=_b[0],setRepoUrl=_b[1];
     var _c=useState(''),token=_c[0],setToken=_c[1];
@@ -847,7 +850,7 @@ function App(){
             }
         }
         refreshRecentList();
-        probeCodeflowCli();
+        return probeCodeflowCli();
     },[]);
 
     function parseUrl(url){
@@ -953,6 +956,8 @@ function App(){
 
     function applyCachedAnalysis(record){
         if(!record||!record.data)return;
+        projectLoading.begin();
+        setLoading(false);setError(null);cliAnalyzingRef.current=false;
         setData(compactAnalysisForCache(record.data));
         setExpandedPaths(new Set(['']));
         setSelected(null);
@@ -992,19 +997,23 @@ function App(){
     }
 
     function loadRecentAnalysis(id){
+        const selectionSignal=projectLoading.begin();
         clearPendingRecentDelete();
         return getRecentAnalysis(id).then(function(record){
+            if(selectionSignal.aborted)return null;
             if(!record){showNotification('That analysis is no longer cached.','warning');refreshRecentList();return null;}
             applyCachedAnalysis(record);
             return record;
-        }).catch(function(){showNotification('Could not open cached analysis.','error');return null;});
+        }).catch(function(){if(selectionSignal.aborted)return null;showNotification('Could not open cached analysis.','error');return null;});
     }
 
     function reanalyzeRecent(id){
+        const selectionSignal=projectLoading.begin();
         return getRecentAnalysis(id).then(function(record){
+            if(selectionSignal.aborted)return null;
             if(!record){showNotification('That analysis is no longer cached.','warning');refreshRecentList();return;}
             refreshAnalysis(record);
-        }).catch(function(){showNotification('Could not open cached analysis.','error');});
+        }).catch(function(){if(selectionSignal.aborted)return null;showNotification('Could not open cached analysis.','error');});
     }
 
     function clearPendingRecentDelete(){
@@ -1105,14 +1114,16 @@ function App(){
     enqueueCliWatchDiffRef.current=enqueueCliWatchDiff;
 
     function probeCodeflowCli(){
-        fetch('/__codeflow/status').then(function(res){return res.ok?res.json():null;}).then(function(status){
-            if(!status||!status.ok)return;
+        const probeSignal=projectLoading.begin();
+        let src;
+        fetch('/__codeflow/status',{signal:probeSignal}).then(function(res){return res.ok?res.json():null;}).then(function(status){
+            if(probeSignal.aborted||!status||!status.ok)return;
             setCliStatus(status);
             if(!window.location.search||window.location.search.indexOf('repo=')<0){
                 analyzeFromCli(false,status);
             }
             if(window.EventSource){
-                var src=new EventSource('/__codeflow/events');
+                src=new EventSource('/__codeflow/events');
                 src.onmessage=function(ev){
                     try{
                         var payload=JSON.parse(ev.data||'{}');
@@ -1121,6 +1132,7 @@ function App(){
                 };
             }
         }).catch(function(){});
+        return function(){src?.close();};
     }
 
     useEffect(function(){
@@ -1133,10 +1145,11 @@ function App(){
     },[currentHydrationId,cliDirty,localSourceKind,cliStatus,cliLiveByPath]);
 
     async function analyzeFromCli(force,statusHint,wantedRoot){
+        const selectionSignal=projectLoading.begin();
         var status=statusHint||cliStatus;
         if(!status||!status.ok){
             try{
-                var statusRes=await fetch('/__codeflow/status');
+                var statusRes=await fetch('/__codeflow/status',{signal:selectionSignal});
                 if(statusRes.ok){
                     var nextStatus=await statusRes.json();
                     if(nextStatus&&nextStatus.ok)status=nextStatus;
@@ -1144,6 +1157,7 @@ function App(){
             }catch(e){}
             if((!status||!status.ok)&&!force)return;
         }
+        if(selectionSignal.aborted)return;
         if(wantedRoot&&!cliRecordMatchesStatus({sourceKey:wantedRoot},status)){
             showNotification('Restart the CLI in that folder to re-analyze it.','warning');
             return false;
@@ -1153,8 +1167,9 @@ function App(){
         cliWatchDuringRef.current=[];
         cliWatchReadRef.current=Object.create(null);
         cliWatchSnapRevRef.current=Object.create(null);
-        cliAnalyzingRef.current=true;
         resetAnalysisState();
+        cliAnalyzingRef.current=true;
+        const loadSignal=projectLoading.signal;
         setLocalDirHandle(null);
         localFolderKeyRef.current=null;
         localFolderSelectionRef.current=null;
@@ -1166,7 +1181,7 @@ function App(){
         setProgress('Reading local folder from CLI...');
         try{
 
-            var listRes=await fetch('/__codeflow/files');
+            var listRes=await fetch('/__codeflow/files',{signal:loadSignal});
             if(!listRes.ok)throw new Error('CLI file list failed');
             var list=await listRes.json();
             var files=filterAnalyzableLocalFiles(list&&list.files?list.files:[],activeExcludePatterns);
@@ -1174,6 +1189,7 @@ function App(){
             var analyzed=[];
 
             for(var i=0;i<files.length;i++){
+                if(loadSignal.aborted)return;
                 var f=files[i];
                 if(i>0&&i%40===0)await yieldToBrowser();
                 setProgress('Analyzing '+(i+1)+'/'+files.length+': '+f.name);
@@ -1181,11 +1197,12 @@ function App(){
                     analyzed.push(makeOversizedAnalysisFile(f,f.size));
                     continue;
                 }
-                var fileRes=await fetch('/__codeflow/file?path='+encodeURIComponent(f.path));
+                var fileRes=await fetch('/__codeflow/file?path='+encodeURIComponent(f.path),{signal:loadSignal});
                 if(!fileRes.ok){
                     analyzed.push(makeFetchFailedAnalysisFile(f));
                     continue;
                 }
+                if(loadSignal.aborted)return;
                 var pathKey=normalizeCliWatchPath(f.path);
                 cliWatchReadRef.current[pathKey]=true;
                 var snapRev=cliWatchSnapRevFromResponse(fileRes);
@@ -1201,16 +1218,18 @@ function App(){
             }
             var snapshot=null;
             if(status.beam){
-                var beamRes=await fetch('/__codeflow/beam');
+                var beamRes=await fetch('/__codeflow/beam',{signal:loadSignal});
                 if(!beamRes.ok)throw new Error('Compiler snapshot request failed');
                 snapshot=await beamRes.json();
             }
             var dataObj=await runAnalysisData({
+                signal:loadSignal,
                 files:analyzed,
                 excludePatterns:activeExcludePatterns.map(function(x){return x.raw;}),
-                progress:setProgress,
+                progress:function(message){if(!loadSignal.aborted)setProgress(message);},
                 yieldFn:yieldToBrowser
             });
+            if(loadSignal.aborted)return;
             if(status.beam)dataObj=buildBeamAnalysisData({data:dataObj,snapshot:snapshot});
             var cliInfo={owner:'local',repo:'cli',name:cliMeta.title,cliRoot:cliMeta.sourceKey};
             var keep=retainCliWatchPathsAfterAnalysis(cliWatchDuringRef.current,cliWatchReadRef.current,cliWatchSnapRevRef.current);
@@ -1218,6 +1237,7 @@ function App(){
             cliWatchDuringRef.current=[];
             cliWatchReadRef.current=Object.create(null);
             cliWatchSnapRevRef.current=Object.create(null);
+            if(loadSignal.aborted)return;
             setData(dataObj);
             setExpandedPaths(new Set(['']));
             setRepoInfo(cliInfo);
@@ -1228,6 +1248,7 @@ function App(){
             setLoading(false);
             return true;
         }catch(err){
+            if(loadSignal.aborted)return;
             cliAnalyzingRef.current=false;
             cliWatchDuringRef.current=[];
             cliWatchReadRef.current=Object.create(null);
@@ -1238,6 +1259,8 @@ function App(){
     }
 
     function resetAnalysisState(){
+        projectLoading.begin();
+        cliAnalyzingRef.current=false;
         setError(null);
         setData(null);
         setSelected(null);
@@ -1307,13 +1330,15 @@ function App(){
         var githubKey=githubCacheSourceKey(p.owner,p.repo,activeExcludePatterns);
         var cacheId=analysisCacheKey('github',githubKey);
         if(!shouldForce){
+            const cacheSignal=projectLoading.begin();
             getRecentAnalysis(cacheId).then(function(record){
+                if(cacheSignal.aborted)return;
                 if(record&&record.data&&cachedAnalysisMatchesExcludes(record,activeExcludePatterns)){
                     applyCachedAnalysis(record);
                     return;
                 }
-                analyze(true);
-            }).catch(function(){analyze(true);});
+                analyze(true,p.owner+'/'+p.repo);
+            }).catch(function(){if(!cacheSignal.aborted)analyze(true,p.owner+'/'+p.repo);});
             return;
         }
         var currentExcludePatterns=activeExcludePatterns;
@@ -1328,6 +1353,7 @@ function App(){
         }
 
         resetAnalysisState();
+        const loadSignal=projectLoading.signal;
         setLocalDirHandle(null);
         setLocalSourceKind(null);
         zipArchiveRef.current=null;
@@ -1361,10 +1387,10 @@ function App(){
             authPromise=Promise.resolve();
         }
 
-        authPromise.then(function(){
+        authPromise.then(function(){loadSignal.throwIfAborted();
             setProgress('Checking rate limit...');
             return GitHub.getRateLimit();
-        }).then(function(rl){
+        }).then(function(rl){loadSignal.throwIfAborted();
             var hasAuth=!!GitHub.token||authMethod==='github_app';
             var estimatedRequests=50;// Conservative estimate for a small-medium repo
 
@@ -1385,19 +1411,19 @@ function App(){
                         'GitHub App: use App ID + Private Key for organization access\n\n'+
                         'Continue anyway with the remaining requests?',
                     confirmLabel:'Continue anyway'
-                }).then(function(proceed){
+                }).then(function(proceed){loadSignal.throwIfAborted();
                     if(!proceed){
                         setLoading(false);
                         return Promise.reject('cancelled');
                     }
                     setProgress('Scanning repository...');
-                    return GitHub.scan(p.owner,p.repo,setProgress,currentExcludePatterns);
+                    return GitHub.scan(p.owner,p.repo,function(message){if(!loadSignal.aborted)setProgress(message);},currentExcludePatterns);
                 });
             }
 
             setProgress('Scanning repository...');
-            return GitHub.scan(p.owner,p.repo,setProgress,currentExcludePatterns);
-        }).then(function(files){
+            return GitHub.scan(p.owner,p.repo,function(message){if(!loadSignal.aborted)setProgress(message);},currentExcludePatterns);
+        }).then(function(files){loadSignal.throwIfAborted();
             if(!files)return;// Cancelled
             if(!files.length)throw new Error(currentExcludePatterns.length?'No code files found after applying exclude patterns':'No code files found');
             var SOFT_LIMIT=ANALYSIS_LIMITS.repoSoft,HARD_LIMIT=ANALYSIS_LIMITS.repoMax;
@@ -1409,6 +1435,7 @@ function App(){
                 var analyzed=[];
 
                 function processFile(i){
+                    if(loadSignal.aborted)return;
                     if(i>=max){finishAnalysis();return;}
                     var f=files[i];
                     setProgress('Analyzing '+(i+1)+'/'+max+': '+f.name);
@@ -1422,7 +1449,7 @@ function App(){
                         Promise.all([
                             GitHub.getFile(p.owner,p.repo,f.path),
                             GitHub.getCommits(p.owner,p.repo,f.path,10).catch(function(){return[];})
-                        ]).then(function(results){
+                        ]).then(function(results){loadSignal.throwIfAborted();
                             var content=results[0];
                             var commits=results[1];
                             if(typeof content==='string'){
@@ -1437,7 +1464,7 @@ function App(){
                             processFile(i+1);
                         }).catch(function(){analyzed.push(makeFetchFailedAnalysisFile(f));processFile(i+1);});
                     }else{
-                        GitHub.getFile(p.owner,p.repo,f.path).then(function(content){
+                        GitHub.getFile(p.owner,p.repo,f.path).then(function(content){loadSignal.throwIfAborted();
 
                             analyzed.push({path:f.path,name:f.name,folder:f.folder,content:content||'',churn:0});
                             processFile(i+1);
@@ -1449,17 +1476,20 @@ function App(){
                 }
 
                 async function finishAnalysis(){
+                    if(loadSignal.aborted)return;
                     try{
                         var dataObj=await runAnalysisData({
+                            signal:loadSignal,
                             files:analyzed,
                             excludePatterns:currentExcludePatterns.map(function(x){return x.raw;}),
-                            progress:setProgress,
+                            progress:function(message){if(!loadSignal.aborted)setProgress(message);},
                             yieldFn:yieldToBrowser
                         });
                         var failedCount=analyzed.filter(function(af){return af.analysisSkipped==='fetch-failed';}).length;
                         if(failedCount>0){
                             showNotification(failedCount+' of '+analyzed.length+' files could not be fetched (GitHub rate limit?). Results are PARTIAL — add a token or use Open ZIP for full analysis.','warning');
                         }
+                        if(loadSignal.aborted)return;
                         setData(dataObj);
                         setExpandedPaths(new Set(['']));
                         setCachedFromId(null);
@@ -1467,6 +1497,7 @@ function App(){
                         window.history.replaceState({},'',buildAppUrl(p.owner+'/'+p.repo,false));
                         setLoading(false);
                     }catch(err){
+                        if(loadSignal.aborted)return;
                         setError('Analysis failed: '+(err.message||err)+'. Try a smaller repository.');
                         setLoading(false);
                     }
@@ -1487,7 +1518,7 @@ function App(){
                         'The folder picker is faster when the API is rate-limited. You can also download a ZIP and use Open ZIP.\n\n'+
                         'Tip: add a token or GitHub App for higher limits.',
                     confirmLabel:'Analyze repository'
-                }).then(function(proceed){
+                }).then(function(proceed){loadSignal.throwIfAborted();
                     if(!proceed){
                         setLoading(false);
                         return Promise.reject('cancelled');
@@ -1507,7 +1538,7 @@ function App(){
                         'The browser cannot fetch GitHub zipballs directly because GitHub redirects those downloads to a CORS-restricted host.\n\n'+
                         'Continue now with a '+HARD_LIMIT+'-file API sample?',
                     confirmLabel:'Analyze sample'
-                }).then(function(proceed){
+                }).then(function(proceed){loadSignal.throwIfAborted();
                     if(!proceed){
                         setLoading(false);
                         return Promise.reject('cancelled');
@@ -1517,7 +1548,7 @@ function App(){
             }
 
             return beginRepoAnalysis();
-        }).catch(function(e){if(e!=='cancelled'){setError(e.message||e);setLoading(false);}});
+        }).catch(function(e){if(!loadSignal.aborted&&e!=='cancelled'){setError(e.message||e);setLoading(false);}});
     }
 
     function launchLocalFolderPicker(compiledPatterns){
@@ -1661,6 +1692,7 @@ function App(){
     }
 
     async function readLocalFolder(dirHandle, compiledPatterns, path=''){
+        const loadSignal=projectLoading.signal;
         var files=[];
         var SOFT_LIMIT=ANALYSIS_LIMITS.localSoft;
         var fileCount=0;
@@ -1668,6 +1700,7 @@ function App(){
 
         async function readDirectory(handle, currentPath){
             for await (const entry of handle.values()){
+                if(loadSignal.aborted)return;
                 var entryPath=currentPath?currentPath+'/'+entry.name:entry.name;
                 if(entry.kind==='directory'){
                     if(!shouldIgnoreDirectory(entryPath,entry.name,compiledPatterns)){
@@ -1687,6 +1720,7 @@ function App(){
         }
 
         await readDirectory(dirHandle,'');
+        if(loadSignal.aborted)return;
 
         if(fileCount>SOFT_LIMIT){
             var proceed=await requestConfirm({
@@ -1699,6 +1733,7 @@ function App(){
                     'Continue with all '+fileCount+' files?',
                 confirmLabel:'Analyze all files'
             });
+            if(loadSignal.aborted)return;
             if(!proceed){setLoading(false);return;}
         }
         var max=files.length;
@@ -1706,6 +1741,7 @@ function App(){
 
         async function processFiles(){
             for(var i=0;i<files.length;i++){
+                if(loadSignal.aborted)return;
                 var f=files[i];
                 if(i>0&&i%50===0)await yieldToBrowser();
                 setProgress('Reading '+(i+1)+'/'+files.length+': '+f.name);
@@ -1722,17 +1758,22 @@ function App(){
         }
 
         async function finishAnalysis(){
+            if(loadSignal.aborted)return;
             try{
                 var dataObj=await runAnalysisData({
+                    signal:loadSignal,
                     files:analyzed,
                     excludePatterns:(compiledPatterns||[]).map(function(x){return x.raw;}),
-                    progress:setProgress,
+                    progress:function(message){if(!loadSignal.aborted)setProgress(message);},
                     yieldFn:yieldToBrowser
                 });
+                if(loadSignal.aborted)return;
                 if(!localFolderSelectionRef.current)localFolderSelectionRef.current=newLocalSelectionId();
+                if(loadSignal.aborted)return;
                 var folderMeta=localFolderCacheMeta({title:dirHandle&&dirHandle.name,paths:analyzed.map(function(af){return af.path;}),selectionId:localFolderSelectionRef.current});
                 var folderInfo={owner:'local',repo:'folder',name:folderMeta.title,folderKey:folderMeta.sourceKey,folderSelectionId:folderMeta.selectionId};
                 localFolderKeyRef.current=folderMeta.sourceKey;
+                if(loadSignal.aborted)return;
                 setData(dataObj);
                 setExpandedPaths(new Set(['']));
                 setRepoInfo(folderInfo);
@@ -1740,6 +1781,7 @@ function App(){
                 persistCurrentAnalysis(dataObj,{sourceType:'folder',sourceKey:folderMeta.sourceKey,title:folderMeta.title,repoUrl:'',repoInfo:folderInfo,localSourceKind:'folder'});
                 setLoading(false);
             }catch(err){
+                if(loadSignal.aborted)return;
                 setError('Analysis failed: '+(err.message||err)+'. Try a smaller folder or subfolder.');
                 setLoading(false);
             }
@@ -1755,6 +1797,7 @@ function App(){
     }
 
     async function readLocalFolderFromFiles(fileObjs,compiledPatterns){
+        const loadSignal=projectLoading.signal;
         var patterns=compiledPatterns||activeExcludePatterns;
         var SOFT_LIMIT=ANALYSIS_LIMITS.localSoft;
         try{
@@ -1800,13 +1843,15 @@ function App(){
                         'Continue with all '+fileCount+' files?',
                     confirmLabel:'Analyze all files'
                 });
-                if(!proceed){setLoading(false);return;}
+                if(loadSignal.aborted)return;
+            if(!proceed){setLoading(false);return;}
             }
 
             var max=files.length;
             var analyzed=[];
 
             for(var i=0;i<max;i++){
+                if(loadSignal.aborted)return;
                 var f=files[i];
                 if(i>0&&i%50===0)await yieldToBrowser();
                 setProgress('Analyzing '+(i+1)+'/'+max+': '+f.name);
@@ -1824,15 +1869,18 @@ function App(){
             }
 
             var dataObj=await runAnalysisData({
+                signal:loadSignal,
                 files:analyzed,
                 excludePatterns:(patterns||[]).map(function(x){return x.raw;}),
-                progress:setProgress,
+                progress:function(message){if(!loadSignal.aborted)setProgress(message);},
                 yieldFn:yieldToBrowser
             });
             if(!localFolderSelectionRef.current)localFolderSelectionRef.current=newLocalSelectionId();
+            if(loadSignal.aborted)return;
             var folderMeta=localFolderCacheMeta({title:'',rootPrefix:rootPrefix,paths:analyzed.map(function(af){return af.path;}),selectionId:localFolderSelectionRef.current});
             var folderInfo={owner:'local',repo:'folder',name:folderMeta.title,folderKey:folderMeta.sourceKey,folderSelectionId:folderMeta.selectionId};
             localFolderKeyRef.current=folderMeta.sourceKey;
+            if(loadSignal.aborted)return;
             setData(dataObj);
             setExpandedPaths(new Set(['']));
             setRepoInfo(folderInfo);
@@ -1840,12 +1888,14 @@ function App(){
             persistCurrentAnalysis(dataObj,{sourceType:'folder',sourceKey:folderMeta.sourceKey,title:folderMeta.title,repoUrl:'',repoInfo:folderInfo,localSourceKind:'folder'});
             setLoading(false);
         }catch(err){
+            if(loadSignal.aborted)return;
             setError('Analysis failed: '+(err.message||err)+'. Try a smaller folder or subfolder.');
             setLoading(false);
         }
     }
 
     async function readZipArchive(zipFile,compiledPatterns){
+        const loadSignal=projectLoading.signal;
         var patterns=compiledPatterns||activeExcludePatterns;
         var SOFT_LIMIT=ANALYSIS_LIMITS.localSoft;
         try{
@@ -1853,6 +1903,7 @@ function App(){
 
             setProgress('Reading ZIP archive...');
             var zip=await JSZip.loadAsync(zipFile);
+            if(loadSignal.aborted)return;
             var rawEntries=Object.keys(zip.files).sort().map(function(name){return zip.files[name];}).filter(function(entry){return entry&&!entry.dir;});
             var rootPrefix=getArchiveRootPrefix(rawEntries.map(function(entry){return entry.name;}));
             var files=[];
@@ -1892,6 +1943,7 @@ function App(){
                         'Continue with all '+fileCount+' files?',
                     confirmLabel:'Analyze all files'
                 });
+                if(loadSignal.aborted)return;
                 if(!proceed){setLocalSourceKind(null);zipFileRef.current=null;setLoading(false);return;}
             }
 
@@ -1904,6 +1956,7 @@ function App(){
             var analyzed=[];
 
             for(var i=0;i<max;i++){
+                if(loadSignal.aborted)return;
                 var f=files[i];
                 if(i>0&&i%50===0)await yieldToBrowser();
                 setProgress('Analyzing '+(i+1)+'/'+max+': '+f.name);
@@ -1921,11 +1974,13 @@ function App(){
             }
 
             var dataObj=await runAnalysisData({
+                signal:loadSignal,
                 files:analyzed,
                 excludePatterns:(patterns||[]).map(function(x){return x.raw;}),
-                progress:setProgress,
+                progress:function(message){if(!loadSignal.aborted)setProgress(message);},
                 yieldFn:yieldToBrowser
             });
+            if(loadSignal.aborted)return;
             var zipMeta=zipArchiveCacheMeta({
                 name:zipFile.name,
                 size:zipFile.size,
@@ -1934,6 +1989,7 @@ function App(){
             });
             var zipInfo={owner:'local',repo:'zip',name:zipMeta.title,zipKey:zipMeta.sourceKey};
             zipKeyRef.current=zipMeta.sourceKey;
+            if(loadSignal.aborted)return;
             setData(dataObj);
             setExpandedPaths(new Set(['']));
             setRepoInfo(zipInfo);
@@ -1941,6 +1997,7 @@ function App(){
             persistCurrentAnalysis(dataObj,{sourceType:'zip',sourceKey:zipMeta.sourceKey,title:zipMeta.title,repoUrl:'',repoInfo:zipInfo,localSourceKind:'zip'});
             setLoading(false);
         }catch(err){
+            if(loadSignal.aborted)return;
             setLocalSourceKind(null);
             zipArchiveRef.current=null;
             setError('Failed to analyze ZIP archive: '+(err.message||err));
@@ -4401,7 +4458,8 @@ function App(){
         navigator.clipboard.writeText(shareUrl).then(function(){showNotification('Link copied to clipboard!');}).catch(function(){showNotification('Failed to copy link','error');});
     }
     function analyzePR(){if(!prUrl||!repoInfo)return;var m=prUrl.match(/\/pull\/(\d+)/);if(!m){showNotification('Invalid PR URL','error');return;}GitHub.getPR(repoInfo.owner,repoInfo.repo,m[1]).then(function(pr){if(pr)setPrData(pr);else showNotification('Could not load PR','error');});}
-    function resetAnalysis(){setData(null);setSelected(null);setBlastRadius(null);setOwnership(null);setRepoInfo(null);setRepoUrl('');setPrData(null);setFolderFilter(null);setLocalDirHandle(null);setLocalSourceKind(null);setArchitectureIncludeTests(false);setArchitectureIncludeBuildOutput(false);setCachedFromId(null);setActiveSymbol(null);setCliDirty([]);clearCliLiveDiffs();localFolderKeyRef.current=null;localFolderSelectionRef.current=null;localFilesRef.current=null;zipKeyRef.current=null;zipArchiveRef.current=null;zipFileRef.current=null;window.history.replaceState({},'',window.location.pathname);}
+    function resetAnalysis(){
+        projectLoading.dispose();setLoading(false);setError(null);cliAnalyzingRef.current=false;setData(null);setSelected(null);setBlastRadius(null);setOwnership(null);setRepoInfo(null);setRepoUrl('');setPrData(null);setFolderFilter(null);setLocalDirHandle(null);setLocalSourceKind(null);setArchitectureIncludeTests(false);setArchitectureIncludeBuildOutput(false);setCachedFromId(null);setActiveSymbol(null);setCliDirty([]);clearCliLiveDiffs();localFolderKeyRef.current=null;localFolderSelectionRef.current=null;localFilesRef.current=null;zipKeyRef.current=null;zipArchiveRef.current=null;zipFileRef.current=null;window.history.replaceState({},'',window.location.pathname);}
     function filterByFolder(path){setFolderFilter(function(prev){return prev===path?null:path;});}
     function renderRecentsList(){
         return React.createElement('div',{className:'sidebar-scroll'},

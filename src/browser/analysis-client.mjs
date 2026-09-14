@@ -3,18 +3,27 @@ import workerSource from 'codeflow:analysis-worker';
 // Transport owns lifecycle only; both execution paths use the same analyzer.
 export function createAnalysisClient({analyzeFiles,yieldFn,Worker=globalThis.Worker}){
     return function runAnalysisData(options){
-        if(!Worker)return analyzeFiles({...options,yieldFn});
+        const signal=options.signal;
+        async function runLocally(){
+            signal?.throwIfAborted();
+            const result=await analyzeFiles({...options,yieldFn:async()=>{await yieldFn();signal?.throwIfAborted();}});
+            signal?.throwIfAborted();return result;
+        }
+        if(!Worker)return runLocally();
         return new Promise((resolve,reject)=>{
+            if(signal?.aborted){reject(signal.reason);return;}
             const url=URL.createObjectURL(new Blob([workerSource],{type:'text/javascript'}));
             let worker;
-            const cleanup=()=>{worker?.terminate();URL.revokeObjectURL(url);};
+            const cleanup=()=>{signal?.removeEventListener('abort',abort);worker?.terminate();URL.revokeObjectURL(url);};
+            const abort=()=>{cleanup();reject(signal.reason);};
             try{worker=new Worker(url);}catch(error){
                 cleanup();
                 // Browser policy can prohibit workers for a local-file page.
                 // Analysis errors from a running worker are never retried here.
-                resolve(analyzeFiles({...options,yieldFn}));
+                resolve(runLocally());
                 return;
             }
+            signal?.addEventListener('abort',abort,{once:true});
             worker.onmessage=({data:message})=>{
                 if(message.type==='progress'){options.progress?.(message.message);return;}
                 cleanup();
