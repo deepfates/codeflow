@@ -64962,7 +64962,7 @@ This problem is likely caused by another plugin injecting
                             "div",
                             { className: "fn-callers" },
                             React.createElement("div", { className: "fn-callers-title" }, "External callers:"),
-                            st.callers.slice(0, 8).map(function(c, i) {
+                            st.callers.map(function(c, i) {
                               return React.createElement(
                                 "div",
                                 { key: i, className: "fn-caller", onClick: function() {
@@ -64972,8 +64972,7 @@ This problem is likely caused by another plugin injecting
                                 React.createElement("span", null, c.name),
                                 React.createElement("span", { style: { marginLeft: "auto", color: "var(--t3)" } }, c.count, "\xD7")
                               );
-                            }),
-                            st.callers.length > 8 && React.createElement("div", { style: { fontSize: 9, color: "var(--t3)", padding: "4px 6px" } }, "+", st.callers.length - 8, " more")
+                            })
                           ),
                           intCalls === 0 && extCalls === 0 && React.createElement(
                             "div",
