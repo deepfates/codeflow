@@ -39,7 +39,8 @@ published SHA-256 digest and caches it under `~/.cache/codeflow`. Its launcher m
 install additional dependencies. Set `CODEFLOW_ELIXIR_LS` to use an existing launcher.
 `--source-only` disables language-server startup and Credo collection; the saved
 compiler graph is still read. `--no-open` prints the URL without opening a browser.
-Browser libraries are included under `vendor/`; no frontend build is needed.
+Browser libraries and built application bundles are checked in under `vendor/` and
+`dist/`; running the app needs no frontend build.
 
 Graph keeps Codeflow's file nodes, connections, layouts and folder filtering.
 Compiler references enrich the same graph alongside source-analysis relationships,
@@ -221,7 +222,7 @@ git clone https://github.com/braedonsaunders/codeflow.git
 open index.html
 ```
 
-No build process. No npm install. Clone the whole repository: `index.html` loads pinned,
+No build or npm install is needed to open the app. Clone the whole repository: `index.html` loads pinned,
 checked-in browser dependencies from `vendor/`, so a fresh local launch works without a network connection.
 
 ### Option 3: Local CLI
@@ -425,7 +426,7 @@ node scripts/vendor-browser-deps.mjs
 The vendored runtime includes:
 - React 18
 - D3.js 7
-- Babel (for JSX)
+- Babel (for JavaScript/TypeScript source analysis)
 
 ---
 
@@ -434,9 +435,31 @@ The vendored runtime includes:
 We love contributions! Here's how:
 
 1. Fork the repo
-2. Make your changes to `index.html`
-3. Test locally (just open in browser)
+2. Change the source modules under `src/`
+3. Run `npm run build`, then test the ordinary app
 4. Submit a PR
+
+The HTML file owns the document and styles. The application code lives in modules:
+
+- `src/project/`: shared exclusion policy, source identity, change tracking, tree and export; GitHub acquisition has an explicit adapter.
+- `src/analysis/`: parser runtime factory, shared file classification, project assembly, architecture, metrics and provider evidence enrichment.
+- `src/investigation/`: source navigation, history, workspace, preferences and recent-analysis persistence.
+- `src/views/`: card geometry, graph styling, links, camera, minimap and source rendering.
+- `src/browser/app.mjs`: React composition and remaining view/controller code. `src/browser/analysis-client.mjs` owns worker transport; `src/worker/analysis-worker.mjs` and `src/node/analysis.mjs` configure the same analysis engine.
+
+`npm run build` uses pinned esbuild to produce the shipped `dist/` artifacts.
+They are checked in to preserve the no-build `file://` entry point. The worker
+includes its syntax runtimes and the Elixir/Python grammars used by analysis;
+local-file analysis therefore needs no grammar fetch. The Node Babel adapter is
+also bundled so a cold GitHub Action checkout does not need an install step. `npm run build:check`
+compares a fresh deterministic build against the shipped files. Edit the source
+modules, then rebuild; do not edit the generated bundles.
+
+Node imports the canonical modules directly, with Babel’s Node API configured
+to ignore consumer Babel configuration and the same vendored Tree-sitter grammars. The browser never fetches its HTML
+to extract executable code. Source stays in the live project model; recent-analysis
+persistence makes its own compact projection. Raw JSON retains source evidence,
+including Elixir declarations and unresolved calls, alongside findings and links.
 
 Node.js tests live under `tests/`. Install dependencies with `npm ci`. Test files
 run sequentially so other workers do not compete with the existing two-second

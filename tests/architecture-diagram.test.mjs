@@ -3,46 +3,13 @@ import { readdir, readFile } from 'node:fs/promises';
 import { basename, dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import vm from 'node:vm';
+import { createRegexAnalyzer } from './helpers/analysis.mjs';
+import * as architecture from '../src/analysis/architecture.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, '..');
-const htmlSource = await readFile(join(repoRoot, 'index.html'), 'utf8');
-const startMarker = '// ===== CODEFLOW_ANALYZER_START =====';
-const endMarker = '// ===== CODEFLOW_ANALYZER_END =====';
-const parserStart = htmlSource.indexOf(startMarker);
-const parserEnd = htmlSource.indexOf(endMarker, parserStart);
-
-if (parserStart < 0 || parserEnd < 0) {
-  throw new Error('Could not locate analyzer source in index.html');
-}
-
-const context = {
-  console,
-  TreeSitter: undefined,
-  Babel: undefined,
-  acorn: undefined,
-  getSecurityScanContent(file) {
-    return file && file.content ? file.content : '';
-  },
-  isSanitizedPreviewRenderer() {
-    return false;
-  },
-};
-
-vm.createContext(context);
-vm.runInContext(
-  `${htmlSource.slice(parserStart, parserEnd)}\n` +
-    'this.Parser = Parser;' +
-    ' this.buildAnalysisData = buildAnalysisData;' +
-    ' this.buildArchitectureDiagram = buildArchitectureDiagram;' +
-    ' this.generateMermaidBlockDiagram = generateMermaidBlockDiagram;' +
-    ' this.getVisibleArchitectureBlocks = getVisibleArchitectureBlocks;' +
-    ' this.getArchitectureGroupOrder = getArchitectureGroupOrder;',
-  context
-);
-
-const { Parser, buildAnalysisData, buildArchitectureDiagram, generateMermaidBlockDiagram, getVisibleArchitectureBlocks, getArchitectureGroupOrder } = context;
+const { Parser, buildAnalysisData } = createRegexAnalyzer();
+const { buildArchitectureDiagram, generateMermaidBlockDiagram, getVisibleArchitectureBlocks, getArchitectureGroupOrder } = architecture;
 
 test('architecture relationship projection preserves direction and all independent observations', () => {
   const observations = [
@@ -52,7 +19,7 @@ test('architecture relationship projection preserves direction and all independe
     {from:'b',to:'a',kind:'runtime',label:'runtime reference',evidence:'mix xref'},
   ].map(Object.freeze);
   const before = JSON.stringify(observations);
-  const relationships = context.groupArchitectureRelationships(observations);
+  const relationships = architecture.groupArchitectureRelationships(observations);
   assert.equal(relationships.length, 2, 'reverse direction is a separate relationship');
   const forward = relationships.find(r => r.from === 'a');
   assert.deepEqual(Array.from(forward.kinds), ['compile','source-reference']);
@@ -61,7 +28,7 @@ test('architecture relationship projection preserves direction and all independe
   assert.equal(forward.observations.length, 3, 'repeated evidence can describe distinct source observations');
   assert.equal(forward.observations[2], observations[2]);
   assert.equal(JSON.stringify(observations), before, 'projection does not rewrite source evidence');
-  assert.equal(context.groupArchitectureRelationships([
+  assert.equal(architecture.groupArchitectureRelationships([
     {from:'a|b',to:'c'}, {from:'a',to:'b|c'},
   ]).length, 2, 'endpoint identifiers cannot collide through concatenation');
 });
@@ -81,7 +48,7 @@ test('diagram statistics and compact edges share the visible directed relationsh
   ];
   const diagram = {profile:'generic',blocks,dependencies};
   const visible = getVisibleArchitectureBlocks(blocks,false,false);
-  const stats = context.computeArchitectureStats(visible,dependencies);
+  const stats = architecture.computeArchitectureStats(visible,dependencies);
   const compact = generateMermaidBlockDiagram(diagram,false,false,true);
   assert.equal(stats.dependencies, 2);
   assert.equal(stats.dependencyObservations, 4);
@@ -93,7 +60,7 @@ test('diagram statistics and compact edges share the visible directed relationsh
   const full = generateMermaidBlockDiagram(diagram,false,false,false);
   assert.equal(full.split('\n').filter(line => line.includes(' -->|')).length, 4);
   for (const kind of ['compile','runtime','source-reference','database']) assert.ok(full.includes('('+kind+')'), kind+' survives the labeled export');
-  assert.equal(context.computeArchitectureStats(blocks,dependencies).dependencies, 3);
+  assert.equal(architecture.computeArchitectureStats(blocks,dependencies).dependencies, 3);
   assert.match(generateMermaidBlockDiagram(diagram,true,false,true), /test --> a/);
   assert.equal(diagram.dependencies, dependencies, 'full underlying observations remain available to JSON export');
 });
@@ -204,7 +171,7 @@ test('codeflow architecture diagram hides tests by default', async () => {
   const visiblePaths = blockPaths(diagram, false, false);
   assert.ok(visiblePaths.some((path) => /index\.html$/i.test(path)));
   assert.ok(visiblePaths.some((path) => path === 'card/index.js'));
-  assert.ok(visiblePaths.some((path) => path === 'card/lib/analyzer.js'));
+  assert.ok(visiblePaths.some((path) => path === 'src/node/analysis.mjs'));
   assert.ok(visiblePaths.some((path) => path === 'card/lib/collect.js'));
   assert.equal(
     visiblePaths.some((path) => /tests\//i.test(path) || /\.test\.mjs$/i.test(path)),
@@ -228,9 +195,11 @@ test('codeflow architecture diagram uses semantic module dependencies', async ()
   assert.ok(hasDependency(diagram, 'card/lib/analysis.js', 'card/lib/collect.js'));
   assert.ok(hasDependency(diagram, 'card/index.js', 'card/lib/git.js'));
   assert.ok(hasDependency(diagram, 'card/lib/collect.js', 'card/lib/git.js', 'uses GitHub API'));
-  assert.ok(hasDependency(diagram, 'card/lib/analyzer.js', 'card/lib/state.js', 'stores derived state'));
+  assert.ok(hasDependency(diagram, 'card/lib/analysis.js', 'card/lib/state.js'));
+  assert.ok(hasDependency(diagram, 'src/node/analysis.mjs', 'src/analysis/parser.mjs'));
+  assert.ok(hasDependency(diagram, 'src/node/analysis.mjs', 'src/analysis/project.mjs'));
   assert.ok(hasDependency(diagram, 'card/lib/pr.js', 'card/lib/git.js', 'analyzes pull requests'));
-  assert.ok(hasDependency(diagram, 'index.html', 'card/lib/analyzer.js', 'runs analysis'));
+  assert.ok(hasDependency(diagram, 'src/analysis/project.mjs', 'src/analysis/architecture.mjs'));
 
   const labels = diagram.dependencies.map((dep) => dep.label);
   assert.equal(labels.some((label) => /^uses \d+ calls?$/i.test(label)), false);
@@ -343,5 +312,29 @@ test('web-app fixture classifies backend barrels and shared indexes without rout
     assert.equal(/src\/hooks\/index\.ts/i.test(files), false);
     assert.equal(/src\/ui\/components\/index\.ts/i.test(files), false);
     assert.equal(/src\/platforms\/youtube\/schema\/index\.ts/i.test(files), false);
+  }
+});
+
+test('native architecture follows transitive imports from core entry points regardless of input order', () => {
+  const sources = {
+    'src/core/second.mjs':'export function second() { return 2; }',
+    'src/core/unused.mjs':'export function unused() { return 0; }',
+    'src/core/first.mjs':"import { second } from './second.mjs'; export function first() { return second(); }",
+    'card/lib/entry.js':"import { first } from '../../src/core/first.mjs'; export function run() { return first(); }",
+    'index.html':'<!doctype html><title>Example</title>',
+  };
+  function diagramFor(entries) {
+    return buildArchitectureDiagram(entries.map(([path,content])=>({path,content,name:basename(path),
+      folder:dirname(path),isCode:Parser.isCode(path),functions:Parser.extract(content,path),lines:1})));
+  }
+  const entries = Object.entries(sources);
+  for (const ordered of [entries,[...entries].reverse()]) {
+    const diagram = diagramFor(ordered);
+    const visible = blockPaths(diagram,false,false);
+    assert.ok(visible.includes('src/core/first.mjs'));
+    assert.ok(visible.includes('src/core/second.mjs'));
+    assert.equal(visible.includes('src/core/unused.mjs'),false,'unreferenced generic modules are not invented as overview entry points');
+    assert.ok(hasDependency(diagram,'card/lib/entry.js','src/core/first.mjs'));
+    assert.ok(hasDependency(diagram,'src/core/first.mjs','src/core/second.mjs'));
   }
 });

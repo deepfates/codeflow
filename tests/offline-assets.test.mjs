@@ -11,12 +11,13 @@ const vendorRoot = join(repoRoot, 'vendor');
 const html = await readFile(join(repoRoot, 'index.html'), 'utf8');
 const manifest = JSON.parse(await readFile(join(vendorRoot, 'manifest.json'), 'utf8'));
 
-test('browser runtime dependencies are local', () => {
+test('browser runtime dependencies are local', async () => {
   const scriptSources = Array.from(html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["']/gi), (match) => match[1]);
   const stylesheetSources = Array.from(html.matchAll(/<link\b[^>]*\brel=["']stylesheet["'][^>]*\bhref=["']([^"']+)["']/gi), (match) => match[1]);
 
-  assert.equal(scriptSources.length, 12);
-  assert.equal(scriptSources.every((source) => source.startsWith('./vendor/')), true);
+  assert.ok(scriptSources.includes('./dist/app.js'));
+  for(const source of scriptSources)await readFile(join(repoRoot,source));
+  assert.equal(scriptSources.every((source) => source.startsWith('./vendor/')||source.startsWith('./dist/')), true);
   assert.equal(stylesheetSources.some((source) => /^https?:/i.test(source)), false);
   assert.doesNotMatch(html, /importScripts\(\\?["']https?:\/\//i);
   assert.doesNotMatch(html, /treeSitterWasmBase\s*:\s*["']https?:\/\//i);

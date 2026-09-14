@@ -4,7 +4,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import { extractMarkdownLinks, resolveMarkdownLink } from './md-extractors.mjs';
+import {createParser} from '../src/analysis/parser.mjs';
+const {extractMarkdownLinks,resolveMarkdownLink}=createParser();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const VAULT = join(__dirname, 'fixtures', 'vault');

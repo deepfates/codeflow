@@ -6,42 +6,9 @@
 const fs = require('fs');
 const path = require('path');
 
-const { matchesExcludePattern } = require('./exclude.js');
+const { matchesExcludePattern } = require('../../src/project/exclusion-policy.cjs');
 
-const DEFAULT_IGNORES = new Set([
-  '.git',
-  'node_modules', '_build', 'deps', '.elixir_ls',
-  'vendor',
-  '.next',
-  '.nuxt',
-  'dist',
-  'build',
-  'out',
-  'coverage',
-  '.cache',
-  '.parcel-cache',
-  '.turbo',
-  '.vercel',
-  '.local',
-  '.artifacts',
-  '.playwright-cli',
-  'playwright-report',
-  'test-results',
-  '.claude',
-  '.codex',
-  '.idea',
-  '.vscode',
-  '.pnpm-store',
-  '.yarn',
-  'tmp',
-  'temp',
-  '__pycache__',
-  '.venv',
-  'venv',
-  'target',
-  'bin',
-  'obj',
-]);
+const {IGNORE:DEFAULT_IGNORES}=require('../../src/project/exclusion-policy.cjs');
 
 function walk(root, current, files, Parser, excludePatterns) {
   let entries;

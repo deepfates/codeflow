@@ -124,7 +124,11 @@ test('CLI server serves the same UI and folder files', async (t) => {
   const ui = await fetch(base + '/');
   assert.equal(ui.status, 200);
   const html = await ui.text();
-  assert.match(html, /CODEFLOW/);
+  assert.match(html, /<script src="\.\/dist\/app\.js"><\/script>/);
+  const bundle=await fetch(base+'/dist/app.js');
+  assert.equal(bundle.status,200);
+  assert.match(bundle.headers.get('content-type'),/javascript/);
+  assert.equal(await bundle.text(),await readFile(join(repoRoot,'dist/app.js'),'utf8'));
   const files = await (await fetch(base + '/__codeflow/files')).json();
   assert.ok(files.files.some((f) => f.path === 'src/app.js'));
   const file = await fetch(base + '/__codeflow/file?path=src/app.js');

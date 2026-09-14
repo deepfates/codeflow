@@ -295,3 +295,27 @@ test('large architecture maps fit completely and selected blocks become readable
  assert.equal(await svg.locator('path.flowchart-link title').count(),60,'relationship evidence remains available on hover');
  assert.deepEqual(errors,[]);
 });
+
+test('3D graph mounts the native renderer and returns to the same file graph', {
+  skip: !process.env.CODEFLOW_TEST_BROWSER, timeout:60000,
+}, async t => {
+  const root = await mkdtemp(join(tmpdir(),'codeflow-graph3d-'));
+  await writeFile(join(root,'provider.js'),'export function provide() { return 1; }');
+  await writeFile(join(root,'consumer.js'),"import { provide } from './provider.js'; export function consume() { return provide(); }");
+  const {page,errors} = await openProject(t,root);
+  const mode = page.getByRole('combobox',{name:'Visualization type'});
+  await mode.waitFor();
+  await mode.selectOption('graph');
+  await page.waitForFunction(()=>document.querySelectorAll('.canvas-area svg circle.nc').length===2&&[...document.querySelectorAll('.canvas-area svg path')].some(el=>el.__data__?.source?.id==='provider.js'&&el.__data__?.target?.id==='consumer.js'));
+  const before = await page.locator('.canvas-area svg circle.nc').evaluateAll(nodes=>nodes.map(node=>node.__data__.id).sort());
+  await mode.selectOption('graph3d');
+  await page.locator('.graph3d-container canvas').waitFor({state:'visible'});
+  assert.ok(await page.locator('.graph3d-container canvas').evaluate(canvas=>canvas.width>0&&canvas.height>0));
+  await mode.selectOption('graph');
+  await page.waitForFunction(()=>document.querySelectorAll('.canvas-area svg circle.nc').length===2&&[...document.querySelectorAll('.canvas-area svg path')].some(el=>el.__data__?.source?.id==='provider.js'&&el.__data__?.target?.id==='consumer.js'));
+  assert.deepEqual(await page.locator('.canvas-area svg circle.nc').evaluateAll(nodes=>nodes.map(node=>node.__data__.id).sort()),before);
+  assert.equal(await page.locator('.graph3d-container').count(),0);
+  await mode.selectOption('graph3d');
+  await page.locator('.graph3d-container canvas').waitFor({state:'visible'});
+  assert.deepEqual(errors,[]);
+});

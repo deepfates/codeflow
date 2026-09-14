@@ -1,15 +1,10 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import vm from 'node:vm';
+import { createRegexAnalyzer, createNodeAnalyzer } from './helpers/analysis.mjs';
+import { buildBeamAnalysisData } from '../src/analysis/evidence.mjs';
+import { calcHealth } from '../src/analysis/metrics.mjs';
 
-const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
-const context = { console, getSecurityScanContent: file => file.content || '', isSanitizedPreviewRenderer: () => false };
-vm.createContext(context);
-const start = html.indexOf('// ===== CODEFLOW_ANALYZER_START =====');
-const end = html.indexOf('// ===== CODEFLOW_ANALYZER_END =====', start);
-vm.runInContext(html.slice(start, end) + '\nthis.Parser = Parser;', context);
-vm.runInContext(html.slice(html.indexOf('function calcBlast('), html.indexOf('// ===== CODEFLOW_METRICS_END =====')), context);
+const { Parser, buildAnalysisData } = createRegexAnalyzer();
 const plain = value => JSON.parse(JSON.stringify(value));
 
 async function analyze() {
@@ -22,11 +17,11 @@ async function analyze() {
   };
   const analyzed = Object.entries(sources).map(([path, content]) => ({
     path, name: path.split('/').pop(), folder: path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : 'root',
-    content, lines: content.split('\n').length, isCode: context.Parser.isCode(path),
-    functions: context.Parser.isCode(path) ? context.Parser.extract(content, path) : [],
-    layer: context.Parser.detectLayer(path), churn: 0,
+    content, lines: content.split('\n').length, isCode: Parser.isCode(path),
+    functions: Parser.isCode(path) ? Parser.extract(content, path) : [],
+    layer: Parser.detectLayer(path), churn: 0,
   }));
-  return context.buildAnalysisData({ analyzed, allFns: analyzed.flatMap(f => f.functions.map(fn => ({ ...fn, folder: f.folder, layer: f.layer }))), yieldFn: async () => {} });
+  return buildAnalysisData({ analyzed, allFns: analyzed.flatMap(f => f.functions.map(fn => ({ ...fn, folder: f.folder, layer: f.layer }))), yieldFn: async () => {} });
 }
 const snapshot = { status: 'ready', nodes: [{ path: 'lib/server.ex' }, { path: 'lib/client.ex' }],
   edges: [{ source: 'lib/client.ex', target: 'lib/server.ex', kind: 'runtime' }] };
@@ -38,7 +33,7 @@ test('native mixed-language findings, symbols, document links and architecture s
   assert.ok(source.connections.some(c => c.source === 'assets/helper.js' && c.target === 'assets/main.js'));
   assert.ok(source.connections.some(c => c.target === 'README.md' || c.source === 'README.md'), 'fixture must exercise documentation links');
   const before = plain(source);
-  const enriched = context.buildBeamAnalysisData({ data: source, snapshot });
+  const enriched = buildBeamAnalysisData({ data: source, snapshot });
   for (const field of ['functions', 'securityIssues', 'patterns', 'duplicates', 'layerViolations', 'suggestions', 'architectureDiagram', 'tree']) {
     assert.deepEqual(plain(enriched[field]), before[field], field);
   }
@@ -55,32 +50,56 @@ test('native mixed-language findings, symbols, document links and architecture s
 
 test('compiler refresh replaces only compiler edges, including unavailable snapshots', async () => {
   const source = await analyze();
-  const first = context.buildBeamAnalysisData({ data: source, snapshot });
-  const again = context.buildBeamAnalysisData({ data: first, snapshot });
+  const first = buildBeamAnalysisData({ data: source, snapshot });
+  const again = buildBeamAnalysisData({ data: first, snapshot });
   assert.deepEqual(plain(again.connections), plain(first.connections));
-  const absent = context.buildBeamAnalysisData({ data: again, snapshot: { status: 'unavailable', nodes: [], edges: [] } });
+  const absent = buildBeamAnalysisData({ data: again, snapshot: { status: 'unavailable', nodes: [], edges: [] } });
   assert.deepEqual(plain(absent.connections), plain(first.connections.filter(c => c.evidence !== 'mix xref')));
   assert.deepEqual(plain(absent.securityIssues), plain(source.securityIssues));
 });
 
-test('Elixir caller uncertainty is attached to retained candidates and does not penalize health', async () => {
-  const source = await analyze();
-  const callback = { name: 'init', file: 'lib/server.ex', line: 3 };
-  source.deadFunctions = [callback];
-  source.stats.dead = 1;
-  source.fnStats.callback = { ...callback, internal: 0, external: 0 };
-  source.issues.push({ type: 'warning', title: '1 Unused Functions', items: [callback] });
-  source.suggestions.push({ title: 'Remove Dead Code', desc: 'Remove unused functions' });
-  const enriched = context.buildBeamAnalysisData({ data: source, snapshot });
-  assert.equal(enriched.deadFunctions.length, 1);
-  assert.equal(enriched.deadFunctions[0].certainty, 'unverified');
-  assert.equal(enriched.stats.dead, 1);
-  assert.ok(enriched.suggestions.some(suggestion => suggestion.certainty === 'unverified'));
-  assert.ok(!enriched.suggestions.some(suggestion => suggestion.title === 'Remove Dead Code'));
-  assert.equal(enriched.fnStats.callback.usageCertainty, 'unverified');
-  assert.ok(enriched.issues.some(issue => issue.certainty === 'unverified' && issue.items[0].file === callback.file));
-  const withoutCandidates = { ...enriched, deadFunctions: [], stats: { ...enriched.stats, dead: 0 } };
-  assert.deepEqual(plain(context.calcHealth(enriched)), plain(context.calcHealth(withoutCandidates)));
+async function sourceOnly(extension) {
+  const { Parser, buildAnalysisData } = createNodeAnalyzer();
+  const content = extension === 'ex'
+    ? 'defmodule Candidates do\n' + Array.from({ length: 12 }, (_, i) => `  def candidate_${i}(value), do: value`).join('\n') + '\nend'
+    : Array.from({ length: 12 }, (_, i) => `function candidate_${i}(value) { return value + ${i}; }`).join('\n');
+  const path = `lib/candidates.${extension}`;
+  const file = { path, name: `candidates.${extension}`, folder: 'lib', content,
+    lines: content.split('\n').length, isCode: true, layer: Parser.detectLayer(path),
+    functions: Parser.extract(content, path), churn: 0 };
+  return buildAnalysisData({ analyzed: [file], allFns: file.functions, yieldFn: async () => {} });
+}
+
+test('ordinary source analysis retains Elixir candidates with uncertainty before any compiler evidence', async () => {
+  const source = await sourceOnly('ex');
+  assert.equal(source.files[0].elixir.status, 'ready', 'exercise the real grammar');
+  assert.equal(source.deadFunctions.length, 12);
+  assert.equal(source.stats.dead, 12, 'candidates remain available to existing drilldowns');
+  assert.ok(source.deadFunctions.every(fn => fn.certainty === 'unverified'));
+  assert.ok(Object.values(source.fnStats).every(fn => fn.usageCertainty === 'unverified'));
+  assert.ok(source.issues.some(issue => issue.certainty === 'unverified' && issue.items.length === 12));
+  assert.ok(source.suggestions.some(suggestion => suggestion.title === 'Review Functions Without Observed Callers'));
+  assert.ok(!source.suggestions.some(suggestion => suggestion.title === 'Remove Dead Code'));
+  const withoutCandidates = { ...source, deadFunctions: [], stats: { ...source.stats, dead: 0 } };
+  assert.deepEqual(calcHealth(source), calcHealth(withoutCandidates));
+  for (const status of ['ready', 'unavailable']) {
+    const enriched = buildBeamAnalysisData({ data: source, snapshot: { status, nodes: [], edges: [] } });
+    for (const field of ['deadFunctions', 'fnStats', 'issues', 'suggestions']) {
+      assert.deepEqual(enriched[field], source[field], `${status}: compiler availability must not rewrite ${field}`);
+    }
+    assert.deepEqual(calcHealth(enriched), calcHealth(source));
+  }
+});
+
+test('JavaScript caller assessments retain their existing semantics', async () => {
+  const source = await sourceOnly('js');
+  assert.equal(source.deadFunctions.length, 12);
+  assert.ok(source.deadFunctions.every(fn => fn.certainty === undefined));
+  assert.ok(Object.values(source.fnStats).every(fn => fn.usageCertainty === undefined));
+  assert.ok(source.issues.some(issue => issue.title === '12 Unused Functions'));
+  assert.ok(source.suggestions.some(suggestion => suggestion.title === 'Remove Dead Code'));
+  const withoutCandidates = { ...source, deadFunctions: [], stats: { ...source.stats, dead: 0 } };
+  assert.notDeepEqual(calcHealth(source), calcHealth(withoutCandidates));
 });
 
 test('compiler topology enriches existing architecture blocks and refreshes their exported diagram', async () => {
@@ -90,14 +109,23 @@ test('compiler topology enriches existing architecture blocks and refreshes thei
     { id: 'Server', label: 'Server', files: ['lib/server.ex'], group: 'Application', kind: 'module' },
   ];
   source.architectureDiagram.dependencies = [];
-  const enriched = context.buildBeamAnalysisData({ data: source, snapshot });
+  const enriched = buildBeamAnalysisData({ data: source, snapshot });
   assert.deepEqual(plain(enriched.architectureDiagram.blocks), plain(source.architectureDiagram.blocks));
   assert.deepEqual(plain(enriched.architectureDiagram.dependencies), [
     { from: 'Client', to: 'Server', kind: 'runtime', label: 'runtime reference', confidence: 'high', evidence: 'mix xref' },
   ]);
   assert.equal(enriched.architectureDiagram.stats.dependencies, 1);
   assert.match(enriched.architectureDiagram.mermaid, /runtime reference/);
-  const empty = context.buildBeamAnalysisData({ data: enriched, snapshot: { status: 'ready', nodes: snapshot.nodes, edges: [] } });
+  const empty = buildBeamAnalysisData({ data: enriched, snapshot: { status: 'ready', nodes: snapshot.nodes, edges: [] } });
   assert.equal(empty.architectureDiagram.dependencies.length, 0);
   assert.doesNotMatch(empty.architectureDiagram.mermaid, /runtime reference/);
+});
+
+test('analysis retains exact source for the caller and source navigation', async () => {
+  const content = 'export function run(value) {\n  return value + 1;\n}\n';
+  const file = {path:'src/run.js',name:'run.js',folder:'src',content,isCode:true,lines:4,
+    layer:'utils',functions:Parser.extract(content,'src/run.js')};
+  const result = await buildAnalysisData({analyzed:[file],allFns:file.functions});
+  assert.equal(file.content,content,'analysis must not erase source owned by its caller');
+  assert.equal(result.files[0].content,content,'source navigation receives the original text');
 });

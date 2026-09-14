@@ -5,7 +5,8 @@
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { extractMarkdownLinks, resolveMarkdownLink } from './md-extractors.mjs';
+import {createParser} from '../src/analysis/parser.mjs';
+const {extractMarkdownLinks,resolveMarkdownLink}=createParser();
 
 const IGNORE = new Set(['node_modules', '.git', '.obsidian', '__pycache__', '.DS_Store']);
 

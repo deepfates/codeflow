@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Thin local entry point. Serves the same index.html UI and watches a folder.
-// The public app stays one HTML file in the browser.
+// The HTML shell loads the checked-in browser bundle.
 
 import { existsSync, promises as fs, watch } from 'node:fs';
 import http from 'node:http';
@@ -10,15 +10,8 @@ import { spawn } from 'node:child_process';
 import { collectBeamGraph, unavailableBeam } from './beam.mjs';
 import { collectRuntimeSnapshot } from './runtime.mjs';
 
-const IGNORE = new Set([
-  'node_modules', '_build', 'deps', '.elixir_ls', '.git', 'vendor', 'dist', 'build', 'out', 'coverage',
-  '.next', '.nuxt', '.cache', '.parcel-cache', '.turbo', '.vercel', '.local',
-  '.artifacts', '.playwright-cli', 'playwright-report', 'test-results',
-  '.claude', '.codex', '.idea', '.vscode', '.pnpm-store', '.yarn', 'tmp',
-  'temp', 'target', 'bin', 'obj', '__pycache__', '.venv', 'venv', 'env',
-  '.tox', '.mypy_cache', '.pytest_cache', '.ruff_cache', '__pypackages__',
-  '.eggs', '__macosx'
-]);
+import exclusionPolicy from '../src/project/exclusion-policy.cjs';
+const {IGNORE}=exclusionPolicy;
 
 const TEXT_EXT = new Set([
   'js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs', 'py', 'java', 'go', 'rb', 'php',

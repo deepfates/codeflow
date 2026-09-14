@@ -1,3 +1,7 @@
 vendor/** linguist-vendored whitespace=-trailing-space,-space-before-tab
 vendor/**/*.wasm binary
 vendor/**/*.woff2 binary
+
+# esbuild preserves whitespace inside vendored string literals. Source modules
+# remain reviewed normally; generated artifacts are checked by build:check.
+dist/* linguist-generated=true -whitespace

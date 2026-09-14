@@ -3,40 +3,11 @@ import { readdir, readFile } from 'node:fs/promises';
 import { basename, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import vm from 'node:vm';
+import { createNodeAnalyzer } from './helpers/analysis.mjs';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const repoRoot = join(__dirname, '..');
-const htmlSource = await readFile(join(repoRoot, 'index.html'), 'utf8');
-const startMarker = '// ===== CODEFLOW_ANALYZER_START =====';
-const endMarker = '// ===== CODEFLOW_ANALYZER_END =====';
-const parserStart = htmlSource.indexOf(startMarker);
-const parserEnd = htmlSource.indexOf(endMarker, parserStart);
-
-if (parserStart < 0 || parserEnd < 0) {
-  throw new Error('Could not locate analyzer source in index.html');
-}
-
-const context = {
-  console,
-  TreeSitter: undefined,
-  Babel: undefined,
-  acorn: undefined,
-  getSecurityScanContent(file) {
-    return file && file.content ? file.content : '';
-  },
-  isSanitizedPreviewRenderer() {
-    return false;
-  },
-};
-
-vm.createContext(context);
-vm.runInContext(
-  `${htmlSource.slice(parserStart, parserEnd)}\nthis.Parser = Parser; this.buildAnalysisData = buildAnalysisData;`,
-  context
-);
-
-const { Parser, buildAnalysisData } = context;
+const { Parser, buildAnalysisData } = createNodeAnalyzer();
 
 async function collectFixtureFiles(root) {
   const files = [];
@@ -341,4 +312,35 @@ test('Duplicate code: structural duplicates are still detected across non-produc
   );
 
   assert.notEqual(codeDup, undefined);
+});
+
+test('JavaScript detector strings and regexes are not executable security findings', () => {
+  const content = [
+    'const patterns = ["eval(input)", "new Function(source)", "cp.exec(input)", "element.innerHTML = input"];',
+    'const shellPattern = /Shell\\s*\\(/i;',
+    'const databasePattern = "query(`SELECT * FROM users WHERE id = ${id}`)";',
+    'const commentsPattern = /TODO|FIXME|HACK|XXX/;',
+    'const logs = "console.log(1);console.log(2);console.log(3);console.log(4)";',
+    'const errors = "On Error Resume Next;On Error Resume Next;On Error Resume Next";',
+  ].join('\n');
+  const issues = Parser.detectSecurity([{path:'src/detectors.mjs',name:'detectors.mjs',isCode:true,content}]);
+  assert.deepEqual(issues, []);
+});
+
+test('executable eval beside detector strings retains its actual source line and credential literals', () => {
+  const content = [
+    'const pattern = "eval(input)";',
+    'const password = "synthetic-secret-value";',
+    'export function run(input) { return eval(input); }',
+  ].join('\n');
+  const issues = Parser.detectSecurity([{path:'src/execution.mjs',name:'execution.mjs',isCode:true,content}]);
+  assert.equal(issues.find(issue=>issue.title==='Dynamic Code Execution').line,3);
+  assert.equal(issues.find(issue=>issue.title==='Hardcoded Secret').line,2);
+});
+
+test('VBA executable rules apply to VBA while JavaScript strings retain their meaning', () => {
+  const content = 'Sub Run()\n Shell(input)\n On Error Resume Next\n On Error Resume Next\n On Error Resume Next\nEnd Sub';
+  const issues = Parser.detectSecurity([{path:'modules/run.bas',name:'run.bas',isCode:true,content}]);
+  assert.ok(issues.some(issue=>issue.title==='Shell Command Execution'));
+  assert.ok(issues.some(issue=>issue.title==='Excessive Error Suppression'));
 });

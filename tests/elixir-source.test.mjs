@@ -1,16 +1,9 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import test from 'node:test';
-import vm from 'node:vm';
-const require=createRequire(import.meta.url);
-const TreeSitter=require('../vendor/tree-sitter/tree-sitter.js');
-const html=await readFile(new URL('../index.html',import.meta.url),'utf8');
-const context={console,TreeSitter,setTimeout,clearTimeout,CODEFLOW_VENDOR_BASE:new URL('../vendor/',import.meta.url).pathname,getSecurityScanContent:f=>f.content||'',isSanitizedPreviewRenderer:()=>false};
-vm.createContext(context);
-vm.runInContext(html.slice(html.indexOf('// ===== CODEFLOW_ANALYZER_START ====='),html.indexOf('// ===== CODEFLOW_ANALYZER_END ====='))+'\nthis.Parser=Parser;',context);
-await context.Parser.prepareTreeSitter([{path:'lib/example.ex'}]);
-assert.ok(context.Parser.getLoadedTreeSitterParser('lib/example.ex'),'vendored Elixir grammar must load');
+import { createNodeAnalyzer } from './helpers/analysis.mjs';
+const { Parser, buildAnalysisData } = createNodeAnalyzer();
+await Parser.prepareTreeSitter([{path:'lib/example.ex'}]);
+assert.ok(Parser.getLoadedTreeSitterParser('lib/example.ex'),'vendored Elixir grammar must load');
 const plain=x=>JSON.parse(JSON.stringify(x));
 const source=String.raw`defmodule Example do
   use GenServer
@@ -33,7 +26,7 @@ end
 `;
 
 test('real Elixir grammar groups clauses with module, arity, defaults and source ranges',()=>{
- const analysis=context.Parser.analyzeElixir(source,'lib/example.ex');
+ const analysis=Parser.analyzeElixir(source,'lib/example.ex');
  assert.equal(analysis.status,'ready');
  assert.deepEqual(plain(analysis.functions.map(fn=>fn.name)),['Example.fetch/2','Example.helper/1','Example.delegated/1','Example.Nested.fetch/0']);
  const fetch=analysis.functions[0];assert.equal(fetch.clauses.length,3);assert.deepEqual(plain(fetch.acceptedArities),[1,2]);
@@ -47,7 +40,7 @@ test('real Elixir grammar groups clauses with module, arity, defaults and source
 
 async function analyze(sources){
  const files=Object.entries(sources).map(([path,content])=>({path,name:path.split('/').pop(),folder:'lib',content,functions:[],lines:content.split('\n').length,layer:'utils',isCode:true}));
- return context.buildAnalysisData({analyzed:files,allFns:[],yieldFn:async()=>{}});
+ return buildAnalysisData({analyzed:files,allFns:[],yieldFn:async()=>{}});
 }
 
 test('native analysis resolves exact module/arity and keeps dynamic or ambiguous calls unresolved',async()=>{
@@ -85,10 +78,10 @@ end`,
 });
 
 test('quoted generated code and parse failures are explicit rather than guessed definitions',()=>{
- const quoted=context.Parser.analyzeElixir('defmodule Macro do\n defmacro make do\n quote do\n def generated(), do: :ok\n end\n end\nend','macro.ex');
+ const quoted=Parser.analyzeElixir('defmodule Macro do\n defmacro make do\n quote do\n def generated(), do: :ok\n end\n end\nend','macro.ex');
  assert.deepEqual(plain(quoted.functions.map(fn=>fn.name)),['Macro.make/0']);
  assert.ok(quoted.unresolved.some(c=>c.reason.includes('macro expansion')));
- const partial=context.Parser.analyzeElixir('defmodule Broken do\n def run(', 'broken.ex');
+ const partial=Parser.analyzeElixir('defmodule Broken do\n def run(', 'broken.ex');
  assert.equal(partial.status,'partial');
 });
 
@@ -151,16 +144,24 @@ test('browser analysis worker loads the vendored Elixir grammar in its actual wo
  const page=await browser.newPage();
  await page.goto('http://127.0.0.1:'+server.address().port+'/');
  const result=await page.evaluate(async()=>{
-   const workerSource=await createAnalysisWorkerSource();
-   const url=URL.createObjectURL(new Blob([workerSource],{type:'text/javascript'}));
-   const worker=new Worker(url);
+   const worker=new Worker('/dist/analysis-worker.js',{type:'module'});
    try{return await new Promise((resolve,reject)=>{
      worker.onmessage=event=>{if(event.data.type==='done')resolve(event.data.data);else if(event.data.type==='error')reject(new Error(event.data.message));};
      worker.onerror=event=>reject(new Error(event.message));
      worker.postMessage({analyzed:[{path:'lib/example.ex',name:'example.ex',folder:'lib',content:'defmodule Example do\n def run(), do: :ok\nend',functions:[],isCode:true,lines:3,layer:'utils'}],allFns:[]});
-   });}finally{worker.terminate();URL.revokeObjectURL(url);}
+   });}finally{worker.terminate();}
  });
  assert.equal(result.files[0].elixir.status,'ready');
  assert.equal(result.files[0].parserProvenance,'tree-sitter:elixir');
  assert.equal(result.functions[0].name,'Example.run/0');
+});
+
+test('successive Node investigations retain the grammar runtime after initialization',async()=>{
+ const {createNodeAnalyzer}=await import('../src/node/analysis.mjs');
+ for(let i=0;i<3;i++){
+  const {buildAnalysisData}=createNodeAnalyzer();
+  const data=await buildAnalysisData({analyzed:[{path:'lib/repeated.ex',name:'repeated.ex',folder:'lib',content:'defmodule Repeated do\n def run(), do: :ok\nend',functions:[],isCode:true,lines:3}]});
+  assert.equal(data.files[0].elixir.status,'ready','investigation '+i);
+  assert.equal(data.files[0].functions[0].name,'Repeated.run/0');
+ }
 });
