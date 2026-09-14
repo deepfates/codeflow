@@ -3601,8 +3601,12 @@ function App(){
         var card=Array.from(layer.querySelectorAll('[data-code-card]')).find(function(el){return el.dataset.codeCard===focus.path;});
         var line=card&&card.querySelector('[data-line="'+focus.line+'"]'),body=card&&card.querySelector('.code-card-body');
         if(!line||!body)return;
+        var bodyBounds=body.getBoundingClientRect(),lineBounds=line.getBoundingClientRect();
+        var scale=bodyBounds.height/body.offsetHeight;
+        if(!Number.isFinite(scale)||scale<=0)return;
         pendingSourceFocusRef.current=null;
-        body.scrollTop+=line.getBoundingClientRect().top-body.getBoundingClientRect().top-body.clientHeight/2+line.clientHeight/2;
+        // Canvas zoom scales screen rectangles; scrollTop remains in local CSS pixels.
+        body.scrollTop+=(lineBounds.top-bodyBounds.top)/scale-body.clientTop-body.clientHeight/2+line.offsetHeight/2;
     },[sourceFocus,codeViewFiles,cliLiveByPath,graphConfig.vizType]);
     function renderOverviewPane(){
         if(!data)return renderSidebarEmpty('No Repository','Enter a GitHub URL, open a folder, or load a ZIP archive');
