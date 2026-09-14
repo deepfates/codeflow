@@ -101,11 +101,11 @@
         return parseExcludePatterns2(input).map(function(pattern) {
           var lower = pattern.toLowerCase();
           var hasGlob = pattern.includes("*") || pattern.includes("?");
-          var hasPath = pattern.includes("/");
+          var hasPath2 = pattern.includes("/");
           return {
             raw: pattern,
             lower,
-            useGlob: hasGlob || hasPath
+            useGlob: hasGlob || hasPath2
           };
         });
       }
@@ -804,18 +804,86 @@
     }).filter(Boolean);
   }
 
-  // src/investigation/source-actions.mjs
-  function openSourceInvestigation(state, data, { path, replace = false, range }) {
-    const folderFilter = folderFilterAfterCodeNav(path, data, state.folderFilter);
-    const hidden = hiddenOpenedCodePaths(state.openedCodePaths, data, folderFilter);
-    const resolved = resolveOpenCodeCard(state.openedCodePaths, path, Infinity, !!replace, hidden);
-    if (!resolved.opened) return null;
+  // src/investigation/state.mjs
+  function createInvestigationState() {
+    return { selectedPath: null, scope: null, view: "graph", openedPaths: [], range: null, navigation: { entries: [], index: -1 } };
+  }
+  function hasPath(data, path) {
+    return !!path && (data?.files || []).some((file) => file.path === path);
+  }
+  function select(state, action, data) {
+    if (action.path === null) return { ...state, selectedPath: null, range: null };
+    if (!hasPath(data, action.path)) return state;
+    const scope = Object.hasOwn(action, "scope") ? action.scope : state.scope;
+    const view = action.view ?? state.view;
+    const range = action.range ?? null;
+    const location = { path: action.path, scope, view, range, camera: null };
     return {
       ...state,
-      folderFilter,
-      openedCodePaths: resolved.paths,
-      location: { view: "code", scope: folderFilter, range }
+      selectedPath: action.path,
+      scope,
+      view,
+      range,
+      navigation: action.record === false ? state.navigation : recordNavigation(state.navigation, location, action.camera)
     };
+  }
+  function reduceInvestigation(state, action, data) {
+    switch (action.type) {
+      case "reset":
+        return { ...createInvestigationState(), view: action.view ?? "graph" };
+      case "select":
+        return select(state, action, data);
+      case "open": {
+        if (!hasPath(data, action.path)) return state;
+        const scope = folderFilterAfterCodeNav(action.path, data, state.scope);
+        const openedPaths = openCodeCardPaths(state.openedPaths, action.path, Infinity, !!action.replace, hiddenOpenedCodePaths(state.openedPaths, data, scope));
+        return select({ ...state, openedPaths }, { ...action, scope, view: "code" }, data);
+      }
+      case "close": {
+        if (!state.openedPaths.includes(action.path)) return state;
+        const openedPaths = state.openedPaths.filter((path2) => path2 !== action.path);
+        const next = { ...state, openedPaths };
+        if (state.selectedPath !== action.path) return next;
+        const path = openedPaths.filter((path2) => hasPath(data, path2)).at(-1);
+        if (!path) return select(next, { path: null }, data);
+        return select(next, { path, scope: folderFilterAfterCodeNav(path, data, state.scope), camera: action.camera }, data);
+      }
+      case "view": {
+        const next = { ...state, view: action.view };
+        if (!action.enter) return next;
+        if (action.view === "architecture") return select(next, { path: null }, data);
+        if (action.view !== "code") return next;
+        const entry = ensureCodeViewOpenedPaths(state.openedPaths, state.selectedPath, data, state.scope);
+        return entry.opened ? select({ ...next, openedPaths: entry.paths }, { path: entry.seed, camera: action.camera }, data) : next;
+      }
+      case "scope":
+        return { ...state, scope: action.scope };
+      case "history": {
+        const navigation = stepNavigation(state.navigation, action.delta, action.camera);
+        if (!navigation) return state;
+        const location = navigation.entries[navigation.index];
+        if (!hasPath(data, location.path)) return state;
+        const openedPaths = location.view === "code" ? openCodeCardPaths(state.openedPaths, location.path, Infinity, false, hiddenOpenedCodePaths(state.openedPaths, data, location.scope)) : state.openedPaths;
+        return select({ ...state, navigation, openedPaths }, { ...location, record: false }, data);
+      }
+      case "restore": {
+        const workspace = action.workspace;
+        if (!workspace) return state;
+        const navigation = workspace.navigation || { entries: [], index: -1 };
+        const location = navigation.entries[navigation.index];
+        return {
+          ...state,
+          selectedPath: workspace.selected ?? null,
+          scope: workspace.scope ?? null,
+          view: workspace.view,
+          openedPaths: workspace.opened.slice(),
+          navigation,
+          range: location?.path === workspace.selected ? location.range ?? null : null
+        };
+      }
+      default:
+        return state;
+    }
   }
 
   // src/investigation/preferences.mjs
@@ -55552,7 +55620,7 @@ This problem is likely caused by another plugin injecting
   var { analyzeFiles } = createProjectAnalyzer(Parser);
   var runAnalysisData = createAnalysisClient({ analyzeFiles, yieldFn: yieldToBrowser });
   var GitHub = createGitHubAdapter({ KJUR: globalThis.KJUR });
-  var { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } = React;
+  var { useState, useReducer, useEffect, useLayoutEffect, useRef, useMemo, useCallback } = React;
   var COLORS = ["#4d9fff", "#a78bfa", "#22d3ee", "#00ff9d", "#ff9f43", "#ec4899", "#ff5f5f", "#84cc16"];
   var LAYER_COLORS = { ui: "#4d9fff", components: "#22d3ee", services: "#a78bfa", utils: "#00ff9d", data: "#ff9f43", config: "#ec4899", test: "#f59e0b", modules: "#a78bfa", forms: "#22d3ee", classes: "#ff9f43", note: "#c084fc" };
   var ANALYSIS_LIMITS = { repoSoft: 300, repoMax: 750, localSoft: 500 };
@@ -56032,9 +56100,17 @@ This problem is likely caused by another plugin injecting
     var _e = useState(""), progress = _e[0], setProgress = _e[1];
     var _f = useState(null), error = _f[0], setError = _f[1];
     var _g = useState(null), data = _g[0], setData = _g[1];
+    const [investigation, dispatchInvestigation] = useReducer((state, action) => reduceInvestigation(state, action, data), void 0, createInvestigationState);
+    const selected = useMemo(() => data && data.files.find((file) => file.path === investigation.selectedPath) || null, [data, investigation.selectedPath]);
+    const folderFilter = investigation.scope, openedCodePaths = investigation.openedPaths, navigation = investigation.navigation;
+    function setSelected(file) {
+      dispatchInvestigation({ type: "select", path: file ? file.path : null, record: false });
+    }
+    function setFolderFilter(scope) {
+      dispatchInvestigation({ type: "scope", scope: typeof scope === "function" ? scope(folderFilter) : scope });
+    }
     var _h = useState(null), repoInfo = _h[0], setRepoInfo = _h[1];
     var _i = useState("folder"), colorMode = _i[0], setColorMode = _i[1];
-    var _j = useState(null), selected = _j[0], setSelected = _j[1];
     var _k = useState(/* @__PURE__ */ new Set([""])), expandedPaths = _k[0], setExpandedPaths = _k[1];
     var _l = useState(/* @__PURE__ */ new Set(["blast", "fns"])), expandedCards = _l[0], setExpandedCards = _l[1];
     var _leftRail = useState("overview"), leftTab = _leftRail[0], setLeftTab = _leftRail[1];
@@ -56050,10 +56126,16 @@ This problem is likely caused by another plugin injecting
     var _u = useState(null), tooltip = _u[0], setTooltip = _u[1];
     var _v = useState(null), toast = _v[0], setToast = _v[1];
     var _w = useState(false), ownerLoading = _w[0], setOwnerLoading = _w[1];
-    var _x = useState(null), folderFilter = _x[0], setFolderFilter = _x[1];
     var _y = useState(/* @__PURE__ */ new Set()), expandedFns = _y[0], setExpandedFns = _y[1];
     var _z = useState(false), showUnused = _z[0], setShowUnused = _z[1];
-    var _aa = useState({ spacing: 200, linkDist: 70, viewMode: "force", vizType: "graph", showLabels: true, curvedLinks: true }), graphConfig = _aa[0], setGraphConfig = _aa[1];
+    const [graphSettings, setGraphSettings] = useState({ spacing: 200, linkDist: 70, viewMode: "force", showLabels: true, curvedLinks: true });
+    const graphConfig = useMemo(() => ({ ...graphSettings, vizType: investigation.view }), [graphSettings, investigation.view]);
+    function setGraphConfig(update) {
+      const next = typeof update === "function" ? update(graphConfig) : update;
+      const { vizType, ...settings } = next;
+      setGraphSettings(settings);
+      if (vizType !== graphConfig.vizType) dispatchInvestigation({ type: "view", view: vizType });
+    }
     var _ab = useState(false), showGraphConfig = _ab[0], setShowGraphConfig = _ab[1];
     var _ac = useState(260), sidebarWidth = _ac[0], setSidebarWidth = _ac[1];
     var _ad = useState(360), rightPanelWidth = _ad[0], setRightPanelWidth = _ad[1];
@@ -56082,13 +56164,12 @@ This problem is likely caused by another plugin injecting
     var projectSearchResults = useMemo(function() {
       return data ? searchProject(data, fileQuery) : [];
     }, [data, fileQuery]);
-    var fileSearchRef = useRef(null), navigationRef = useRef({ entries: [], index: -1 });
-    var [navigation, setNavigation] = useState(navigationRef.current);
-    function updateNavigation(next) {
-      navigationRef.current = next;
-      setNavigation(next);
-    }
-    var [sourceFocus, setSourceFocus] = useState(null), pendingSourceFocusRef = useRef(null);
+    var fileSearchRef = useRef(null);
+    const sourceFocus = useMemo(() => investigation.range && investigation.selectedPath ? { path: investigation.selectedPath, line: investigation.range.start.line + 1 } : null, [investigation.range, investigation.selectedPath]);
+    var pendingSourceFocusRef = useRef(null);
+    useLayoutEffect(() => {
+      pendingSourceFocusRef.current = sourceFocus;
+    }, [sourceFocus]);
     useEffect(function() {
       function quickOpen(event) {
         if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
@@ -56136,7 +56217,6 @@ This problem is likely caused by another plugin injecting
     function revealSourceLocation(location) {
       var focus = { path: location.path, line: location.range ? location.range.start.line + 1 : 1 };
       pendingSourceFocusRef.current = focus;
-      setSourceFocus(focus);
     }
     async function navigateBeamSymbol(method, path, position) {
       setBeamNavigationError(null);
@@ -56242,7 +56322,6 @@ This problem is likely caused by another plugin injecting
     var cliWatchDuringRef = useRef([]);
     var cliWatchReadRef = useRef(/* @__PURE__ */ Object.create(null));
     var cliWatchSnapRevRef = useRef(/* @__PURE__ */ Object.create(null));
-    var _openedCards = useState([]), openedCodePaths = _openedCards[0], setOpenedCodePaths = _openedCards[1];
     var _sourceFailed = useState(/* @__PURE__ */ Object.create(null)), codeSourceFailed = _sourceFailed[0], setCodeSourceFailed = _sourceFailed[1];
     var _pillScroll = useState(0), codePillScroll = _pillScroll[0], setCodePillScroll = _pillScroll[1];
     var _codeExpand = useState(false), codeViewExpand = _codeExpand[0], setCodeViewExpand = _codeExpand[1];
@@ -57680,84 +57759,70 @@ This problem is likely caused by another plugin injecting
         setLoading(false);
       }
     }
-    var selectFile = useCallback(function(path, navigation2) {
-      if (!data) return;
-      var file = data.files.find(function(f) {
-        return f.path === path;
-      });
-      if (file) {
-        if (!(navigation2 && navigation2.record === false)) {
-          updateNavigation(recordNavigation(navigationRef.current, { path, scope: navigation2 && Object.prototype.hasOwnProperty.call(navigation2, "scope") ? navigation2.scope : folderFilter, view: navigation2 && navigation2.view || graphConfig.vizType, range: navigation2 && navigation2.range || null, camera: null }, snapshotZoomTransform(codeZoomTransformRef.current)));
-        }
-        setSelected(file);
-        setRightTab("details");
-        if (isMobile) {
-          setMobilePanel("details");
-          setLegendCollapsed(true);
-        }
-        var blast = calcBlast(path, data.connections, data.files);
-        setBlastRadius(blast);
-        setOwnership(null);
-        setExpandedFns(/* @__PURE__ */ new Set());
-        if (repoInfo && !localSourceKind) {
-          setOwnerLoading(true);
-          GitHub.getBlame(repoInfo.owner, repoInfo.repo, path).then(function(owners) {
-            setOwnership(owners);
-            setOwnerLoading(false);
-          }).catch(function() {
-            setOwnerLoading(false);
-          });
-        } else if (localSourceKind) {
-          setOwnerLoading(false);
-          setOwnership([]);
-        }
-        selectedPathRef.current = path;
-        if (graphConfig.vizType !== "code") updateGraphHighlight(path, blast);
-        else applyForceLinkVisuals();
-      }
-    }, [data, repoInfo, localSourceKind, isMobile, graphConfig.vizType, folderFilter]);
+    var selectFile = useCallback(function(path, location) {
+      dispatchInvestigation({ type: "select", path, ...location, camera: snapshotZoomTransform(codeZoomTransformRef.current) });
+    }, []);
     selectFileRef.current = selectFile;
+    useEffect(function() {
+      selectedPathRef.current = investigation.selectedPath;
+      if (!selected) {
+        setBlastRadius(null);
+        return;
+      }
+      const blast = calcBlast(selected.path, data.connections, data.files);
+      setBlastRadius(blast);
+      if (graphConfig.vizType !== "code") updateGraphHighlight(selected.path, blast);
+      else applyForceLinkVisuals();
+    }, [data, investigation.selectedPath, graphConfig.vizType]);
+    useEffect(function() {
+      if (!selected) return;
+      setRightTab("details");
+      setExpandedFns(/* @__PURE__ */ new Set());
+      if (isMobile) {
+        setMobilePanel("details");
+        setLegendCollapsed(true);
+      }
+    }, [investigation.selectedPath, navigation]);
+    useEffect(function() {
+      setOwnership(null);
+      setOwnerLoading(false);
+      if (!selected) return;
+      if (localSourceKind) {
+        setOwnership([]);
+        return;
+      }
+      if (!repoInfo) return;
+      let cancelled = false;
+      setOwnerLoading(true);
+      GitHub.getBlame(repoInfo.owner, repoInfo.repo, selected.path).then(function(owners) {
+        if (!cancelled) {
+          setOwnership(owners);
+          setOwnerLoading(false);
+        }
+      }).catch(function() {
+        if (!cancelled) setOwnerLoading(false);
+      });
+      return function() {
+        cancelled = true;
+      };
+    }, [investigation.selectedPath, repoInfo, localSourceKind]);
     function openCodeFile(path, replace, range) {
-      var next = openSourceInvestigation({ openedCodePaths, folderFilter }, data, { path, replace, range });
-      if (!next) return;
-      if (next.folderFilter !== folderFilter) setFolderFilter(next.folderFilter);
-      setOpenedCodePaths((previous) => openSourceInvestigation({ openedCodePaths: previous, folderFilter }, data, { path, replace, range }).openedCodePaths);
+      dispatchInvestigation({ type: "open", path, replace, range, camera: snapshotZoomTransform(codeZoomTransformRef.current) });
       pendingFlyToRef.current = path;
-      selectFile(path, next.location);
     }
     function changeVisualization(view) {
-      setGraphConfig(function(previous) {
-        return Object.assign({}, previous, { vizType: view });
-      });
-      if (view === "code") {
-        var entry = ensureCodeViewOpenedPaths(openedCodePaths, selected && selected.path, data, folderFilter);
-        if (entry.opened) {
-          setOpenedCodePaths(entry.paths);
-          pendingFlyToRef.current = entry.seed;
-          selectFile(entry.seed, { view: "code" });
-        }
-      } else if (view === "architecture") {
-        setSelected(null);
-        setBlastRadius(null);
-      }
+      const action = { type: "view", view, enter: true, camera: snapshotZoomTransform(codeZoomTransformRef.current) };
+      const next = reduceInvestigation(investigation, action, data);
+      if (view === "code" && next.openedPaths !== investigation.openedPaths) pendingFlyToRef.current = next.selectedPath;
+      dispatchInvestigation(action);
     }
     function closeCodeCard(path) {
-      var remaining = openedCodePaths.filter(function(opened) {
-        return opened !== path;
-      });
-      setOpenedCodePaths(remaining);
+      const action = { type: "close", path, camera: snapshotZoomTransform(codeZoomTransformRef.current) };
+      const next = reduceInvestigation(investigation, action, data);
+      if (next.selectedPath !== investigation.selectedPath) pendingFlyToRef.current = next.selectedPath;
+      dispatchInvestigation(action);
       delete codeCardPlacementRef.current[path];
       codeCardUserPinnedRef.current.delete(path);
-      if (selected && selected.path === path) {
-        if (remaining.length) {
-          pendingFlyToRef.current = remaining[remaining.length - 1];
-          selectFile(remaining[remaining.length - 1]);
-        } else {
-          setSelected(null);
-          selectedPathRef.current = null;
-          setBlastRadius(null);
-        }
-      }
     }
     function retryCodeSource(path) {
       if (!path) return;
@@ -57788,23 +57853,11 @@ This problem is likely caused by another plugin injecting
       }
     }
     function navigateHistory(delta) {
-      var history = stepNavigation(navigationRef.current, delta, snapshotZoomTransform(codeZoomTransformRef.current));
-      if (!history) return;
-      var location = history.entries[history.index];
-      updateNavigation(history);
-      setFolderFilter(location.scope);
-      setGraphConfig(function(prev) {
-        return Object.assign({}, prev, { vizType: location.view });
-      });
-      if (location.view === "code") {
-        setOpenedCodePaths(function(prev) {
-          return openCodeCardPaths(prev, location.path, Infinity, false, hiddenOpenedCodePaths(prev, data, location.scope));
-        });
-        pendingFlyToRef.current = null;
-      }
-      selectFile(location.path, { record: false });
-      if (location.view === "graph" || location.view === "code") revealGraphFile(location.path, location.camera);
-      if (location.view === "code" && location.range) revealSourceLocation(location);
+      const next = reduceInvestigation(investigation, { type: "history", delta, camera: snapshotZoomTransform(codeZoomTransformRef.current) }, data);
+      if (next === investigation) return;
+      pendingFlyToRef.current = null;
+      dispatchInvestigation({ type: "history", delta, camera: snapshotZoomTransform(codeZoomTransformRef.current) });
+      if (next.view === "graph" || next.view === "code") revealGraphFile(next.selectedPath, next.navigation.entries[next.navigation.index].camera);
     }
     function updateGraphHighlight(path, blast) {
       if (!nodesRef.current || !linksRef.current) return;
@@ -57982,15 +58035,13 @@ This problem is likely caused by another plugin injecting
       var sceneIdentity = source.sourceType + ":" + source.sourceKey;
       if (sceneIdentity === openedSceneRef.current) return;
       openedSceneRef.current = sceneIdentity;
-      updateNavigation({ entries: [], index: -1 });
+      dispatchInvestigation({ type: "reset", view: graphConfig.vizType });
       setSelectedArchitectureBlock(null);
       setFileQuery("");
-      setSourceFocus(null);
       pendingSourceFocusRef.current = null;
       codeCardPlacementRef.current = /* @__PURE__ */ Object.create(null);
       codeSourceInFlightRef.current = /* @__PURE__ */ Object.create(null);
       setCodeSourceFailed(/* @__PURE__ */ Object.create(null));
-      setOpenedCodePaths([]);
       pendingFlyToRef.current = null;
     }, [currentHydrationId]);
     useEffect(function() {
@@ -58020,17 +58071,7 @@ This problem is likely caused by another plugin injecting
       codeCardPlacementRef.current = restored.placements;
       codeCardUserSizeRef.current = restored.sizes;
       codeCardUserPinnedRef.current = new Set(restored.pinned);
-      setOpenedCodePaths(restored.opened);
-      setFolderFilter(restored.scope);
-      if (restored.selected) selectFile(restored.selected);
-      if (restored.navigation) {
-        updateNavigation(restored.navigation);
-        var location = restored.navigation.entries[restored.navigation.index];
-        if (restored.view === "code" && location && location.path === restored.selected && location.range) revealSourceLocation(location);
-      }
-      setGraphConfig(function(prev) {
-        return Object.assign({}, prev, { vizType: restored.view });
-      });
+      dispatchInvestigation({ type: "restore", workspace: restored });
     }, [currentHydrationId]);
     useEffect(function() {
       if (!data) return;
@@ -58044,7 +58085,7 @@ This problem is likely caused by another plugin injecting
             opened: openedCodePaths,
             view: graphConfig.vizType,
             architectureBlockId: selectedArchitectureBlock,
-            navigation: navigationRef.current,
+            navigation,
             placements: codeCardPlacementRef.current,
             sizes: codeCardUserSizeRef.current,
             pinned: Array.from(codeCardUserPinnedRef.current),
@@ -58059,7 +58100,7 @@ This problem is likely caused by another plugin injecting
         clearInterval(timer);
         window.removeEventListener("pagehide", save);
       };
-    }, [currentHydrationId, folderFilter, selected && selected.path, openedCodePaths, graphConfig.vizType, selectedArchitectureBlock]);
+    }, [currentHydrationId, folderFilter, selected && selected.path, openedCodePaths, graphConfig.vizType, selectedArchitectureBlock, navigation]);
     useEffect(function() {
       var el = codeCanvasRef.current;
       if (!el || graphConfig.vizType !== "code") return;

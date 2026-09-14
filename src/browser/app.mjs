@@ -4,7 +4,7 @@ import {createProjectSource} from '../project/access.mjs';
 import {subscribeCliAnalysis} from '../project/cli-analysis.mjs';
 import {exportAnalysis} from '../project/export.mjs';
 import {highlightSyntax} from '../views/highlight.mjs';
-import {openSourceInvestigation} from '../investigation/source-actions.mjs';
+import {createInvestigationState,reduceInvestigation} from '../investigation/state.mjs';
 import {LINE_THICKNESS_MIN,LINE_THICKNESS_MAX,readUiPrefs,persistUiPrefs} from '../investigation/preferences.mjs';
 import {graphLinkStrokeWidth,scaleStrokeWidth,graph3dLinkWidth,prefersReducedMotion,subscribePrefersReducedMotion,forceLinkVisual,forceLinkParticlesNeedTickUpdate,readableLabelScale,zoomShowsColorBlocks,graphColorBlockSize,graphColorBlockScale,graphColorBlockFill} from '../views/graph-style.mjs';
 import {newLocalSelectionId,localFolderCacheMeta,cliWatchCacheMeta,zipArchiveCacheMeta,retainedFolderMatchesRecord,cliRecordMatchesStatus,zipFileIdentity,retainedZipMatchesRecord,githubCacheSourceKey,githubSourceKeyForLoadedAnalysis,cachedAnalysisMatchesExcludes,githubZipDownloadUrl,analysisCacheKey,analysisGraphKey,graphStructureKey,codeViewSceneKey,analysisHydrationIdFromParts,loadedAnalysisSourceIdentity} from '../project/identity.mjs';
@@ -13,7 +13,7 @@ import {CLI_WATCH_DIFF_MS,normalizeCliWatchPath,noteCliWatchPath,noteCliWatchDur
 import {codeCardSizeForDiff,CODE_CARD_HEAD_HEIGHT,CODE_CARD_WIDTH,normalizeCodeCardPrefs,codeCardSize,clampCodeCardResize,applyCodeCardUserSize} from '../views/card-size.mjs';
 import {nodeReplacedByCard,graphFolderCenters,parkLeftoverCodeNodes,translateCodeViewSiblings,settleCodeViewAfterDrag,liveCodeCollideRadius,appendCodeCardPlacement,reflowUnpinnedCodeCards,liveGraphNodeXY,readCodeCardWorldBoxes,codeFolderHullBounds,preserveGraphNodeState} from '../views/canvas-layout.mjs';
 import {formatRecentTime,armRecentDelete,buildRecentAnalysisRecord,compactAnalysisForCache,listRecentAnalyses,getRecentAnalysis,deleteRecentAnalysis,saveRecentAnalysis} from '../investigation/recent-analyses.mjs';
-import {searchProject,recordNavigation,stepNavigation,folderFilterAfterCodeNav,hiddenOpenedCodePaths,codeCardPlacementKeepSet,pruneCodeCardPlacements,openCodeCardPaths,ensureCodeViewOpenedPaths,filesForOpenedCodePaths} from '../investigation/navigation.mjs';
+import {searchProject,folderFilterAfterCodeNav,codeCardPlacementKeepSet,pruneCodeCardPlacements,filesForOpenedCodePaths} from '../investigation/navigation.mjs';
 import {restoreWorkspace} from '../investigation/workspace.mjs';
 import {codeFileNavOpensCard,graphSvgExportEnabled,vizUsesLineThickness,vizHasGraphToolbar,vizHasCanvasMinimap,vizUsesForceLinkParticles} from '../views/capabilities.mjs';
 import {noteCodeCardPointerEnd,consumeCodeCardClick,codeCardDragDelta,codeCardResizeDelta,codeViewDragRefresh,raiseCodeCardStack,applyCodeCardStackOrder,findCodeCardElement,applyCodeCardDragFrame,applyCodeCardResizeFrame,codeViewWheelAction,codeViewWheelPanDelta,applyCodeCardLayout,readCodeCardBodyScroll,isCodeCanvasDeselectTarget,codeViewWheelUsesNativeScroll} from '../views/card-interaction.mjs';
@@ -40,7 +40,7 @@ const {analyzeFiles}=createProjectAnalyzer(Parser);
 const runAnalysisData=createAnalysisClient({analyzeFiles,yieldFn:yieldToBrowser});
 const GitHub=createGitHubAdapter({KJUR:globalThis.KJUR});
 
-const{useState,useEffect,useLayoutEffect,useRef,useMemo,useCallback}=React;
+const{useState,useReducer,useEffect,useLayoutEffect,useRef,useMemo,useCallback}=React;
 const COLORS=['#4d9fff','#a78bfa','#22d3ee','#00ff9d','#ff9f43','#ec4899','#ff5f5f','#84cc16'];
 const LAYER_COLORS={ui:'#4d9fff',components:'#22d3ee',services:'#a78bfa',utils:'#00ff9d',data:'#ff9f43',config:'#ec4899',test:'#f59e0b',modules:'#a78bfa',forms:'#22d3ee',classes:'#ff9f43',note:'#c084fc'};
 
@@ -478,9 +478,14 @@ function App(){
     var _e=useState(''),progress=_e[0],setProgress=_e[1];
     var _f=useState(null),error=_f[0],setError=_f[1];
     var _g=useState(null),data=_g[0],setData=_g[1];
+    const [investigation,dispatchInvestigation]=useReducer((state,action)=>reduceInvestigation(state,action,data),undefined,createInvestigationState);
+    const selected=useMemo(()=>data&&data.files.find(file=>file.path===investigation.selectedPath)||null,[data,investigation.selectedPath]);
+    const folderFilter=investigation.scope,openedCodePaths=investigation.openedPaths,navigation=investigation.navigation;
+    function setSelected(file){dispatchInvestigation({type:'select',path:file?file.path:null,record:false});}
+    function setFolderFilter(scope){dispatchInvestigation({type:'scope',scope:typeof scope==='function'?scope(folderFilter):scope});}
+
     var _h=useState(null),repoInfo=_h[0],setRepoInfo=_h[1];
     var _i=useState('folder'),colorMode=_i[0],setColorMode=_i[1];
-    var _j=useState(null),selected=_j[0],setSelected=_j[1];
     var _k=useState(new Set([''])),expandedPaths=_k[0],setExpandedPaths=_k[1];
     var _l=useState(new Set(['blast','fns'])),expandedCards=_l[0],setExpandedCards=_l[1];
     var _leftRail=useState('overview'),leftTab=_leftRail[0],setLeftTab=_leftRail[1];
@@ -496,10 +501,16 @@ function App(){
     var _u=useState(null),tooltip=_u[0],setTooltip=_u[1];
     var _v=useState(null),toast=_v[0],setToast=_v[1];
     var _w=useState(false),ownerLoading=_w[0],setOwnerLoading=_w[1];
-    var _x=useState(null),folderFilter=_x[0],setFolderFilter=_x[1];
     var _y=useState(new Set()),expandedFns=_y[0],setExpandedFns=_y[1];
     var _z=useState(false),showUnused=_z[0],setShowUnused=_z[1];
-    var _aa=useState({spacing:200,linkDist:70,viewMode:'force',vizType:'graph',showLabels:true,curvedLinks:true}),graphConfig=_aa[0],setGraphConfig=_aa[1];
+    const [graphSettings,setGraphSettings]=useState({spacing:200,linkDist:70,viewMode:'force',showLabels:true,curvedLinks:true});
+    const graphConfig=useMemo(()=>({...graphSettings,vizType:investigation.view}),[graphSettings,investigation.view]);
+    function setGraphConfig(update){
+        const next=typeof update==='function'?update(graphConfig):update;
+        const {vizType,...settings}=next;
+        setGraphSettings(settings);
+        if(vizType!==graphConfig.vizType)dispatchInvestigation({type:'view',view:vizType});
+    }
     var _ab=useState(false),showGraphConfig=_ab[0],setShowGraphConfig=_ab[1];
     var _ac=useState(260),sidebarWidth=_ac[0],setSidebarWidth=_ac[1];
     var _ad=useState(360),rightPanelWidth=_ad[0],setRightPanelWidth=_ad[1];
@@ -526,10 +537,10 @@ function App(){
     var _cli=useState(null),cliStatus=_cli[0],setCliStatus=_cli[1];
     var [fileQuery,setFileQuery]=useState(''),[searchLimit,setSearchLimit]=useState(40);
     var projectSearchResults=useMemo(function(){return data?searchProject(data,fileQuery):[];},[data,fileQuery]);
-    var fileSearchRef=useRef(null),navigationRef=useRef({entries:[],index:-1});
-    var [navigation,setNavigation]=useState(navigationRef.current);
-    function updateNavigation(next){navigationRef.current=next;setNavigation(next);}
-    var [sourceFocus,setSourceFocus]=useState(null),pendingSourceFocusRef=useRef(null);
+    var fileSearchRef=useRef(null);
+    const sourceFocus=useMemo(()=>investigation.range&&investigation.selectedPath?{path:investigation.selectedPath,line:investigation.range.start.line+1}:null,[investigation.range,investigation.selectedPath]);
+    var pendingSourceFocusRef=useRef(null);
+    useLayoutEffect(()=>{pendingSourceFocusRef.current=sourceFocus;},[sourceFocus]);
     useEffect(function(){
         function quickOpen(event){if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='p'){
             event.preventDefault();setLeftTab('files');if(isMobile)setMobilePanel('explorer');
@@ -556,7 +567,7 @@ function App(){
     }
     function revealSourceLocation(location){
         var focus={path:location.path,line:location.range?location.range.start.line+1:1};
-        pendingSourceFocusRef.current=focus;setSourceFocus(focus);
+        pendingSourceFocusRef.current=focus;
     }
     async function navigateBeamSymbol(method,path,position){
         setBeamNavigationError(null);
@@ -645,7 +656,6 @@ function App(){
     var cliWatchDuringRef=useRef([]);
     var cliWatchReadRef=useRef(Object.create(null));
     var cliWatchSnapRevRef=useRef(Object.create(null));
-    var _openedCards=useState([]),openedCodePaths=_openedCards[0],setOpenedCodePaths=_openedCards[1];
     var _sourceFailed=useState(Object.create(null)),codeSourceFailed=_sourceFailed[0],setCodeSourceFailed=_sourceFailed[1];
     var _pillScroll=useState(0),codePillScroll=_pillScroll[0],setCodePillScroll=_pillScroll[1];
     var _codeExpand=useState(false),codeViewExpand=_codeExpand[0],setCodeViewExpand=_codeExpand[1];
@@ -2005,61 +2015,50 @@ function App(){
         }
     }
 
-    var selectFile=useCallback(function(path,navigation){
-        if(!data)return;
-        var file=data.files.find(function(f){return f.path===path;});
-        if(file){
-            if(!(navigation&&navigation.record===false)){
-                updateNavigation(recordNavigation(navigationRef.current,{path:path,scope:navigation&&Object.prototype.hasOwnProperty.call(navigation,'scope')?navigation.scope:folderFilter,view:navigation&&navigation.view||graphConfig.vizType,range:navigation&&navigation.range||null,camera:null},snapshotZoomTransform(codeZoomTransformRef.current)));
-            }
-            setSelected(file);
-            setRightTab('details');
-            if(isMobile){
-                setMobilePanel('details');
-                setLegendCollapsed(true);
-            }
-            var blast=calcBlast(path,data.connections,data.files);
-            setBlastRadius(blast);
-            setOwnership(null);
-            setExpandedFns(new Set());
-            if(repoInfo&&!localSourceKind){
-                setOwnerLoading(true);
-                GitHub.getBlame(repoInfo.owner,repoInfo.repo,path).then(function(owners){setOwnership(owners);setOwnerLoading(false);}).catch(function(){setOwnerLoading(false);});
-            }else if(localSourceKind){
-                setOwnerLoading(false);
-                setOwnership([]);
-            }
-            selectedPathRef.current=path;
-            if(graphConfig.vizType!=='code')updateGraphHighlight(path,blast);
-            else applyForceLinkVisuals();
-        }
-    },[data,repoInfo,localSourceKind,isMobile,graphConfig.vizType,folderFilter]);
+    var selectFile=useCallback(function(path,location){
+        dispatchInvestigation({type:'select',path,...location,camera:snapshotZoomTransform(codeZoomTransformRef.current)});
+    },[]);
     selectFileRef.current=selectFile;
+    useEffect(function(){
+        selectedPathRef.current=investigation.selectedPath;
+        if(!selected){setBlastRadius(null);return;}
+        const blast=calcBlast(selected.path,data.connections,data.files);
+        setBlastRadius(blast);
+        if(graphConfig.vizType!=='code')updateGraphHighlight(selected.path,blast);
+        else applyForceLinkVisuals();
+    },[data,investigation.selectedPath,graphConfig.vizType]);
+    useEffect(function(){
+        if(!selected)return;
+        setRightTab('details');setExpandedFns(new Set());
+        if(isMobile){setMobilePanel('details');setLegendCollapsed(true);}
+    },[investigation.selectedPath,navigation]);
+    useEffect(function(){
+        setOwnership(null);setOwnerLoading(false);
+        if(!selected)return;
+        if(localSourceKind){setOwnership([]);return;}
+        if(!repoInfo)return;
+        let cancelled=false;setOwnerLoading(true);
+        GitHub.getBlame(repoInfo.owner,repoInfo.repo,selected.path).then(function(owners){
+            if(!cancelled){setOwnership(owners);setOwnerLoading(false);}
+        }).catch(function(){if(!cancelled)setOwnerLoading(false);});
+        return function(){cancelled=true;};
+    },[investigation.selectedPath,repoInfo,localSourceKind]);
     function openCodeFile(path,replace,range){
-        var next=openSourceInvestigation({openedCodePaths,folderFilter},data,{path,replace,range});
-        if(!next)return;
-        if(next.folderFilter!==folderFilter)setFolderFilter(next.folderFilter);
-        setOpenedCodePaths(previous=>openSourceInvestigation({openedCodePaths:previous,folderFilter},data,{path,replace,range}).openedCodePaths);
+        dispatchInvestigation({type:'open',path,replace,range,camera:snapshotZoomTransform(codeZoomTransformRef.current)});
         pendingFlyToRef.current=path;
-        selectFile(path,next.location);
     }
-    // Entering a view is an action, distinct from restoring saved state or
-    // closing a card. An effect must not infer it from an empty card list.
     function changeVisualization(view){
-        setGraphConfig(function(previous){return Object.assign({},previous,{vizType:view});});
-        if(view==='code'){
-            var entry=ensureCodeViewOpenedPaths(openedCodePaths,selected&&selected.path,data,folderFilter);
-            if(entry.opened){setOpenedCodePaths(entry.paths);pendingFlyToRef.current=entry.seed;selectFile(entry.seed,{view:'code'});}
-        }else if(view==='architecture'){setSelected(null);setBlastRadius(null);}
+        const action={type:'view',view,enter:true,camera:snapshotZoomTransform(codeZoomTransformRef.current)};
+        const next=reduceInvestigation(investigation,action,data);
+        if(view==='code'&&next.openedPaths!==investigation.openedPaths)pendingFlyToRef.current=next.selectedPath;
+        dispatchInvestigation(action);
     }
     function closeCodeCard(path){
-        var remaining=openedCodePaths.filter(function(opened){return opened!==path;});
-        setOpenedCodePaths(remaining);
+        const action={type:'close',path,camera:snapshotZoomTransform(codeZoomTransformRef.current)};
+        const next=reduceInvestigation(investigation,action,data);
+        if(next.selectedPath!==investigation.selectedPath)pendingFlyToRef.current=next.selectedPath;
+        dispatchInvestigation(action);
         delete codeCardPlacementRef.current[path];codeCardUserPinnedRef.current.delete(path);
-        if(selected&&selected.path===path){
-            if(remaining.length){pendingFlyToRef.current=remaining[remaining.length-1];selectFile(remaining[remaining.length-1]);}
-            else{setSelected(null);selectedPathRef.current=null;setBlastRadius(null);}
-        }
     }
     function retryCodeSource(path){
         if(!path)return;
@@ -2084,18 +2083,11 @@ function App(){
         }
     }
     function navigateHistory(delta){
-        var history=stepNavigation(navigationRef.current,delta,snapshotZoomTransform(codeZoomTransformRef.current));
-        if(!history)return;
-        var location=history.entries[history.index];
-        updateNavigation(history);
-        setFolderFilter(location.scope);setGraphConfig(function(prev){return Object.assign({},prev,{vizType:location.view});});
-        if(location.view==='code'){
-            setOpenedCodePaths(function(prev){return openCodeCardPaths(prev,location.path,Infinity,false,hiddenOpenedCodePaths(prev,data,location.scope));});
-            pendingFlyToRef.current=null;
-        }
-        selectFile(location.path,{record:false});
-        if(location.view==='graph'||location.view==='code')revealGraphFile(location.path,location.camera);
-        if(location.view==='code'&&location.range)revealSourceLocation(location);
+        const next=reduceInvestigation(investigation,{type:'history',delta,camera:snapshotZoomTransform(codeZoomTransformRef.current)},data);
+        if(next===investigation)return;
+        pendingFlyToRef.current=null;
+        dispatchInvestigation({type:'history',delta,camera:snapshotZoomTransform(codeZoomTransformRef.current)});
+        if(next.view==='graph'||next.view==='code')revealGraphFile(next.selectedPath,next.navigation.entries[next.navigation.index].camera);
     }
 
     function updateGraphHighlight(path,blast){
@@ -2230,11 +2222,10 @@ function App(){
         var sceneIdentity=source.sourceType+':'+source.sourceKey;
         if(sceneIdentity===openedSceneRef.current)return;
         openedSceneRef.current=sceneIdentity;
-        updateNavigation({entries:[],index:-1});setSelectedArchitectureBlock(null);setFileQuery('');setSourceFocus(null);pendingSourceFocusRef.current=null;
+        dispatchInvestigation({type:'reset',view:graphConfig.vizType});setSelectedArchitectureBlock(null);setFileQuery('');pendingSourceFocusRef.current=null;
         codeCardPlacementRef.current=Object.create(null);
         codeSourceInFlightRef.current=Object.create(null);
         setCodeSourceFailed(Object.create(null));
-        setOpenedCodePaths([]);
         pendingFlyToRef.current=null;
     },[currentHydrationId]);
     useEffect(function(){
@@ -2257,26 +2248,19 @@ function App(){
         codeCardPlacementRef.current=restored.placements;
         codeCardUserSizeRef.current=restored.sizes;
         codeCardUserPinnedRef.current=new Set(restored.pinned);
-        setOpenedCodePaths(restored.opened);setFolderFilter(restored.scope);
-        if(restored.selected)selectFile(restored.selected);
-        if(restored.navigation){
-            updateNavigation(restored.navigation);
-            var location=restored.navigation.entries[restored.navigation.index];
-            if(restored.view==='code'&&location&&location.path===restored.selected&&location.range)revealSourceLocation(location);
-        }
-        setGraphConfig(function(prev){return Object.assign({},prev,{vizType:restored.view});});
+        dispatchInvestigation({type:'restore',workspace:restored});
     },[currentHydrationId]);
     useEffect(function(){
         if(!data)return;
         function save(){
             if(!workspaceKeyRef.current||workspaceRestoreRef.current)return;
             try{localStorage.setItem(workspaceKeyRef.current,JSON.stringify({version:1,scope:folderFilter,selected:selected&&selected.path,
-                opened:openedCodePaths,view:graphConfig.vizType,architectureBlockId:selectedArchitectureBlock,navigation:navigationRef.current,placements:codeCardPlacementRef.current,sizes:codeCardUserSizeRef.current,
+                opened:openedCodePaths,view:graphConfig.vizType,architectureBlockId:selectedArchitectureBlock,navigation:navigation,placements:codeCardPlacementRef.current,sizes:codeCardUserSizeRef.current,
                 pinned:Array.from(codeCardUserPinnedRef.current),camera:snapshotZoomTransform(codeZoomTransformRef.current)}));}catch(e){}
         }
         var timer=setInterval(save,1000);window.addEventListener('pagehide',save);
         return function(){clearInterval(timer);window.removeEventListener('pagehide',save);};
-    },[currentHydrationId,folderFilter,selected&&selected.path,openedCodePaths,graphConfig.vizType,selectedArchitectureBlock]);
+    },[currentHydrationId,folderFilter,selected&&selected.path,openedCodePaths,graphConfig.vizType,selectedArchitectureBlock,navigation]);
     useEffect(function(){
         var el=codeCanvasRef.current;
         if(!el||graphConfig.vizType!=='code')return;

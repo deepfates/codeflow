@@ -330,3 +330,67 @@ test('3D graph mounts the native renderer and returns to the same file graph', {
   await page.locator('.graph3d-container canvas').waitFor({state:'visible'});
   assert.deepEqual(errors,[]);
 });
+
+test('closing the selected Code card reveals the surviving card outside the current folder', {
+  skip: !process.env.CODEFLOW_TEST_BROWSER, timeout: 60000
+}, async t => {
+  const root=await mkdtemp(join(tmpdir(),'codeflow-scope-close-'));
+  for (const name of ['alpha','beta']) {
+    await mkdir(join(root,name));
+    await writeFile(join(root,name,name+'.js'),`export function ${name}() { return 42; }\n`);
+  }
+  const {page,errors}=await openProject(t,root);
+  const selector=page.getByRole('combobox',{name:'Visualization type'});
+  await selector.waitFor();
+  await page.getByRole('tab',{name:'Files',exact:true}).click();
+  const search=page.getByRole('searchbox',{name:'Find files and symbols'});
+  await search.fill('beta.js');await search.press('Enter');
+  await selector.selectOption('code');
+  await page.locator('[data-code-card="beta/beta.js"]').waitFor();
+  await search.fill('alpha.js');await search.press('Enter');
+  await page.locator('[data-code-card="alpha/alpha.js"]').waitFor();
+  await search.fill('');
+  await page.locator('.tree-folder').filter({has:page.locator('.tree-name').filter({hasText:/^alpha$/})}).click();
+  await page.locator('.tree-folder.filtered').waitFor();
+  assert.equal(await page.locator('[data-code-card="beta/beta.js"]').count(),0);
+  await page.getByRole('button',{name:'Close alpha.js',exact:true}).click();
+  await page.locator('[data-code-card="beta/beta.js"]').waitFor();
+  assert.equal(await page.locator('.tree-folder.filtered').count(),0);
+  await page.locator('.panel-header .panel-title').filter({hasText:'beta.js'}).waitFor();
+  // A card in the DOM is insufficient: its controls must be reachable after
+  // the selection and folder scope change together.
+  await page.getByRole('button',{name:'Close beta.js',exact:true}).click();
+  assert.equal(await page.locator('[data-code-card]').count(),0);
+  assert.deepEqual(errors,[]);
+});
+
+test('Code history and reload restore the saved camera without recentering the selected card', {
+  skip: !process.env.CODEFLOW_TEST_BROWSER, timeout: 60000
+}, async t => {
+  const root=await mkdtemp(join(tmpdir(),'codeflow-camera-history-'));
+  await writeFile(join(root,'first.js'),'export function first() { return 1; }');
+  await writeFile(join(root,'second.js'),'export function second() { return 2; }');
+  const {page,errors}=await openProject(t,root);
+  const selector=page.getByRole('combobox',{name:'Visualization type'});
+  await selector.waitFor();
+  await page.getByRole('tab',{name:'Files',exact:true}).click();
+  await page.locator('.tree-file').filter({hasText:'first.js'}).click();
+  await selector.selectOption('code');
+  await page.locator('[data-code-card="first.js"]').waitFor();
+  await page.waitForTimeout(600);
+  const camera=()=>page.locator('.canvas-area svg').first().evaluate(el=>({x:el.__zoom.x,y:el.__zoom.y,k:el.__zoom.k}));
+  await page.mouse.move(750,700);await page.mouse.wheel(0,350);
+  await page.waitForTimeout(600);
+  const before=await camera();
+  await page.locator('.tree-file').filter({hasText:'second.js'}).click();
+  await page.locator('[data-code-card="second.js"]').waitFor();
+  await page.waitForTimeout(600);
+  await page.getByRole('button',{name:'Back',exact:true}).click();
+  await page.waitForTimeout(700);
+  assert.deepEqual(await camera(),before,'Back restores the previous camera');
+  await page.waitForTimeout(1200);
+  await page.reload();await page.locator('[data-code-card="first.js"]').waitFor();
+  await page.waitForTimeout(700);
+  assert.deepEqual(await camera(),before,'reload preserves the saved camera');
+  assert.deepEqual(errors,[]);
+});

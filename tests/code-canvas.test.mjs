@@ -1,5 +1,5 @@
 import {highlightSyntax as highlight} from '../src/views/highlight.mjs';
-import {openSourceInvestigation} from '../src/investigation/source-actions.mjs';
+import {createInvestigationState,reduceInvestigation} from '../src/investigation/state.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readableLabelScale, COLOR_BLOCK_ZOOM, CODE_FAR_ZOOM, zoomShowsColorBlocks, graphColorBlockScale, zoomHidesCodeText, graphColorBlockSize, codeColorBlockKindColor, colorBlockLooksLikeDiff, graphColorBlockFill, graphLinkStrokeWidth, scaleStrokeWidth, graph3dLinkWidth, forceLinkVisual, forceLinkRole, forceLinkParticlesNeedTickUpdate, prefersReducedMotion, subscribePrefersReducedMotion } from '../src/views/graph-style.mjs';
@@ -2091,12 +2091,12 @@ test('UI prefs keep the default when localStorage access throws', () => {
 
 test('explicit source navigation opens a thirteenth card without dropping the investigation',()=>{
  const paths=Array.from({length:13},(_,i)=>`lib/source${i}.ex`);
- const state={openedCodePaths:paths.slice(0,12),folderFilter:'lib'};
- const next=openSourceInvestigation(state,{files:paths.map(path=>({path,folder:'lib'}))},{path:paths[12]});
- assert.deepEqual(next.openedCodePaths,paths);
- assert.equal(state.openedCodePaths.length,12,'previous investigation is immutable');
- assert.equal(next.location.view,'code');
- assert.equal(next.location.scope,'lib');
+ const state={...createInvestigationState(),openedPaths:paths.slice(0,12),scope:'lib'};
+ const next=reduceInvestigation(state,{type:'open',path:paths[12]},{files:paths.map(path=>({path,folder:'lib'}))});
+ assert.deepEqual(next.openedPaths,paths);
+ assert.equal(state.openedPaths.length,12,'previous investigation is immutable');
+ assert.equal(next.view,'code');
+ assert.equal(next.scope,'lib');
 });
 
 test('cache compaction follows source references through trees, patterns and Elixir declarations',()=>{
