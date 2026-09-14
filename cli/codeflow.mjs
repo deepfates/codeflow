@@ -558,6 +558,12 @@ async function main() {
   if (analysis) {
     import('./elixir-analysis.mjs').then(async ({ createElixirSession, collectCredo }) => {
       if (analysis.closed) return;
+      // Linting does not depend on language-server initialization or compilation.
+      collectCredo(watchRoot).then(result => {
+        if (!analysis.closed) analysis.assessment = result;
+      }).catch(error => {
+        if (!analysis.closed) analysis.assessment = { status: 'unavailable', findings: [], reason: error.message };
+      });
       let lastBuild = null, graphJob = Promise.resolve();
       analysis.session = await createElixirSession(watchRoot, { onUpdate(status) {
         if (analysis.closed || status.build.state !== 'ready' || status.build.completedAt === lastBuild) return;
@@ -571,7 +577,6 @@ async function main() {
         }).catch(() => {});
       } });
       if (analysis.closed) { await analysis.session.dispose(); return; }
-      analysis.assessment = await collectCredo(watchRoot);
     }).catch(error => { analysis.state = { state: 'error', reason: error.message }; });
   }
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { app.close().finally(() => process.exit(0)); });

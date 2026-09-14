@@ -31,7 +31,10 @@ node cli/codeflow.mjs /absolute/path/to/your/project
 
 Use Node.js 18+ and Elixir 1.19+ with `mix` on your PATH. Prepare the project's
 dependencies using its own documented setup. Codeflow recognizes `mix.exs` and
-starts ElixirLS, which compiles and indexes the project. Only open trusted projects:
+starts ElixirLS, which compiles and indexes the project. Credo runs independently.
+When the project provides Credo, Codeflow uses that version, configuration and plugins;
+otherwise it runs Credo 1.7.19 through Mix.install’s isolated cache without changing
+the project’s dependencies or lockfile. Only open trusted projects:
 Mix and the language server evaluate project configuration and macros.
 
 On first use, Codeflow downloads the official ElixirLS 0.31.1 release, verifies its
@@ -47,7 +50,7 @@ Compiler references enrich the same graph alongside source-analysis relationship
 including links from tests, documentation and other languages. Mix dependency and
 build directories (`deps`, `_build`, `.elixir_ls`) are excluded by default, including
 nested umbrella projects. Application source, tests and documentation remain in
-the inventory. The exclusions dialog lists these defaults alongside custom patterns.
+the inventory. The exclusions dialog lists these defaults alongside custom patterns. GitHub imports recover truncated recursive tree responses by walking subtrees at the same root SHA; an unreadable subtree fails collection rather than silently omitting files.
 
 Use **Files** (or **⌘P / Ctrl+P**) to find a file, module or function. File results
 locate the file in the current view; module and function results open source at

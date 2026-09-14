@@ -7,6 +7,7 @@ import os from 'node:os';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { promisify } from 'node:util';
+import { once } from 'node:events';
 import { createMessageConnection, StreamMessageReader, StreamMessageWriter, CancellationTokenSource } from 'vscode-jsonrpc/node';
 
 const execute = promisify(execFile);
@@ -52,6 +53,8 @@ export async function createElixirSession(projectRoot, options = {}) {
   const environment = options.environment || process.env.MIX_ENV || 'dev';
   const settings = { autoBuild: true, dialyzerEnabled: false, fetchDeps: false, mixEnv: environment, enableTestLenses: false, suggestSpecs: false };
   const child = spawn(command, options.args || [], { cwd: root, env: { ...process.env, ...options.env, MIX_ENV: environment }, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true });
+  // Failed spawns have no usable pipes. Reject before JSON-RPC writes to them.
+  await once(child, 'spawn');
   const connection = createMessageConnection(new StreamMessageReader(child.stdout), new StreamMessageWriter(child.stdin));
   let state = 'starting', reason = null, build = { state: 'pending' }, log = '', disposed = false, serverInfo = null;
   const diagnostics = new Map(), opened = new Map(), opening = new Map();
@@ -148,11 +151,13 @@ export function parseCredoOutput(stdout) {
   throw new Error('Credo did not return a JSON issues report');
 }
 export async function collectCredo(root, options = {}) {
-  const producer = { name: 'Credo', command: ['mix', 'credo', '--format', 'json'], collectedAt: new Date().toISOString() };
+  const runner = fileURLToPath(new URL('./credo.exs', import.meta.url));
+  const producer = { name: 'Credo', command: ['elixir', runner, root], collectedAt: new Date().toISOString() };
   try {
     root = await fs.realpath(root);
+    producer.command[2] = root;
     let output;
-    try { output = await (options.execute || execute)('mix', producer.command.slice(1), { cwd: root, env: { ...process.env, MIX_ENV: options.environment || process.env.MIX_ENV || 'dev' }, timeout: options.timeout ?? 180000, maxBuffer: 32 * 1024 * 1024, killSignal: 'SIGKILL' }); }
+    try { output = await (options.execute || execute)('elixir', [runner, root], { cwd: root, env: { ...process.env, MIX_ENV: options.environment || process.env.MIX_ENV || 'dev' }, timeout: options.timeout ?? 180000, maxBuffer: 32 * 1024 * 1024, killSignal: 'SIGKILL' }); }
     catch (error) {
       // Credo returns a category bitmask (1..31) when configured checks find
       // issues. Spawn errors, signals and timeouts are execution failures.

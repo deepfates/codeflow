@@ -9,7 +9,7 @@ const fixture = fileURLToPath(new URL('./fixtures/elixir-ls-server.mjs', import.
 const issue = { filename: 'lib/foo.ex', line_no: 8, column: 3, column_end: 6, message: 'Use Enum.map_join/3', check: 'Credo.Check.Refactor.MapJoin', category: 'refactor', priority: 13 };
 test('Credo preserves exact locations, configured findings and category exit codes after cold-build output', async () => {
   const result = await collectCredo(os.tmpdir(), { execute: async (command, args) => {
-    assert.equal(command, 'mix'); assert.deepEqual(args, ['credo', '--format', 'json']);
+    assert.equal(command, 'elixir'); assert.ok(args[0].endsWith('/cli/credo.exs')); assert.equal(args[1], await fs.realpath(os.tmpdir()));
     throw Object.assign(new Error('findings'), { code: 4, stdout: '==> dependency\nCompiling 3 files\n' + JSON.stringify({ issues: [issue] }) });
   } });
   assert.equal(result.status, 'ready'); assert.equal(result.findings[0].path, 'lib/foo.ex');
