@@ -1,3 +1,4 @@
+import {functionKey} from '../project/identity.mjs';
 import {maxAnalyzableFileBytes,isOversized} from '../project/size-policy.mjs';
 import { codeExts, scriptContainerExts, textExts, textNames, binExts, isCode, isText, isBinary, isIncluded, isScriptContainer, isVBA, isPascal, isHTML, isCSS, isJSON, isElixir, isMarkdown, isTestFile, detectLayer, isNonProductionPath, isArchitectureTestFile, isSecretScanExemptPath, isArchitectureBackendPath } from "./file-types.mjs";
 import { getSecurityScanContent, isSanitizedPreviewRenderer, inspectJavaScriptSecurity } from "./security-source.mjs";
@@ -1960,10 +1961,7 @@ const Parser={
         return byFile;
     },
 
-    functionKey:function(fn){
-        if(!fn)return'';
-        return [fn.file||'',fn.line||'',String(fn.name==null?'':fn.name)].join('|');
-    },
+    functionKey:functionKey,
 
     buildFunctionDefinitionIndex:function(fnDefs){
         var byName=Object.create(null);

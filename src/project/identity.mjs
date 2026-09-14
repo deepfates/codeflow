@@ -174,3 +174,9 @@ export function resolveSafeCliPath(root,relPath){
     if(!rel||rel.charAt(0)==='/'||rel.indexOf('..')>=0)return null;
     return rootPath+'/'+rel;
 }
+
+// Function identity is shared by source analysis and report projections.
+export function functionKey(fn){
+    if(!fn)return '';
+    return [fn.file||'',fn.line||'',String(fn.name==null?'':fn.name)].join('|');
+}
