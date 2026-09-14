@@ -93,7 +93,8 @@ code, not an observed execution. Arrows point from dependency to consumer. Sourc
 and language-server results may be newer than the latest successful compiler
 snapshot. Missing compiler artifacts leave the existing source analysis available.
 The health score remains Codeflow's heuristic summary. Use **Color → Findings** in Graph or 3D to see file assessments in the existing map.
-Selecting a file shows its findings and their source links. Neutral files have no
+Changing colors preserves node positions and the camera; 3D keeps its folder-based
+layout across color modes. Selecting a file shows its findings and their source links. Neutral files have no
 recorded findings; this does not establish that they are healthy. Functions without observed
 callers stay available for investigation; Elixir callbacks and dynamic invocation
 make their usage uncertain, so those candidates do not count as proven dead code

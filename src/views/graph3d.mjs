@@ -363,8 +363,7 @@ export function createGraph3DView({React,getRuntime,colors:COLORS,layerColors:LA
     useEffect(function(){
         const observer=new ResizeObserver(function(){
             const graph=graph3dInstanceRef.current,container=graph3dRef.current;
-            if(graph&&container)graph.width(container.clientWidth||800).height(container.clientHeight||600)
-            .onEngineTick(()=>{physicsReadyRef.current=true;});
+            if(graph&&container)graph.width(container.clientWidth||800).height(container.clientHeight||600);
         });
         observer.observe(graph3dRef.current);
         return function(){

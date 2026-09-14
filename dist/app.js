@@ -2875,6 +2875,8 @@
       lineThicknessRef.current = lineThickness;
       selectFileRef.current = onSelect;
       openCodeFileRef.current = onOpen;
+      const nodeColorRef = useRef2(getNodeColor);
+      nodeColorRef.current = getNodeColor;
       function updateGraphHighlight(path, blast) {
         if (!nodesRef.current || !linksRef.current) return;
         var affectedSet = new Set(blast ? blast.affected : []);
@@ -2903,7 +2905,6 @@
         return [
           currentHydrationId,
           graphStructureKey(data, folderFilter),
-          colorMode,
           theme,
           graphConfig.vizType,
           graphConfig.viewMode,
@@ -2913,7 +2914,7 @@
           graphConfig.curvedLinks,
           graphConfig.vizType === "code" ? [selected && selected.path, openedCodePaths.join("|")].join(":") : ""
         ].join("\0");
-      }, [currentHydrationId, data, folderFilter, colorMode, theme, graphConfig, selected && selected.path, openedCodePaths]);
+      }, [currentHydrationId, data, folderFilter, theme, graphConfig, selected && selected.path, openedCodePaths]);
       useEffect2(function() {
         var el = codeCanvasRef.current;
         if (!el || graphConfig.vizType !== "code") return;
@@ -3044,7 +3045,7 @@
         var viewH = svg.clientHeight || 600;
         var nodes = simRef.current ? simRef.current.nodes() : [];
         var overlay = minimapCardInputs(graphConfig.vizType, codeCardSizesRef.current, codeCardPathsRef.current);
-        var content = collectMinimapContent(nodes, overlay.sizesByPath, overlay.cardPaths, getNodeColor);
+        var content = collectMinimapContent(nodes, overlay.sizesByPath, overlay.cardPaths, nodeColorRef.current);
         if (!content.world || !content.world.width) {
           minimapModelRef.current = null;
           clearCanvasMinimap(canvas);
@@ -3262,11 +3263,7 @@
           let getR = function(d) {
             return Math.max(8, Math.min(24, 5 + d.fnCount * 0.8));
           }, getC = function(d) {
-            if (colorMode === "folder") return colorMap[d.folder] || COLORS2[0];
-            if (colorMode === "layer") return LAYER_COLORS2[d.layer] || LAYER_COLORS2["utils"];
-            if (colorMode === "findings") return colorMap[d.id] || FINDING_COLORS.none;
-            if (colorMode === "churn") return colorMap[d.id] || "#22c55e";
-            return COLORS2[0];
+            return nodeColorRef.current(d);
           }, collideR = function(d) {
             return liveCodeCollideRadius(d, keepReadable && codeCardPathsRef.current.has(d.id) ? codeCardSizesRef.current[d.id] : null);
           }, applyCanvasColorBlocks = function(k) {
@@ -4134,13 +4131,19 @@
         );
       }
       useEffect2(() => {
-        if (!selected) {
-          updateGraphHighlight(null, null);
-          return;
-        }
-        if (graphConfig.vizType === "code") applyForceLinkVisuals();
+        if (!active || !nodesRef.current) return;
+        nodesRef.current.selectAll(".nc,.nb").attr("fill", function(n) {
+          const c = getNodeColor(n);
+          return d32.select(this).classed("nb") ? graphColorBlockFill(c) : c;
+        }).attr("stroke", function(n) {
+          const block = d32.select(this).classed("nb");
+          const c = d32.color(block ? graphColorBlockFill(getNodeColor(n)) : getNodeColor(n));
+          return c ? block ? c.darker(0.35) : c.brighter(0.3) : block ? "#000" : "#fff";
+        });
+        if (!selected) updateGraphHighlight(null, null);
+        else if (graphConfig.vizType === "code") applyForceLinkVisuals();
         else updateGraphHighlight(selected.path, calcBlast(selected.path, data.connections, data.files));
-      }, [selected?.path, data, graphConfig.vizType]);
+      }, [selected?.path, data, graphConfig.vizType, colorMode, colorMap, active]);
       function reveal(path, camera) {
         pendingFlyToRef.current = null;
         requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -4421,7 +4424,7 @@
   function createGraph3DView({ React: React2, getRuntime, colors: COLORS2, layerColors: LAYER_COLORS2 }) {
     const { useEffect: useEffect2, useRef: useRef2, useImperativeHandle } = React2;
     return React2.forwardRef(function Graph3DView2({ data, folderFilter, colorMap, colorMode, theme, config, selectedPath, blastRadius, lineThickness, onSelect }, ref) {
-      const graph3dRef = useRef2(null), graph3dInstanceRef = useRef2(null), onSelectRef = useRef2(onSelect);
+      const graph3dRef = useRef2(null), graph3dInstanceRef = useRef2(null), onSelectRef = useRef2(onSelect), physicsReadyRef = useRef2(false);
       onSelectRef.current = onSelect;
       useImperativeHandle(ref, () => ({
         zoom(factor) {
@@ -4435,13 +4438,16 @@
         }
       }), []);
       useEffect2(function() {
-        if (!data || !graph3dRef.current) return;
-        const { ForceGraph3D, THREE } = getRuntime();
-        if (typeof ForceGraph3D === "undefined") {
-          console.warn("3d-force-graph library not loaded");
-          return;
-        }
-        var w = graph3dRef.current.clientWidth || 800, h = graph3dRef.current.clientHeight || 600;
+        const { ForceGraph3D } = getRuntime();
+        if (!ForceGraph3D) return;
+        const container = graph3dRef.current;
+        graph3dInstanceRef.current = ForceGraph3D({ controlType: "orbit" })(container).width(container.clientWidth || 800).height(container.clientHeight || 600).onEngineTick(() => {
+          physicsReadyRef.current = true;
+        });
+      }, []);
+      useEffect2(function() {
+        const graph = graph3dInstanceRef.current;
+        if (!graph || !data) return;
         var filteredFiles = folderFilter ? data.files.filter(function(f) {
           return f.folder === folderFilter || f.folder.startsWith(folderFilter + "/");
         }) : data.files;
@@ -4478,6 +4484,71 @@
           linkMap.get(k).count += c.count;
         });
         var links = Array.from(linkMap.values());
+        graph.graphData({ nodes, links });
+      }, [data?.files, data?.connections, folderFilter]);
+      useEffect2(function() {
+        const graph = graph3dInstanceRef.current;
+        if (!graph || !data) return;
+        const filteredFiles = folderFilter ? data.files.filter((f) => f.folder === folderFilter || f.folder.startsWith(folderFilter + "/")) : data.files;
+        var linkForce = graph.d3Force("link");
+        if (linkForce) linkForce.distance(config.linkDist || 70);
+        var chargeForce = graph.d3Force("charge");
+        if (chargeForce) chargeForce.strength(-(config.spacing || 200));
+        var groups = Array.from(new Set(filteredFiles.map(function(f) {
+          return f.folder;
+        })));
+        var centers = {};
+        if (groups.length > 0) {
+          var nG = groups.length;
+          groups.forEach(function(g, i) {
+            var phi = Math.acos(1 - 2 * (i + 0.5) / nG);
+            var theta = Math.PI * (1 + Math.sqrt(5)) * (i + 0.5);
+            var radius = 180;
+            centers[g] = {
+              x: radius * Math.sin(phi) * Math.cos(theta),
+              y: radius * Math.sin(phi) * Math.sin(theta),
+              z: radius * Math.cos(phi)
+            };
+          });
+        }
+        function customForce(axis, targetSelector, strength) {
+          var nodes;
+          function force(alpha) {
+            var prop = axis;
+            var velProp = "v" + axis;
+            for (var i = 0; i < nodes.length; i++) {
+              var node = nodes[i];
+              var target = targetSelector(node);
+              node[velProp] += (target - node[prop]) * strength * alpha;
+            }
+          }
+          force.initialize = function(_) {
+            nodes = _;
+          };
+          return force;
+        }
+        if (groups.length > 0) {
+          var targetProp = "folder";
+          var forceStrength = 0.15;
+          graph.d3Force("x", customForce("x", function(d) {
+            return centers[d[targetProp]] ? centers[d[targetProp]].x : 0;
+          }, forceStrength));
+          graph.d3Force("y", customForce("y", function(d) {
+            return centers[d[targetProp]] ? centers[d[targetProp]].y : 0;
+          }, forceStrength));
+          graph.d3Force("z", customForce("z", function(d) {
+            return centers[d[targetProp]] ? centers[d[targetProp]].z : 0;
+          }, forceStrength));
+        } else {
+          graph.d3Force("x", null);
+          graph.d3Force("y", null);
+          graph.d3Force("z", null);
+        }
+        if (physicsReadyRef.current) graph.d3ReheatSimulation();
+      }, [data?.files, folderFilter, config.linkDist, config.spacing]);
+      useEffect2(function() {
+        if (!graph3dInstanceRef.current) return;
+        const { THREE } = getRuntime();
         function resolveHex(colorStr) {
           if (!colorStr) return "#888888";
           if (colorStr.startsWith("var(--")) {
@@ -4534,14 +4605,8 @@
           }
           return resolveHex(baseColor);
         }
-        var graph;
-        if (!graph3dInstanceRef.current) {
-          graph = ForceGraph3D({ controlType: "orbit" })(graph3dRef.current);
-          graph3dInstanceRef.current = graph;
-        } else {
-          graph = graph3dInstanceRef.current;
-        }
-        graph.width(w).height(h).backgroundColor(theme === "light" ? "#ffffff" : "#0a0a0c").showNavInfo(false).graphData({ nodes, links }).nodeResolution(24).nodeVal(getR).nodeColor(getC).nodeLabel(function(node) {
+        const graph = graph3dInstanceRef.current;
+        graph.backgroundColor(theme === "light" ? "#ffffff" : "#0a0a0c").showNavInfo(false).nodeResolution(24).nodeVal(getR).nodeColor(getC).nodeLabel(function(node) {
           return '<div style="font-family:JetBrains Mono,monospace;font-size:10px;padding:6px;background:rgba(15,15,18,0.95);border:1px solid var(--border);border-radius:6px;color:#fff;"><strong style="color:var(--acc);">' + node.name + "</strong><br/>" + node.folder + "<br/>" + node.fnCount + " functions \u2022 " + node.layer + " layer \u2022 " + node.churn + " commits</div>";
         }).linkColor(function(link) {
           var s = link.source.id || link.source;
@@ -4664,71 +4729,10 @@
             }
           }
         }, 100);
-        var linkForce = graph.d3Force("link");
-        if (linkForce) linkForce.distance(config.linkDist || 70);
-        var chargeForce = graph.d3Force("charge");
-        if (chargeForce) chargeForce.strength(-(config.spacing || 200));
-        var groups = [];
-        if (colorMode === "folder") {
-          groups = Array.from(new Set(filteredFiles.map(function(f) {
-            return f.folder;
-          })));
-        } else if (colorMode === "layer") {
-          groups = Array.from(new Set(filteredFiles.map(function(f) {
-            return f.layer;
-          })));
-        }
-        var centers = {};
-        if (groups.length > 0) {
-          var nG = groups.length;
-          groups.forEach(function(g, i) {
-            var phi = Math.acos(1 - 2 * (i + 0.5) / nG);
-            var theta = Math.PI * (1 + Math.sqrt(5)) * (i + 0.5);
-            var radius = 180;
-            centers[g] = {
-              x: radius * Math.sin(phi) * Math.cos(theta),
-              y: radius * Math.sin(phi) * Math.sin(theta),
-              z: radius * Math.cos(phi)
-            };
-          });
-        }
-        function customForce(axis, targetSelector, strength) {
-          var nodes2;
-          function force(alpha) {
-            var prop = axis;
-            var velProp = "v" + axis;
-            for (var i = 0; i < nodes2.length; i++) {
-              var node = nodes2[i];
-              var target = targetSelector(node);
-              node[velProp] += (target - node[prop]) * strength * alpha;
-            }
-          }
-          force.initialize = function(_) {
-            nodes2 = _;
-          };
-          return force;
-        }
-        if (groups.length > 0) {
-          var targetProp = colorMode === "folder" ? "folder" : "layer";
-          var forceStrength = 0.15;
-          graph.d3Force("x", customForce("x", function(d) {
-            return centers[d[targetProp]] ? centers[d[targetProp]].x : 0;
-          }, forceStrength));
-          graph.d3Force("y", customForce("y", function(d) {
-            return centers[d[targetProp]] ? centers[d[targetProp]].y : 0;
-          }, forceStrength));
-          graph.d3Force("z", customForce("z", function(d) {
-            return centers[d[targetProp]] ? centers[d[targetProp]].z : 0;
-          }, forceStrength));
-        } else {
-          graph.d3Force("x", null);
-          graph.d3Force("y", null);
-          graph.d3Force("z", null);
-        }
         return function() {
           clearTimeout(rotationTimer);
         };
-      }, [data, colorMap, colorMode, theme, folderFilter, selectedPath, blastRadius, config.linkDist, config.spacing, config.showLabels, config.curvedLinks, config.autoRotate, lineThickness]);
+      }, [colorMap, colorMode, theme, selectedPath, blastRadius, config.showLabels, config.curvedLinks, config.autoRotate, lineThickness]);
       useEffect2(function() {
         const observer = new ResizeObserver(function() {
           const graph = graph3dInstanceRef.current, container = graph3dRef.current;
