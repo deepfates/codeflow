@@ -50,8 +50,8 @@
       "use strict";
       var IGNORE2 = /* @__PURE__ */ new Set(["node_modules", "deps", "_build", ".elixir_ls", ".git", "vendor", "dist", "build", "out", "coverage", ".next", ".nuxt", ".cache", ".parcel-cache", ".turbo", ".vercel", ".local", ".artifacts", ".playwright-cli", "playwright-report", "test-results", ".claude", ".codex", ".idea", ".vscode", ".pnpm-store", ".yarn", "tmp", "temp", "target", "bin", "obj", "__pycache__", ".venv", "venv", "env", ".env", ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache", "__pypackages__", ".eggs", "__macosx"]);
       var DEFAULT_EXCLUDE_CHIPS2 = [".git", "node_modules", "deps", "_build", ".elixir_ls", "dist", "build", "coverage", ".next", ".turbo", ".local", ".venv", "venv", ".tox"];
-      function normalizeExcludePath2(value) {
-        return (value || "").replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/{2,}/g, "/");
+      function normalizeExcludePath2(value2) {
+        return (value2 || "").replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/{2,}/g, "/");
       }
       function parseExcludePatterns2(input) {
         var seen = /* @__PURE__ */ new Set();
@@ -63,9 +63,9 @@
           return true;
         });
       }
-      function globMatches2(pattern, value) {
+      function globMatches2(pattern, value2) {
         var glob = normalizeExcludePath2(pattern).toLowerCase();
-        var candidate = normalizeExcludePath2(value).toLowerCase();
+        var candidate = normalizeExcludePath2(value2).toLowerCase();
         var memo = /* @__PURE__ */ new Map();
         function match(globIndex, valueIndex) {
           var key = globIndex + ":" + valueIndex;
@@ -109,9 +109,9 @@
           };
         });
       }
-      function matchesExcludePattern2(compiledPatterns, path, name) {
+      function matchesExcludePattern2(compiledPatterns, path2, name) {
         if (!compiledPatterns || !compiledPatterns.length) return false;
-        var normalizedPath = normalizeExcludePath2(path || name).replace(/\/$/, "");
+        var normalizedPath = normalizeExcludePath2(path2 || name).replace(/\/$/, "");
         var lowerPath = normalizedPath.toLowerCase();
         var lowerName = (name || normalizedPath.split("/").pop() || "").toLowerCase();
         var lowerPathWithSlash = lowerPath ? lowerPath + "/" : "";
@@ -123,21 +123,5647 @@
           return globMatches2(pattern.lower, lowerPath) || globMatches2(pattern.lower, lowerPathWithSlash) || globMatches2(pattern.lower, lowerName);
         });
       }
-      function shouldIgnoreDirectory2(path, name, compiledPatterns) {
+      function shouldIgnoreDirectory2(path2, name, compiledPatterns) {
         var lowerName = (name || "").toLowerCase();
-        return IGNORE2.has(lowerName) || lowerName.endsWith(".egg-info") || matchesExcludePattern2(compiledPatterns, path, name);
+        return IGNORE2.has(lowerName) || lowerName.endsWith(".egg-info") || matchesExcludePattern2(compiledPatterns, path2, name);
       }
       module.exports = { IGNORE: IGNORE2, DEFAULT_EXCLUDE_CHIPS: DEFAULT_EXCLUDE_CHIPS2, normalizeExcludePath: normalizeExcludePath2, parseExcludePatterns: parseExcludePatterns2, globMatches: globMatches2, compileExcludePatterns: compileExcludePatterns2, matchesExcludePattern: matchesExcludePattern2, shouldIgnoreDirectory: shouldIgnoreDirectory2 };
     }
   });
+
+  // node_modules/strongly-connected-components/scc.js
+  var require_scc = __commonJS({
+    "node_modules/strongly-connected-components/scc.js"(exports, module) {
+      "use strict";
+      module.exports = stronglyConnectedComponents;
+      function stronglyConnectedComponents(adjList) {
+        var numVertices = adjList.length;
+        var index = new Array(numVertices);
+        var lowValue = new Array(numVertices);
+        var active = new Array(numVertices);
+        var child = new Array(numVertices);
+        var scc = new Array(numVertices);
+        var sccLinks = new Array(numVertices);
+        for (var i = 0; i < numVertices; ++i) {
+          index[i] = -1;
+          lowValue[i] = 0;
+          active[i] = false;
+          child[i] = 0;
+          scc[i] = -1;
+          sccLinks[i] = [];
+        }
+        var count = 0;
+        var components = [];
+        var sccAdjList = [];
+        function strongConnect(v) {
+          var S = [v], T = [v];
+          index[v] = lowValue[v] = count;
+          active[v] = true;
+          count += 1;
+          while (T.length > 0) {
+            v = T[T.length - 1];
+            var e3 = adjList[v];
+            if (child[v] < e3.length) {
+              for (var i2 = child[v]; i2 < e3.length; ++i2) {
+                var u = e3[i2];
+                if (index[u] < 0) {
+                  index[u] = lowValue[u] = count;
+                  active[u] = true;
+                  count += 1;
+                  S.push(u);
+                  T.push(u);
+                  break;
+                } else if (active[u]) {
+                  lowValue[v] = Math.min(lowValue[v], lowValue[u]) | 0;
+                }
+                if (scc[u] >= 0) {
+                  sccLinks[v].push(scc[u]);
+                }
+              }
+              child[v] = i2;
+            } else {
+              if (lowValue[v] === index[v]) {
+                var component = [];
+                var links = [], linkCount = 0;
+                for (var i2 = S.length - 1; i2 >= 0; --i2) {
+                  var w = S[i2];
+                  active[w] = false;
+                  component.push(w);
+                  links.push(sccLinks[w]);
+                  linkCount += sccLinks[w].length;
+                  scc[w] = components.length;
+                  if (w === v) {
+                    S.length = i2;
+                    break;
+                  }
+                }
+                components.push(component);
+                var allLinks = new Array(linkCount);
+                for (var i2 = 0; i2 < links.length; i2++) {
+                  for (var j2 = 0; j2 < links[i2].length; j2++) {
+                    allLinks[--linkCount] = links[i2][j2];
+                  }
+                }
+                sccAdjList.push(allLinks);
+              }
+              T.pop();
+            }
+          }
+        }
+        for (var i = 0; i < numVertices; ++i) {
+          if (index[i] < 0) {
+            strongConnect(i);
+          }
+        }
+        var newE;
+        for (var i = 0; i < sccAdjList.length; i++) {
+          var e = sccAdjList[i];
+          if (e.length === 0) continue;
+          e.sort(function(a, b) {
+            return a - b;
+          });
+          newE = [e[0]];
+          for (var j = 1; j < e.length; j++) {
+            if (e[j] !== e[j - 1]) {
+              newE.push(e[j]);
+            }
+          }
+          sccAdjList[i] = newE;
+        }
+        return { components, adjacencyList: sccAdjList };
+      }
+    }
+  });
+
+  // node_modules/elementary-circuits-directed-graph/johnson.js
+  var require_johnson = __commonJS({
+    "node_modules/elementary-circuits-directed-graph/johnson.js"(exports, module) {
+      var tarjan = require_scc();
+      module.exports = function findCircuits2(edges, cb) {
+        var circuits = [];
+        var stack = [];
+        var blocked = [];
+        var B = {};
+        var Ak = [];
+        var s;
+        function unblock(u) {
+          blocked[u] = false;
+          if (B.hasOwnProperty(u)) {
+            Object.keys(B[u]).forEach(function(w) {
+              delete B[u][w];
+              if (blocked[w]) {
+                unblock(w);
+              }
+            });
+          }
+        }
+        function circuit(v) {
+          var found = false;
+          stack.push(v);
+          blocked[v] = true;
+          var i2;
+          var w;
+          for (i2 = 0; i2 < Ak[v].length; i2++) {
+            w = Ak[v][i2];
+            if (w === s) {
+              output(s, stack);
+              found = true;
+            } else if (!blocked[w]) {
+              found = circuit(w);
+            }
+          }
+          if (found) {
+            unblock(v);
+          } else {
+            for (i2 = 0; i2 < Ak[v].length; i2++) {
+              w = Ak[v][i2];
+              var entry = B[w];
+              if (!entry) {
+                entry = {};
+                B[w] = entry;
+              }
+              entry[w] = true;
+            }
+          }
+          stack.pop();
+          return found;
+        }
+        function output(start, stack2) {
+          var cycle = [].concat(stack2).concat(start);
+          if (cb) {
+            cb(cycle);
+          } else {
+            circuits.push(cycle);
+          }
+        }
+        function subgraph(minId) {
+          for (var i2 = 0; i2 < edges.length; i2++) {
+            if (i2 < minId || !edges[i2]) edges[i2] = [];
+            edges[i2] = edges[i2].filter(function(i3) {
+              return i3 >= minId;
+            });
+          }
+        }
+        function adjacencyStructureSCC(from) {
+          subgraph(from);
+          var g = edges;
+          var sccs = tarjan(g);
+          var ccs = sccs.components.filter(function(scc) {
+            return scc.length > 1;
+          });
+          var leastVertex = Infinity;
+          var leastVertexComponent;
+          for (var i2 = 0; i2 < ccs.length; i2++) {
+            for (var j2 = 0; j2 < ccs[i2].length; j2++) {
+              if (ccs[i2][j2] < leastVertex) {
+                leastVertex = ccs[i2][j2];
+                leastVertexComponent = i2;
+              }
+            }
+          }
+          var cc = ccs[leastVertexComponent];
+          if (!cc) return false;
+          var adjList = edges.map(function(l, index) {
+            if (cc.indexOf(index) === -1) return [];
+            return l.filter(function(i3) {
+              return cc.indexOf(i3) !== -1;
+            });
+          });
+          return {
+            leastVertex,
+            adjList
+          };
+        }
+        s = 0;
+        var n = edges.length;
+        while (s < n) {
+          var p = adjacencyStructureSCC(s);
+          s = p.leastVertex;
+          Ak = p.adjList;
+          if (Ak) {
+            for (var i = 0; i < Ak.length; i++) {
+              for (var j = 0; j < Ak[i].length; j++) {
+                var vertexId = Ak[i][j];
+                blocked[+vertexId] = false;
+                B[vertexId] = {};
+              }
+            }
+            circuit(s);
+            s = s + 1;
+          } else {
+            s = n;
+          }
+        }
+        if (cb) {
+          return;
+        } else {
+          return circuits;
+        }
+      };
+    }
+  });
+
+  // src/project/loading.mjs
+  function createProjectLoading() {
+    let active;
+    return {
+      begin() {
+        active?.abort();
+        active = new AbortController();
+        return active.signal;
+      },
+      get signal() {
+        return active?.signal;
+      },
+      dispose() {
+        active?.abort();
+      }
+    };
+  }
+
+  // src/project/identity.mjs
+  function newLocalSelectionId() {
+    return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+  }
+  function localFolderCacheMeta(options) {
+    options = options || {};
+    var title = String(options.title || "").trim();
+    var paths = (options.paths || []).map(function(p) {
+      return String(p || "").replace(/\\/g, "/");
+    }).filter(Boolean).slice().sort();
+    if (!title) {
+      var raw = String(options.rootPrefix || "").replace(/\\/g, "/");
+      title = (raw.split("/").filter(Boolean)[0] || "").trim();
+    }
+    if (!title) title = "Local Folder";
+    var selectionId = String(options.selectionId || "").trim() || newLocalSelectionId();
+    return { sourceKey: title + "|sel:" + selectionId, title, selectionId };
+  }
+  function cliWatchCacheMeta(status) {
+    status = status || {};
+    var root = String(status.root || "").replace(/\\/g, "/");
+    var title = String(status.name || "").trim();
+    if (!title && root) title = (root.split("/").filter(Boolean).pop() || "").trim();
+    if (!title) title = "Local watch";
+    return { sourceKey: root || "cli", title };
+  }
+  function zipArchiveCacheMeta(options) {
+    options = options || {};
+    var title = String(options.name || options.title || "").trim() || "ZIP Archive";
+    var size = Number(options.size);
+    if (!isFinite(size) || size < 0) size = 0;
+    var modified = Number(options.lastModified);
+    if (!isFinite(modified) || modified < 0) modified = 0;
+    var paths = (options.paths || []).map(function(p) {
+      return String(p || "").replace(/\\/g, "/");
+    }).filter(Boolean).slice().sort();
+    return { sourceKey: title + "|" + size + "|" + modified + "|" + paths.length + "|" + paths.slice(0, 12).join("|"), title };
+  }
+  function retainedFolderMatchesRecord(record, retained) {
+    if (!record || !record.sourceKey) return true;
+    retained = retained || {};
+    return String(retained.sourceKey || "") === String(record.sourceKey);
+  }
+  function normalizeCliRoot(root) {
+    return String(root || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  }
+  function cliRecordMatchesStatus(record, status) {
+    if (!record || !record.sourceKey) return true;
+    if (!status || !status.ok) return false;
+    return normalizeCliRoot(status.root) === normalizeCliRoot(record.sourceKey);
+  }
+  function zipFileIdentity(zipFile) {
+    if (!zipFile) return "";
+    var title = String(zipFile.name || "").trim() || "ZIP Archive";
+    var size = Number(zipFile.size);
+    if (!isFinite(size) || size < 0) size = 0;
+    var modified = Number(zipFile.lastModified);
+    if (!isFinite(modified) || modified < 0) modified = 0;
+    return title + "|" + size + "|" + modified;
+  }
+  function retainedZipMatchesRecord(record, retained) {
+    if (!record || !record.sourceKey) return true;
+    retained = retained || {};
+    if (retained.sourceKey && String(retained.sourceKey) === String(record.sourceKey)) return true;
+    var identity = String(retained.identity || "");
+    return !!identity && String(record.sourceKey).indexOf(identity + "|") === 0;
+  }
+  function normalizeExcludeKey(patterns) {
+    var list = [];
+    (patterns || []).forEach(function(p) {
+      var raw = typeof p === "string" ? p : p && p.raw;
+      raw = String(raw || "").trim();
+      if (raw && list.indexOf(raw) < 0) list.push(raw);
+    });
+    list.sort();
+    return list.join("\n");
+  }
+  function githubCacheSourceKey(owner, repo, patterns) {
+    var base = String(owner || "") + "/" + String(repo || "");
+    var excl = normalizeExcludeKey(patterns);
+    return excl ? base + "|excl:" + excl : base;
+  }
+  function githubSourceKeyForLoadedAnalysis(owner, repo, data, pendingPatterns) {
+    var patterns = data && data.excludePatterns != null ? data.excludePatterns : pendingPatterns;
+    return githubCacheSourceKey(owner, repo, patterns);
+  }
+  function cachedAnalysisMatchesExcludes(record, patterns) {
+    if (!record) return false;
+    var wanted = normalizeExcludeKey(patterns);
+    var key = String(record.sourceKey || "");
+    var marker = key.indexOf("|excl:");
+    if (marker >= 0) return key.slice(marker + 6) === wanted;
+    return normalizeExcludeKey(record.data && record.data.excludePatterns) === wanted;
+  }
+  function githubZipDownloadUrl(owner, repo) {
+    return "https://github.com/" + encodeURIComponent(owner) + "/" + encodeURIComponent(repo) + "/archive/HEAD.zip";
+  }
+  function analysisCacheKey(sourceType, sourceKey) {
+    return String(sourceType || "unknown") + ":" + String(sourceKey || "").replace(/\\/g, "/");
+  }
+  function connectionIdentity(connection) {
+    var src = connection && (typeof connection.source === "object" ? connection.source.id : connection.source);
+    var tgt = connection && (typeof connection.target === "object" ? connection.target.id : connection.target);
+    var count = connection && connection.count != null ? connection.count : 1;
+    return String(src || "") + "	" + String(tgt || "") + "	" + String(connection && connection.fn || "") + "	" + String(count);
+  }
+  function fileGraphIdentity(file) {
+    if (!file) return "";
+    var fnCount = file.functions && file.functions.length ? file.functions.length : 0;
+    return [file.path || "", file.name || "", file.folder || "", file.layer || "", file.churn || 0, fnCount].join("	");
+  }
+  function analysisGraphKey(data) {
+    if (!data || !data.files) return "";
+    var files = data.files.map(fileGraphIdentity).join("\n");
+    var connections = (data.connections || []).map(connectionIdentity).sort().join("\n");
+    return files + "\n" + connections;
+  }
+  function graphStructureKey(data, folderFilter) {
+    var graph = analysisGraphKey(data);
+    if (!graph) return "";
+    return String(folderFilter || "") + "\n" + graph;
+  }
+  function codeViewSceneKey(data, folderFilter, vizType, source) {
+    return analysisHydrationId(source, data) + "|" + String(folderFilter || "") + "|" + String(vizType || "");
+  }
+  function analysisHydrationIdFromParts(source, graphKey) {
+    source = source || {};
+    return [source.sourceType || "", source.sourceKey || "", graphKey || ""].join("\0");
+  }
+  function analysisHydrationId(source, data) {
+    return analysisHydrationIdFromParts(source, analysisGraphKey(data));
+  }
+  function loadedAnalysisSourceIdentity(options) {
+    options = options || {};
+    if (options.localSourceKind === "folder") return { sourceType: "folder", sourceKey: options.folderKey || "local-folder" };
+    if (options.localSourceKind === "zip") return { sourceType: "zip", sourceKey: options.zipKey || "zip" };
+    if (options.localSourceKind === "cli") return { sourceType: "cli", sourceKey: options.cliRoot || "cli" };
+    if (options.githubOwner && options.githubRepo) return { sourceType: "github", sourceKey: options.githubKey || options.githubOwner + "/" + options.githubRepo };
+    if (options.cliOk) return { sourceType: "cli", sourceKey: options.cliRoot || "cli" };
+    return null;
+  }
+  function hydrationRequestIsCurrent(hydrationId, currentId) {
+    if (hydrationId == null || currentId == null) return true;
+    return hydrationId === currentId;
+  }
+  function hydratedSourceIsCurrent(update, currentId) {
+    if (!update || !update.path || typeof update.content !== "string") return false;
+    return hydrationRequestIsCurrent(update.hydrationId, currentId);
+  }
+  function functionKey(fn) {
+    if (!fn) return "";
+    return [fn.file || "", fn.line || "", String(fn.name == null ? "" : fn.name)].join("|");
+  }
+
+  // src/project/local-tools.mjs
+  function createLocalTools({ identity, status, fetch: request = globalThis.fetch }) {
+    if (identity?.sourceType !== "cli" || !cliRecordMatchesStatus(identity, status)) return null;
+    const requests = /* @__PURE__ */ new Map();
+    let disposed = false;
+    async function read(channel, path2) {
+      if (disposed) throw new DOMException("Project connection closed", "AbortError");
+      requests.get(channel)?.abort();
+      const controller = new AbortController();
+      requests.set(channel, controller);
+      try {
+        const response = await request(path2, { signal: controller.signal });
+        const result = await response.json();
+        controller.signal.throwIfAborted();
+        if (!response.ok) throw new Error(result.error || `Local tool request failed (${response.status})`);
+        return result;
+      } finally {
+        if (requests.get(channel) === controller) requests.delete(channel);
+      }
+    }
+    return {
+      language(method, path2, position) {
+        const query = new URLSearchParams({ method, path: path2 });
+        if (position) {
+          query.set("line", position.line);
+          query.set("character", position.character);
+        }
+        return read(method === "symbols" ? "outline" : "navigation", "/__codeflow/language?" + query);
+      },
+      runtime(node) {
+        return read("runtime", "/__codeflow/runtime?" + new URLSearchParams({ node }));
+      },
+      dispose() {
+        disposed = true;
+        for (const controller of requests.values()) controller.abort();
+        requests.clear();
+      }
+    };
+  }
+
+  // src/project/access.mjs
+  async function readFolder(root, path2) {
+    const parts = path2.split("/");
+    const name = parts.pop();
+    let directory = root;
+    for (const part of parts) directory = await directory.getDirectoryHandle(part);
+    const handle = await directory.getFileHandle(name);
+    return (await handle.getFile()).text();
+  }
+  function createProjectSource({ identity, cli, folder, archive, github, fetch: request = globalThis.fetch }) {
+    if (!identity) return null;
+    let read;
+    switch (identity.sourceType) {
+      case "cli":
+        if (!cliRecordMatchesStatus(identity, cli)) return null;
+        read = async (path2, signal) => {
+          const response = await request("/__codeflow/file?path=" + encodeURIComponent(path2), { signal });
+          if (response.status === 404) return null;
+          if (!response.ok) throw new Error(`Source request failed (${response.status})`);
+          return response.text();
+        };
+        break;
+      case "folder":
+        if (!folder?.handle || !retainedFolderMatchesRecord(identity, folder)) return null;
+        read = (path2) => readFolder(folder.handle, path2);
+        break;
+      case "zip":
+        if (!archive?.entriesByPath || !retainedZipMatchesRecord(identity, {
+          sourceKey: archive.sourceKey,
+          identity: zipFileIdentity(archive.file)
+        })) return null;
+        read = (path2) => archive.entriesByPath[path2]?.async("string") ?? null;
+        break;
+      case "github":
+        if (!github?.owner || !github.repo || !github.client) return null;
+        if (identity.sourceKey.split("|excl:")[0] !== github.owner + "/" + github.repo) return null;
+        read = (path2) => github.client.getFile(github.owner, github.repo, path2);
+        break;
+      default:
+        return null;
+    }
+    return {
+      identity: { ...identity },
+      async read(path2, { signal } = {}) {
+        if (!path2 || path2.startsWith("/") || path2.split("/").some((part) => !part || part === ".." || part === ".")) {
+          return { status: "unavailable", reason: "Expected a project-relative file path" };
+        }
+        try {
+          signal?.throwIfAborted();
+          const content = await read(path2, signal);
+          signal?.throwIfAborted();
+          if (typeof content === "string") return { status: "ready", content };
+          return identity.sourceType === "github" ? { status: "unavailable", reason: "GitHub did not return file contents" } : { status: "missing" };
+        } catch (error) {
+          if (signal?.aborted) throw error;
+          if (error.name === "NotFoundError") return { status: "missing" };
+          return { status: "unavailable", reason: error.message };
+        }
+      }
+    };
+  }
+
+  // src/project/cli-analysis.mjs
+  function subscribeCliAnalysis({ onUpdate, fetch: request = globalThis.fetch, interval = 2500 }) {
+    const controller = new AbortController();
+    let timer, graphRevision, diagnosticsRevision, lastAnalysis;
+    async function read(path2) {
+      const response = await request(path2, { signal: controller.signal });
+      if (!response.ok) throw new Error(`Local project service returned ${response.status}`);
+      return response.json();
+    }
+    function diagnosticsFor(analysis) {
+      return [
+        {
+          id: "elixir-ls",
+          name: "ElixirLS",
+          status: analysis.language.state,
+          reason: analysis.language.reason,
+          findings: analysis.language.diagnostics
+        },
+        {
+          id: "credo",
+          name: "Credo",
+          status: analysis.assessment.status,
+          reason: analysis.assessment.reason,
+          findings: analysis.assessment.findings
+        }
+      ];
+    }
+    async function poll() {
+      try {
+        const analysis = await read("/__codeflow/analysis");
+        if (controller.signal.aborted) return;
+        lastAnalysis = analysis;
+        const diagnostics = diagnosticsFor(analysis);
+        const revision = JSON.stringify(diagnostics);
+        onUpdate({ analysis, diagnostics: revision === diagnosticsRevision ? null : diagnostics });
+        diagnosticsRevision = revision;
+        if (analysis.graphRevision && analysis.graphRevision !== graphRevision) {
+          try {
+            const graph = await read("/__codeflow/beam");
+            if (controller.signal.aborted) return;
+            onUpdate({ graph, diagnostics: [{
+              id: "mix",
+              name: "Mix compiler graph",
+              status: graph.status,
+              reason: (graph.warnings || []).join("\n") || null
+            }] });
+            graphRevision = analysis.graphRevision;
+          } catch (error) {
+            if (controller.signal.aborted) return;
+            onUpdate({ diagnostics: [{
+              id: "mix",
+              name: "Mix compiler graph",
+              status: "unavailable",
+              reason: error.message
+            }] });
+          }
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        const analysis = {
+          language: { ...lastAnalysis?.language, state: "unavailable", reason: error.message },
+          assessment: { ...lastAnalysis?.assessment, status: "unavailable", reason: error.message }
+        };
+        onUpdate({ analysis, diagnostics: diagnosticsFor(analysis) });
+        diagnosticsRevision = null;
+      } finally {
+        if (!controller.signal.aborted) timer = setTimeout(poll, interval);
+      }
+    }
+    void poll();
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }
+
+  // src/project/source.mjs
+  function asCodeLines(lines) {
+    if (Array.isArray(lines)) return lines.length ? lines : [""];
+    return [String(lines || "")];
+  }
+  function pathIsFlagged(map3, path2) {
+    if (!path2 || !map3) return false;
+    if (typeof map3.has === "function") return map3.has(path2);
+    return !!map3[path2];
+  }
+  function nextCodeSourceReads(neededPaths, inFlight, failed) {
+    inFlight = inFlight || /* @__PURE__ */ Object.create(null);
+    return (neededPaths || []).filter(function(path2) {
+      return !!path2 && !inFlight[path2] && !pathIsFlagged(failed, path2);
+    });
+  }
+  function fileHasLoadedSource(file) {
+    return !!(file && Object.prototype.hasOwnProperty.call(file, "content") && typeof file.content === "string");
+  }
+  function analysisFileNeedsSource(file) {
+    return !!(file && !file.analysisSkipped && !fileHasLoadedSource(file));
+  }
+  function recordCodeSourceFailure(prev, path2) {
+    var next = Object.assign(/* @__PURE__ */ Object.create(null), prev || {});
+    if (path2) next[path2] = true;
+    return next;
+  }
+  function clearCodeSourceFailure(prev, path2) {
+    var next = Object.assign(/* @__PURE__ */ Object.create(null), prev || {});
+    if (path2) delete next[path2];
+    return next;
+  }
+  function recordCodeSourceFailureIfCurrent(prev, path2, hydrationId, currentId) {
+    if (!hydrationRequestIsCurrent(hydrationId, currentId)) return prev || /* @__PURE__ */ Object.create(null);
+    return recordCodeSourceFailure(prev, path2);
+  }
+  function clearCodeSourceFailureIfCurrent(prev, path2, hydrationId, currentId) {
+    if (!hydrationRequestIsCurrent(hydrationId, currentId)) return prev || /* @__PURE__ */ Object.create(null);
+    return clearCodeSourceFailure(prev, path2);
+  }
+  function fileSourceDisplayState(file, canFetch, failed) {
+    if (!file) return "empty";
+    if (file.analysisSkipped) return "skipped";
+    if (fileHasLoadedSource(file)) return "ready";
+    if (canFetch && pathIsFlagged(failed, file.path)) return "failed";
+    return canFetch ? "loading" : "unavailable";
+  }
+  function filesNeedingSource(files) {
+    return (files || []).filter(analysisFileNeedsSource);
+  }
+  function mergeHydratedFileSources(data, updates, currentId) {
+    if (!data || !data.files || !updates || !updates.length) return data;
+    var byPath = /* @__PURE__ */ Object.create(null);
+    updates.forEach(function(update) {
+      if (!hydratedSourceIsCurrent(update, currentId)) return;
+      byPath[update.path] = update.content;
+    });
+    var changed = false;
+    var files = data.files.map(function(file) {
+      if (byPath[file.path] == null || fileHasLoadedSource(file)) return file;
+      changed = true;
+      return Object.assign({}, file, { content: byPath[file.path] });
+    });
+    return changed ? Object.assign({}, data, { files }) : data;
+  }
+
+  // src/project/changes.mjs
+  var CLI_WATCH_DIFF_MS = 200;
+  var CODE_DIFF_LCS_LIMIT = 16e4;
+  function normalizeCliWatchPath(path2) {
+    return String(path2 || "").replace(/\\/g, "/").replace(/^\/+/, "");
+  }
+  function noteCliWatchPath(prev, path2) {
+    var next = normalizeCliWatchPath(path2);
+    if (!next) return prev || [];
+    var list = prev || [];
+    if (list.indexOf(next) >= 0) return list;
+    return list.concat([next]);
+  }
+  function cliWatchEventRev(value2) {
+    var n = Number(value2);
+    return Number.isFinite(n) ? n : null;
+  }
+  function normalizeCliWatchDuringEvent(item) {
+    if (typeof item === "string") return { path: normalizeCliWatchPath(item), rev: null };
+    var path2 = normalizeCliWatchPath(item && item.path);
+    if (!path2) return null;
+    return { path: path2, rev: cliWatchEventRev(item.rev) };
+  }
+  function noteCliWatchDuringEvent(prev, path2, rev) {
+    var ev = normalizeCliWatchDuringEvent({ path: path2, rev });
+    if (!ev) return prev || [];
+    var list = (prev || []).slice();
+    var idx = -1;
+    for (var i = 0; i < list.length; i++) {
+      var cur = normalizeCliWatchDuringEvent(list[i]);
+      if (cur && cur.path === ev.path) {
+        idx = i;
+        break;
+      }
+    }
+    if (idx >= 0) list[idx] = ev;
+    else list.push(ev);
+    return list;
+  }
+  function cliWatchEventIsAfterSnapshot(eventRev, snapRev) {
+    if (eventRev == null || snapRev == null) return true;
+    return Number(eventRev) > Number(snapRev);
+  }
+  function cliWatchSnapRevFromResponse(res) {
+    if (!res || !res.headers || typeof res.headers.get !== "function") return null;
+    return cliWatchEventRev(res.headers.get("x-codeflow-rev"));
+  }
+  function forgetCliWatchPath(prev, path2) {
+    var next = normalizeCliWatchPath(path2);
+    if (!next) return prev || [];
+    return (prev || []).filter(function(item) {
+      return item !== next;
+    });
+  }
+  function analyzedFileForCliWatchPath(files, path2) {
+    var next = normalizeCliWatchPath(path2);
+    if (!next || !files) return null;
+    for (var i = 0; i < files.length; i++) {
+      var file = files[i];
+      if (file && normalizeCliWatchPath(file.path) === next) return file;
+    }
+    return null;
+  }
+  function cliWatchLiveMatchesBaseline(file, liveContent) {
+    return !!(fileHasAnalyzedSourceForDiff(file) && typeof liveContent === "string" && liveContent === file.content);
+  }
+  function cliWatchLiveClearsDirty(file, liveContent, kind) {
+    return kind === "ok" && cliWatchLiveMatchesBaseline(file, liveContent);
+  }
+  function mergeCliLiveContents(prev, updates) {
+    var next = Object.assign(/* @__PURE__ */ Object.create(null), prev || {});
+    (updates || []).forEach(function(update) {
+      if (!update || !update.path) return;
+      var path2 = normalizeCliWatchPath(update.path);
+      if (!path2) return;
+      if (typeof update.content !== "string") {
+        delete next[path2];
+        return;
+      }
+      next[path2] = update.content;
+    });
+    return next;
+  }
+  function fileHasAnalyzedSourceForDiff(file) {
+    return !!(file && !file.analysisSkipped && typeof file.content === "string");
+  }
+  function cliWatchDiffPaths(files, paths) {
+    var known = /* @__PURE__ */ Object.create(null);
+    (files || []).forEach(function(file) {
+      if (file && file.path && fileHasAnalyzedSourceForDiff(file)) known[file.path] = true;
+    });
+    var out = [];
+    (paths || []).forEach(function(path2) {
+      var next = normalizeCliWatchPath(path2);
+      if (next && known[next] && out.indexOf(next) < 0) out.push(next);
+    });
+    return out;
+  }
+  function splitCodeLines(text) {
+    return String(text == null ? "" : text).split("\n");
+  }
+  function codeCardDiffClass(row) {
+    if (!row || row.type === "same") return "";
+    if (row.type === "add") return " diff-add";
+    if (row.type === "del") return " diff-del";
+    return "";
+  }
+  function codeCardDiffLineNo(row) {
+    if (!row) return "";
+    if (row.type === "del") return row.oldLine || "";
+    return row.newLine || row.oldLine || "";
+  }
+  function codeCardHasDiff(rows) {
+    if (!rows || !rows.length) return false;
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i] && rows[i].type && rows[i].type !== "same") return true;
+    }
+    return false;
+  }
+  function lcsDiffRows(oldLines, newLines, oldOff, newOff) {
+    var a = oldLines || [];
+    var b = newLines || [];
+    var n = a.length, m = b.length;
+    var dp = new Array(n + 1);
+    var i, j;
+    for (i = 0; i <= n; i++) {
+      dp[i] = new Array(m + 1);
+      dp[i][0] = 0;
+    }
+    for (j = 1; j <= m; j++) dp[0][j] = 0;
+    for (i = 1; i <= n; i++) {
+      for (j = 1; j <= m; j++) {
+        dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+    var out = [];
+    i = n;
+    j = m;
+    while (i > 0 && j > 0) {
+      if (a[i - 1] === b[j - 1]) {
+        out.push({ type: "same", text: a[i - 1], oldLine: oldOff + i, newLine: newOff + j });
+        i--;
+        j--;
+      } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+        out.push({ type: "del", text: a[i - 1], oldLine: oldOff + i, newLine: null });
+        i--;
+      } else {
+        out.push({ type: "add", text: b[j - 1], oldLine: null, newLine: newOff + j });
+        j--;
+      }
+    }
+    while (i > 0) {
+      out.push({ type: "del", text: a[i - 1], oldLine: oldOff + i, newLine: null });
+      i--;
+    }
+    while (j > 0) {
+      out.push({ type: "add", text: b[j - 1], oldLine: null, newLine: newOff + j });
+      j--;
+    }
+    out.reverse();
+    return out;
+  }
+  function replaceDiffRows(oldLines, newLines, oldOff, newOff) {
+    var out = [];
+    var i;
+    for (i = 0; i < (oldLines || []).length; i++) {
+      out.push({ type: "del", text: oldLines[i], oldLine: oldOff + i + 1, newLine: null });
+    }
+    for (i = 0; i < (newLines || []).length; i++) {
+      out.push({ type: "add", text: newLines[i], oldLine: null, newLine: newOff + i + 1 });
+    }
+    return out;
+  }
+  function diffCodeLines(before, after) {
+    var a = splitCodeLines(before);
+    var b = splitCodeLines(after);
+    var rows = [];
+    var i = 0, j = 0;
+    while (i < a.length && j < b.length && a[i] === b[j]) {
+      rows.push({ type: "same", text: a[i], oldLine: i + 1, newLine: j + 1 });
+      i++;
+      j++;
+    }
+    var aEnd = a.length, bEnd = b.length;
+    while (aEnd > i && bEnd > j && a[aEnd - 1] === b[bEnd - 1]) {
+      aEnd--;
+      bEnd--;
+    }
+    var midA = a.slice(i, aEnd);
+    var midB = b.slice(j, bEnd);
+    var mid = midA.length * midB.length <= CODE_DIFF_LCS_LIMIT ? lcsDiffRows(midA, midB, i, j) : replaceDiffRows(midA, midB, i, j);
+    for (var k = 0; k < mid.length; k++) rows.push(mid[k]);
+    for (k = 0; k < a.length - aEnd; k++) {
+      rows.push({ type: "same", text: a[aEnd + k], oldLine: aEnd + k + 1, newLine: bEnd + k + 1 });
+    }
+    return rows;
+  }
+  function codeCardDiffRows(file, liveContent) {
+    if (!file || typeof file.content !== "string" || typeof liveContent !== "string") return null;
+    if (file.content === liveContent) return null;
+    if (liveContent === "") {
+      return splitCodeLines(file.content).map(function(text, i) {
+        return { type: "del", text, oldLine: i + 1, newLine: null };
+      });
+    }
+    var rows = diffCodeLines(file.content, liveContent);
+    return codeCardHasDiff(rows) ? rows : null;
+  }
+  function fileForCodeCardDiff(file, diffRows) {
+    if (!file || !diffRows || !diffRows.length) return file;
+    return Object.assign({}, file, { content: diffRows.map(function(row) {
+      return row.text;
+    }).join("\n") });
+  }
+  function codeCardDiffLineIndex(diffRows, analyzedLine) {
+    var n = Math.max(1, Number(analyzedLine) || 1);
+    if (!diffRows || !diffRows.length) return n;
+    var found = -1;
+    for (var i = 0; i < diffRows.length; i++) {
+      if (diffRows[i] && diffRows[i].oldLine === n) {
+        found = i + 1;
+        if (diffRows[i].type === "same") return found;
+      }
+    }
+    return found > 0 ? found : n;
+  }
+  function startedCliWatchDiffPaths(pending, gen) {
+    var out = [];
+    (pending || []).forEach(function(path2) {
+      var next = normalizeCliWatchPath(path2);
+      if (next && out.indexOf(next) < 0) out.push(next);
+    });
+    Object.keys(gen || {}).forEach(function(path2) {
+      var next = normalizeCliWatchPath(path2);
+      if (next && out.indexOf(next) < 0) out.push(next);
+    });
+    return out;
+  }
+  function bumpCliWatchDiffEpoch(epoch) {
+    return (Number(epoch) || 0) + 1;
+  }
+  function cliWatchDiffRequestIsCurrent(epoch, capturedEpoch, genByPath, path2, capturedGen) {
+    if ((Number(epoch) || 0) !== (Number(capturedEpoch) || 0)) return false;
+    return !!(genByPath && genByPath[path2] === capturedGen);
+  }
+  function retainCliWatchPathsAfterAnalysis(receivedDuring, readByPath, snapRevByPath) {
+    var read = readByPath || /* @__PURE__ */ Object.create(null);
+    var snaps = snapRevByPath || /* @__PURE__ */ Object.create(null);
+    var out = [];
+    (receivedDuring || []).forEach(function(item) {
+      var ev = normalizeCliWatchDuringEvent(item);
+      if (!ev || !read[ev.path] || out.indexOf(ev.path) >= 0) return;
+      if (!cliWatchEventIsAfterSnapshot(ev.rev, Object.prototype.hasOwnProperty.call(snaps, ev.path) ? snaps[ev.path] : null)) return;
+      out.push(ev.path);
+    });
+    return out;
+  }
+  var CLI_WATCH_MAX_BYTES = 2 * 1024 * 1024;
+  function cliWatchLiveRejectsOversized(size) {
+    var n = Number(size);
+    return Number.isFinite(n) && n > CLI_WATCH_MAX_BYTES;
+  }
+  function cliWatchLiveFromResponse(status, body, ok, contentLength) {
+    if (cliWatchLiveRejectsOversized(contentLength)) return { kind: "error" };
+    if (ok) {
+      var content = typeof body === "string" ? body : "";
+      if (cliWatchLiveRejectsOversized(content.length)) return { kind: "error" };
+      return { kind: "ok", content };
+    }
+    if (Number(status) === 404) return { kind: "missing", content: "" };
+    return { kind: "error" };
+  }
+  function shouldApplyCliWatchLive(result) {
+    return !!(result && (result.kind === "ok" || result.kind === "missing"));
+  }
+  function pendingCliWatchDiffPaths(dirty, live, inflight) {
+    var have = live || /* @__PURE__ */ Object.create(null);
+    var wait = inflight || [];
+    return (dirty || []).filter(function(path2) {
+      if (!path2) return false;
+      if (Object.prototype.hasOwnProperty.call(have, path2)) return false;
+      if (wait.indexOf(path2) >= 0) return false;
+      return true;
+    });
+  }
+  function cliWatchAppliesToAnalysis(localSourceKind, cliStatus, analysisSource) {
+    if (!cliStatus || !cliStatus.ok) return false;
+    if (localSourceKind === "folder" || localSourceKind === "zip") return false;
+    if (analysisSource && analysisSource.sourceType && analysisSource.sourceType !== "cli") return false;
+    if (localSourceKind && localSourceKind !== "cli") return false;
+    if (analysisSource && analysisSource.sourceType === "cli") return cliRecordMatchesStatus(analysisSource, cliStatus);
+    return localSourceKind === "cli";
+  }
+
+  // src/project/tree.mjs
+  function buildTree(files) {
+    var root = { name: "root", path: "", children: {}, files: [] };
+    files.forEach(function(f) {
+      var parts = f.folder && f.folder !== "root" ? f.folder.split("/") : [];
+      var cur = root;
+      parts.forEach(function(p, i) {
+        var path2 = parts.slice(0, i + 1).join("/");
+        if (!cur.children[p]) cur.children[p] = { name: p, path: path2, children: {}, files: [] };
+        cur = cur.children[p];
+      });
+      cur.files.push(f);
+    });
+    return root;
+  }
+  function countFiles(n) {
+    return n.files.length + Object.values(n.children).reduce(function(s, c) {
+      return s + countFiles(c);
+    }, 0);
+  }
+
+  // src/investigation/recent-analyses.mjs
+  var ANALYSIS_CACHE_DB = "codeflow-recents";
+  var ANALYSIS_CACHE_STORE = "analyses";
+  var ANALYSIS_CACHE_VERSION = 2;
+  var ANALYSIS_CACHE_MAX = 12;
+  var ANALYSIS_CACHE_MAX_BYTES = 18 * 1024 * 1024;
+  function formatRecentTime(ts) {
+    var value2 = Number(ts);
+    if (!isFinite(value2) || value2 <= 0) return "";
+    var delta = Date.now() - value2;
+    if (delta < 6e4) return "just now";
+    if (delta < 36e5) return Math.floor(delta / 6e4) + "m ago";
+    if (delta < 864e5) return Math.floor(delta / 36e5) + "h ago";
+    return new Date(value2).toLocaleDateString();
+  }
+  function armRecentDelete(armedId, clickedId) {
+    clickedId = clickedId || null;
+    if (clickedId && armedId === clickedId) return { confirm: true, armedId: null };
+    return { confirm: false, armedId: clickedId };
+  }
+  function buildRecentAnalysisRecord(options) {
+    options = options || {};
+    var sourceType = options.sourceType || "unknown";
+    var sourceKey = options.sourceKey || "untitled";
+    return {
+      id: analysisCacheKey(sourceType, sourceKey),
+      title: options.title || sourceKey,
+      sourceType,
+      sourceKey,
+      repoUrl: options.repoUrl || "",
+      fileCount: options.data && options.data.files ? options.data.files.length : 0,
+      savedAt: options.savedAt || Date.now(),
+      data: options.data || null,
+      repoInfo: options.repoInfo || null,
+      localSourceKind: options.localSourceKind || null
+    };
+  }
+  function estimateAnalysisRecordBytes(record) {
+    try {
+      return JSON.stringify(record).length;
+    } catch (e) {
+      return ANALYSIS_CACHE_MAX_BYTES + 1;
+    }
+  }
+  function omitSnippetCode(item) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+    if (!Object.prototype.hasOwnProperty.call(item, "code")) return item;
+    var copy = Object.assign({}, item);
+    delete copy.code;
+    return copy;
+  }
+  function compactAnalysisForCache(data) {
+    if (!data || typeof data !== "object") return data;
+    var copy = Object.assign({}, data);
+    if (Array.isArray(copy.files)) {
+      copy.files = copy.files.map(function(file) {
+        var next = Object.assign({}, file);
+        delete next.content;
+        if (next.elixir) next.elixir = { ...next.elixir, functions: (next.elixir.functions || []).map(omitSnippetCode) };
+        if (Array.isArray(next.functions)) next.functions = next.functions.map(omitSnippetCode);
+        if (Array.isArray(next.deadFunctions)) next.deadFunctions = next.deadFunctions.map(omitSnippetCode);
+        if (Array.isArray(next.securityIssues)) next.securityIssues = next.securityIssues.map(omitSnippetCode);
+        return next;
+      });
+    }
+    if (Array.isArray(copy.files)) {
+      const byPath = new Map(copy.files.map((file) => [file.path, file]));
+      if (copy.tree) copy.tree = buildTree(copy.files);
+      if (copy.patterns) copy.patterns = copy.patterns.map((pattern) => ({
+        ...pattern,
+        files: (pattern.files || []).map((file) => byPath.get(file.path) || file)
+      }));
+    }
+    if (Array.isArray(copy.functions)) copy.functions = copy.functions.map(omitSnippetCode);
+    if (Array.isArray(copy.deadFunctions)) copy.deadFunctions = copy.deadFunctions.map(omitSnippetCode);
+    if (Array.isArray(copy.securityIssues)) copy.securityIssues = copy.securityIssues.map(omitSnippetCode);
+    if (Array.isArray(copy.issues)) {
+      copy.issues = copy.issues.map(function(issue) {
+        var next = Object.assign({}, issue);
+        if (Array.isArray(next.items)) next.items = next.items.map(omitSnippetCode);
+        return next;
+      });
+    }
+    if (copy.fnStats && typeof copy.fnStats === "object") {
+      var stats = /* @__PURE__ */ Object.create(null);
+      Object.keys(copy.fnStats).forEach(function(key) {
+        stats[key] = omitSnippetCode(copy.fnStats[key]);
+      });
+      copy.fnStats = stats;
+    }
+    return copy;
+  }
+  function openAnalysisCacheDb() {
+    if (typeof indexedDB === "undefined") return Promise.reject(new Error("IndexedDB is not available"));
+    return new Promise(function(resolve, reject) {
+      var req = indexedDB.open(ANALYSIS_CACHE_DB, ANALYSIS_CACHE_VERSION);
+      req.onupgradeneeded = function() {
+        var db = req.result;
+        if (db.objectStoreNames.contains(ANALYSIS_CACHE_STORE)) db.deleteObjectStore(ANALYSIS_CACHE_STORE);
+        var store = db.createObjectStore(ANALYSIS_CACHE_STORE, { keyPath: "id" });
+        store.createIndex("savedAt", "savedAt");
+      };
+      req.onsuccess = function() {
+        resolve(req.result);
+      };
+      req.onerror = function() {
+        reject(req.error || new Error("Failed to open analysis cache"));
+      };
+    });
+  }
+  function listRecentAnalyses() {
+    return openAnalysisCacheDb().then(function(db) {
+      return new Promise(function(resolve, reject) {
+        var tx = db.transaction(ANALYSIS_CACHE_STORE, "readonly");
+        var req = tx.objectStore(ANALYSIS_CACHE_STORE).getAll();
+        req.onsuccess = function() {
+          var rows = (req.result || []).slice().sort(function(a, b) {
+            return (b.savedAt || 0) - (a.savedAt || 0);
+          });
+          resolve(rows);
+        };
+        req.onerror = function() {
+          reject(req.error);
+        };
+      });
+    }).catch(function() {
+      return [];
+    });
+  }
+  function getRecentAnalysis(id) {
+    return openAnalysisCacheDb().then(function(db) {
+      return new Promise(function(resolve, reject) {
+        var tx = db.transaction(ANALYSIS_CACHE_STORE, "readonly");
+        var req = tx.objectStore(ANALYSIS_CACHE_STORE).get(id);
+        req.onsuccess = function() {
+          resolve(req.result || null);
+        };
+        req.onerror = function() {
+          reject(req.error);
+        };
+      });
+    });
+  }
+  function deleteRecentAnalysis(id) {
+    return openAnalysisCacheDb().then(function(db) {
+      return new Promise(function(resolve, reject) {
+        var tx = db.transaction(ANALYSIS_CACHE_STORE, "readwrite");
+        tx.objectStore(ANALYSIS_CACHE_STORE).delete(id);
+        tx.oncomplete = function() {
+          resolve(true);
+        };
+        tx.onerror = function() {
+          reject(tx.error);
+        };
+      });
+    });
+  }
+  function saveRecentAnalysis(record) {
+    if (!record || !record.id || !record.data) return Promise.resolve(false);
+    if (estimateAnalysisRecordBytes(record) > ANALYSIS_CACHE_MAX_BYTES) return Promise.resolve(false);
+    return openAnalysisCacheDb().then(function(db) {
+      return new Promise(function(resolve, reject) {
+        var tx = db.transaction(ANALYSIS_CACHE_STORE, "readwrite");
+        var store = tx.objectStore(ANALYSIS_CACHE_STORE);
+        store.put(record);
+        var allReq = store.getAll();
+        allReq.onsuccess = function() {
+          var rows = (allReq.result || []).slice().sort(function(a, b) {
+            return (b.savedAt || 0) - (a.savedAt || 0);
+          });
+          rows.slice(ANALYSIS_CACHE_MAX).forEach(function(old) {
+            store.delete(old.id);
+          });
+        };
+        tx.oncomplete = function() {
+          resolve(true);
+        };
+        tx.onerror = function() {
+          reject(tx.error);
+        };
+      });
+    }).catch(function() {
+      return false;
+    });
+  }
+
+  // src/analysis/file-types.mjs
+  var codeExts = [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".py", ".pyw", ".pyi", ".java", ".go", ".rb", ".php", ".rs", ".c", ".cpp", ".cc", ".h", ".hpp", ".cs", ".swift", ".kt", ".kts", ".scala", ".clj", ".ex", ".exs", ".erl", ".hs", ".lua", ".r", ".R", ".jl", ".dart", ".elm", ".fs", ".fsx", ".ml", ".pl", ".pm", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".psm1", ".groovy", ".gradle", ".vba", ".bas", ".cls", ".xlsm", ".xlam", ".xlsb", ".xla", ".xlw", ".pas", ".pp", ".dpr", ".dpk", ".lpr", ".inc"];
+  var scriptContainerExts = [".html", ".htm", ".xhtml", ".vue", ".svelte"];
+  var textExts = [".md", ".markdown", ".txt", ".json", ".jsonl", ".yaml", ".yml", ".toml", ".xml", ".html", ".htm", ".css", ".scss", ".sass", ".less", ".svg", ".graphql", ".gql", ".sql", ".prisma", ".proto", ".tf", ".tfvars", ".env", ".env.example", ".gitignore", ".gitattributes", ".gitmodules", ".eslintrc", ".prettierrc", ".babelrc", ".editorconfig", ".ini", ".cfg", ".conf", ".properties", ".lock", ".csv", ".tsv", ".rst", ".tex", ".cmake", ".rake", ".vba", ".bas", ".cls", ".xlsm", ".xlam", ".xlsb", ".xla", ".xlw", ".mod", ".sum"];
+  var textNames = ["dockerfile", "containerfile", "makefile", "rakefile", "gemfile", "podfile", "pipfile", "procfile", "brewfile", "justfile", "taskfile", "cmakelists.txt", "license", "copying", "notice", "readme", "changelog", "authors", "contributors", "owners", "codeowners", "go.mod", "go.sum"];
+  var binExts = [".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp", ".bmp", ".svg", ".woff", ".woff2", ".ttf", ".eot", ".otf", ".pdf", ".zip", ".tar", ".gz", ".rar", ".7z", ".exe", ".dll", ".so", ".dylib", ".bin", ".dat", ".db", ".sqlite", ".mp3", ".mp4", ".wav", ".avi", ".mov", ".webm"];
+  function isCode(n) {
+    var lower = n.toLowerCase();
+    return codeExts.some(function(e) {
+      return lower.endsWith(e);
+    }) || scriptContainerExts.some(function(e) {
+      return lower.endsWith(e);
+    });
+  }
+  function isText(n) {
+    var lower = n.toLowerCase();
+    return textExts.some(function(e) {
+      return lower.endsWith(e);
+    }) || textNames.indexOf(lower) >= 0;
+  }
+  function isBinary(n) {
+    return binExts.some(function(e) {
+      return n.toLowerCase().endsWith(e);
+    });
+  }
+  function isIncluded(n) {
+    return !isBinary(n) && (isCode(n) || isText(n));
+  }
+  function isScriptContainer(n) {
+    return scriptContainerExts.some(function(e) {
+      return n.toLowerCase().endsWith(e);
+    });
+  }
+  function isVBA(n) {
+    return [".vba", ".bas", ".cls", ".xlsm", ".xlam", ".xlsb", ".xla", ".xlw"].some(function(e) {
+      return n.toLowerCase().endsWith(e);
+    });
+  }
+  function isPascal(n) {
+    return [".pas", ".pp", ".dpr", ".dpk", ".lpr", ".inc"].some(function(e) {
+      return n.toLowerCase().endsWith(e);
+    });
+  }
+  function isHTML(n) {
+    return [".html", ".htm", ".xhtml"].some(function(e) {
+      return n.toLowerCase().endsWith(e);
+    });
+  }
+  function isCSS(n) {
+    return [".css", ".scss", ".sass", ".less"].some(function(e) {
+      return n.toLowerCase().endsWith(e);
+    });
+  }
+  function isJSON(n) {
+    return [".json"].some(function(e) {
+      return n.toLowerCase().endsWith(e);
+    });
+  }
+  function isElixir(filename) {
+    return /\.exs?$/.test(filename || "");
+  }
+  function isMarkdown(n) {
+    return [".md", ".markdown"].some(function(e) {
+      return n.toLowerCase().endsWith(e);
+    });
+  }
+  function isTestFile(path2) {
+    var p = String(path2 || "").replace(/\\/g, "/");
+    var lower = p.toLowerCase();
+    if (/(^|\/)(tests?|spec|specs|__tests__)\//.test(lower)) return true;
+    if (/\.(test|spec)\.[a-z]+$/.test(lower)) return true;
+    if (/_(test|spec)\.(rb|go|py|exs|ex|cr|php|rs)$/.test(lower)) return true;
+    if (/(^|\/)test_[^\/]*\.py$/.test(lower)) return true;
+    if (/(^|\/)conftest\.py$/.test(lower)) return true;
+    if (/(Test|Tests|Spec)\.(java|kt|kts|scala|cs|groovy|swift)$/.test(p)) return true;
+    return false;
+  }
+  function detectLayer(p) {
+    var l = "/" + p.toLowerCase().replace(/^\/+/, "");
+    if (l.includes("/test") || l.match(/test_\w+\.py$/) || l.match(/\w+_test\.py$/) || l.includes("conftest")) return "test";
+    if (l.includes("/ui/") || l.includes("/views/") || l.includes("/pages/") || l.includes("/templates/") || l.includes("/static/")) return "ui";
+    if (l.includes("/component")) return "components";
+    if (l.includes("/service") || l.includes("/api/") || l.includes("/controller") || l.includes("/endpoint") || l.includes("/router")) return "services";
+    if (l.includes("/middleware") || l.includes("/handler") || l.includes("/signal")) return "services";
+    if (l.includes("/util") || l.includes("/helper") || l.includes("/lib/") || l.includes("/common/")) return "utils";
+    if (l.includes("/data") || l.includes("/model") || l.includes("/store") || l.includes("/schema") || l.includes("/serializer")) return "data";
+    if (l.includes("/migration")) return "data";
+    if (l.includes("/fixtures/")) return "data";
+    if (l.includes("/task") || l.includes("/worker") || l.includes("/celery") || l.includes("/job")) return "services";
+    if (l.includes("/config") || l.includes("/settings") || l.match(/settings\.py$/)) return "config";
+    if (l.includes("/modules/") || l.includes("/bas/")) return "modules";
+    if (l.includes("/forms/") || l.includes("/userforms/")) return "ui";
+    if (l.includes("/classes/")) return "data";
+    if (l.includes("/standard/")) return "utils";
+    return "utils";
+  }
+  function normalizeArchitecturePath(value2) {
+    return (value2 || "").replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/{2,}/g, "/");
+  }
+  function isArchitectureBuildOutput(path2, name) {
+    var p = String(path2 || "").toLowerCase().replace(/\\/g, "/");
+    var base = String(name || p.split("/").pop() || "").toLowerCase();
+    if (/(^|\/)out(\/|$)/.test(p) || /(^|\/)dist(\/|$)/.test(p) || /(^|\/)build(\/|$)/.test(p) || /(^|\/)coverage(\/|$)/.test(p)) return true;
+    if (/(^|\/)\.next(\/|$)/.test(p) || /(^|\/)\.nuxt(\/|$)/.test(p) || /(^|\/)\.output(\/|$)/.test(p)) return true;
+    if (/^page-[a-f0-9]{6,}/i.test(base) || /^layout-[a-f0-9]{6,}/i.test(base)) return true;
+    if (/\/page-[a-f0-9]{6,}\//i.test(p) || /\/layout-[a-f0-9]{6,}\//i.test(p)) return true;
+    if (/(^|\/)404\/index\.html?$/i.test(p) && /(^|\/)out\//i.test(p)) return true;
+    return false;
+  }
+  function isArchitectureTestFile(path2) {
+    var p = String(path2 || "").toLowerCase().replace(/\\/g, "/");
+    return isTestFile(p) || /\.smoke\.(js|mjs|cjs)$/.test(p);
+  }
+  function isArchitectureFixtureFile(path2) {
+    var p = String(path2 || "").toLowerCase().replace(/\\/g, "/");
+    return /(^|\/)fixtures(\/|$)/.test(p) || /(^|\/)__fixtures__(\/|$)/.test(p);
+  }
+  function isDocumentationPath(path2) {
+    var p = String(path2 || "").toLowerCase().replace(/\\/g, "/");
+    if (/(^|\/)docs?(\/|$)/.test(p)) return true;
+    if (/\.(md|markdown|mdx)$/.test(p)) return true;
+    return false;
+  }
+  function isDevToolingPath(path2) {
+    var p = String(path2 || "").toLowerCase().replace(/\\/g, "/");
+    if (/(^|\/)\.github(\/|$)/.test(p)) return true;
+    if (/(^|\/)\.claude(\/|$)/.test(p)) return true;
+    if (/(^|\/)(scripts|tools|tooling)(\/|$)/.test(p)) return true;
+    return false;
+  }
+  function isSecretScanExemptPath(path2) {
+    var p = String(path2 || "").toLowerCase().replace(/\\/g, "/");
+    if (isArchitectureTestFile(p)) return true;
+    if (isArchitectureFixtureFile(p)) return true;
+    if (isDocumentationPath(p)) return true;
+    return false;
+  }
+  function isNonProductionPath(path2) {
+    var p = String(path2 || "").toLowerCase().replace(/\\/g, "/");
+    if (isSecretScanExemptPath(p)) return true;
+    if (isDevToolingPath(p)) return true;
+    return false;
+  }
+  function isArchitectureBackendPath(path2) {
+    var p = normalizeArchitecturePath(path2).toLowerCase();
+    if (/(^|\/)(a-)?backend(\/|$)/.test(p)) return true;
+    if (/(^|\/)server(\/|$)/.test(p)) return true;
+    if (/(^|\/)workers?(\/|$)/.test(p)) return true;
+    if (/(^|\/)functions(\/|$)/.test(p)) return true;
+    if (/(^|\/)lambda(\/|$)/.test(p)) return true;
+    if (/^src\/app\/api\//.test(p)) return false;
+    var segments = p.split("/").filter(Boolean);
+    for (var i = 0; i < segments.length; i++) {
+      var seg = segments[i];
+      if (seg === "middleware" || seg === "controllers" || seg === "handlers") return true;
+      if (seg === "routes" || seg === "services") {
+        if (i === 0) return true;
+        var prev = segments[i - 1];
+        if (prev === "backend" || prev === "a-backend" || prev === "server" || prev === "api") return true;
+      }
+    }
+    return false;
+  }
+
+  // src/analysis/architecture.mjs
+  var ARCHITECTURE_MAX_BLOCKS = 64;
+  var ARCHITECTURE_GROUP_ORDER_CODEFLOW = ["Browser App", "GitHub Action", "Analysis Core", "Repository Collection", "Rendering / Reports", "Testing", "Fixtures / Examples", "Application", "Storage"];
+  var ARCHITECTURE_GROUP_ORDER_WEBAPP = ["App Entry / Shell", "Frontend Routes / Views", "Frontend Components", "Backend / API Layer", "Services / Business Logic", "Data / Storage", "Shared / Utilities", "Configuration", "Content / Data", "External Integrations", "Build Output", "Testing", "Fixtures / Examples"];
+  var ARCHITECTURE_GROUP_ORDER_GENERIC = ["Application", "Shared Services / Utils", "Configuration", "Content / Data", "Build Output", "Testing", "Fixtures / Examples", "Storage"];
+  function getArchitectureGroupOrder(profile) {
+    if (profile === "codeflow") return ARCHITECTURE_GROUP_ORDER_CODEFLOW;
+    if (profile === "web-app") return ARCHITECTURE_GROUP_ORDER_WEBAPP;
+    return ARCHITECTURE_GROUP_ORDER_GENERIC;
+  }
+  function detectArchitectureProfile(files, framework) {
+    var paths = (files || []).map(function(f) {
+      return normalizeArchitecturePath(f.path || f.name).toLowerCase();
+    });
+    if (paths.some(function(p) {
+      return /(^|\/)index\.html?$/i.test(p);
+    }) && paths.some(function(p) {
+      return /(^|\/)card\/(lib|render)\//i.test(p);
+    })) return "codeflow";
+    if (framework === "Next.js") return "web-app";
+    if (paths.some(function(p) {
+      return /(^|\/)src\/app\//i.test(p) || /(^|\/)pages\//i.test(p) || /(^|\/)(backend|server|api|services?|middleware|routes?|platforms?)\b/i.test(p);
+    })) return "web-app";
+    if (framework === "Browser App") return "web-app";
+    return "generic";
+  }
+  function isArchitectureBarrelIndex(path2) {
+    var p = normalizeArchitecturePath(path2).toLowerCase();
+    return /\/index\.(js|mjs|cjs|ts)$/i.test(p) && !/\/index\.(tsx|jsx)$/i.test(p);
+  }
+  function isNonRouteFolderSegment(segment) {
+    return ["hooks", "components", "ui", "views", "schemas", "schema", "controllers", "middleware", "services", "routes", "utils", "lib", "common", "analytics", "types", "constants", "validators", "models", "repositories", "config", "core", "api", "server", "backend", "workers", "functions", "platforms", "tabs", "charts", "widgets", "providers", "layouts", "shared", "domain", "usecases", "processors", "jobs", "db", "database", "content", "posts", "blog", "docs", "tests", "fixtures", "node_modules", "public", "static", "assets", "styles", "themes"].indexOf(segment) >= 0;
+  }
+  function canBeFrontendRoute(path2) {
+    var p = normalizeArchitecturePath(path2).toLowerCase();
+    if (isArchitectureBuildOutput(path2) || isArchitectureBackendPath(path2) || isArchitectureBarrelIndex(path2)) return false;
+    if (/(^|\/)src\/app\/.*\/page\.(jsx|tsx)$/i.test(p)) return true;
+    if (/^src\/app\/page\.(jsx|tsx)$/i.test(p)) return true;
+    if (/^src\/site-pages\/.+\/index\.(tsx|jsx)$/i.test(p)) return true;
+    if (/(^|\/)pages\/.*\.(jsx|tsx)$/i.test(p) && !/(^|\/)pages\/api\//i.test(p)) return true;
+    var flat = p.match(/^([a-z0-9][a-z0-9_-]*(?:\/[a-z0-9][a-z0-9_-]*){0,4})\/index\.(tsx|jsx)$/);
+    if (flat) {
+      var segments = flat[1].split("/").filter(Boolean);
+      if (!segments.some(isNonRouteFolderSegment)) return true;
+    }
+    return false;
+  }
+  function inferNextSpecialFile(path2) {
+    var p = normalizeArchitecturePath(path2).toLowerCase();
+    if (/\/global-error\.(tsx|jsx)$/.test(p)) return { role: "frontend-component", title: "Global Error Boundary", route: null, kind: "component" };
+    if (/\/not-found\.(tsx|jsx)$/.test(p)) return { role: "frontend-route", title: "404 Not Found", route: "/404", kind: "page" };
+    if (/\/error\.(tsx|jsx)$/.test(p)) return { role: "frontend-component", title: "Error Boundary", route: null, kind: "component" };
+    if (/\/loading\.(tsx|jsx)$/.test(p)) return { role: "frontend-component", title: "Loading UI", route: null, kind: "component" };
+    if (/\/template\.(tsx|jsx)$/.test(p)) return { role: "app-shell", title: "App Template", route: null, kind: "shell" };
+    if (/\/layout\.(tsx|jsx)$/.test(p)) return { role: "app-shell", title: "App Layout", route: null, kind: "shell" };
+    if (/\/providers\.(tsx|jsx)$/.test(p)) return { role: "app-shell", title: "App Providers", route: null, kind: "shell" };
+    return null;
+  }
+  function isArchitectureConfigPath(path2, name) {
+    var p = normalizeArchitecturePath(path2).toLowerCase();
+    var base = String(name || "").toLowerCase();
+    return /(^|\/)config(\/|$)/i.test(p) || /\.config\.(js|ts|mjs|cjs)$/.test(p) || base === "package.json" || base === "wrangler.toml" || base === "tsconfig.json";
+  }
+  function isArchitectureContentPath(path2, name) {
+    var p = normalizeArchitecturePath(path2).toLowerCase();
+    return /(^|\/)(blog|posts|content|data|static\/content)\b/i.test(p) || /\.(md|mdx)$/i.test(name || "");
+  }
+  function isLikelyUiComponentSource(content) {
+    return /(from\s+['"`]react['"`]|React\.)/.test(content || "") && (/export\s+(?:default\s+)?function\s+[A-Z]/.test(content || "") || /export\s+(?:default\s+)?(?:const|class)\s+[A-Z]/.test(content || "") || /<[A-Z][A-Za-z0-9_]*\b/.test(content || ""));
+  }
+  function inferWebAppRoute(path2) {
+    if (!canBeFrontendRoute(path2)) return null;
+    var p = normalizeArchitecturePath(path2);
+    var nextRoute = inferArchitectureRoute(p);
+    if (nextRoute && !isArchitectureBackendPath(path2)) return nextRoute;
+    var match = p.match(/^(?:src\/)?site-pages\/(.+)\/index\.(tsx|jsx)$/i);
+    if (match) return normalizeArchitectureRoute("/" + match[1].split("/").filter(Boolean).join("/"));
+    match = p.match(/^([a-z0-9][a-z0-9_-]*(?:\/[a-z0-9][a-z0-9_-]*){0,4})\/index\.(tsx|jsx)$/i);
+    if (match && !isNonRouteFolderSegment(match[1].split("/")[0])) {
+      var segments = match[1].split("/").filter(Boolean);
+      if (!segments.some(isNonRouteFolderSegment)) return normalizeArchitectureRoute("/" + segments.join("/"));
+    }
+    return null;
+  }
+  function inferCodeflowArchitectureRole(path2) {
+    var p = normalizeArchitecturePath(path2).toLowerCase();
+    if (isArchitectureTestFile(path2)) return "test";
+    if (isArchitectureFixtureFile(path2)) return "fixture";
+    if (/(^|\/)index\.html?$/i.test(p)) return "browser-shell";
+    if (/(^|\/)card\/index\.(js|mjs|cjs)$/i.test(p)) return "action-entry";
+    if (/\/analyzer\.(js|mjs|cjs)$/i.test(p)) return "analyzer-loader";
+    if (/\/collect\.(js|mjs|cjs)$/i.test(p)) return "collector";
+    if (/\/git\.(js|mjs|cjs)$/i.test(p)) return "git";
+    if (/\/inputs\.(js|mjs|cjs)$/i.test(p)) return "inputs";
+    if (/\/pr\.(js|mjs|cjs)$/i.test(p)) return "pr";
+    if (/\/state\.(js|mjs|cjs)$/i.test(p)) return "state";
+    if (/\/card\/render\/card\.(js|mjs|cjs)$/i.test(p)) return "renderer";
+    if (/(^|\/)card\/render\//i.test(p)) return "render-support";
+    if (/(^|\/)card\/lib\//i.test(p)) return "module";
+    return "module";
+  }
+  function inferWebAppArchitectureRole(path2, classified, content) {
+    var p = normalizeArchitecturePath(path2).toLowerCase();
+    var base = architectureFileBaseName(path2);
+    var special = inferNextSpecialFile(path2);
+    if (special) return special.role;
+    if (isArchitectureTestFile(path2)) return "test";
+    if (isArchitectureFixtureFile(path2)) return "fixture";
+    if (isArchitectureBuildOutput(path2)) return "build-output";
+    if (isArchitectureBackendPath(path2)) {
+      if (/\/middleware(\/|$)/.test(p) || base.toLowerCase() === "middleware") return "backend-middleware";
+      if (/\/routes(\/|$)/.test(p) || base.toLowerCase() === "routes") return "backend-routes";
+      if (/\/services(\/|$)/.test(p) || base.toLowerCase() === "services" || base.toLowerCase() === "service") return "backend-services";
+      if (/\/config(\/|$)/.test(p) || base.toLowerCase() === "config") return "config";
+      if (/\/core(\/|$)/.test(p) || base.toLowerCase() === "core") return "config";
+      if (/\/platforms\/[^/]+\//.test(p) && (/analyzer|controller|api/.test(p) || /analyzer|controller/i.test(base))) return "platform-analyzer";
+      if (/\/analyzer/.test(p) || /analyzer/i.test(base)) return "platform-analyzer";
+      if (/api[-_]?client/i.test(p) || /api[-_]?client/i.test(base)) return "api-client";
+      return "backend-module";
+    }
+    if (isArchitectureConfigPath(path2, base)) return "config";
+    if (isArchitectureContentPath(path2, base)) return "content";
+    if (/(^|\/)src\/app\/(layout|template|providers|page)\./i.test(p)) return "app-shell";
+    if (classified.kind === "api" || /^src\/app\/api\//.test(p)) return "backend-routes";
+    if (classified.kind === "page" && classified.route && canBeFrontendRoute(path2)) return "frontend-route";
+    if (/\/hooks(\/|$)/.test(p) || /\/schemas?(\/|$)/.test(p) || /\/validators?(\/|$)/.test(p)) return "shared-module";
+    if (/\/components(\/|$)/.test(p) || /\/ui\/components(\/|$)/.test(p) || /\/views(\/|$)/.test(p)) {
+      if (/\.(tsx|jsx)$/i.test(p) && isLikelyUiComponentSource(content)) return "frontend-component";
+      return "shared-module";
+    }
+    if ((classified.kind === "component" || classified.kind === "hook") && /\.(tsx|jsx)$/i.test(p) && isLikelyUiComponentSource(content)) return "frontend-component";
+    if (/(^|\/)utils?\b/i.test(p) || /(^|\/)lib\//i.test(p) || /(^|\/)common\//i.test(p) || /(^|\/)constants?\b/i.test(p)) return "shared-module";
+    return "shared-module";
+  }
+  function inferArchitectureRole(path2, profile, classified, content) {
+    if (profile === "codeflow") return inferCodeflowArchitectureRole(path2);
+    return inferWebAppArchitectureRole(path2, classified || { kind: "utility", route: null }, content || "");
+  }
+  function inferArchitectureGroup(role, fact, profile) {
+    if (profile === "codeflow") {
+      if (role === "browser-shell") return "Browser App";
+      if (role === "action-entry") return "GitHub Action";
+      if (role === "analyzer-loader" || role === "state") return "Analysis Core";
+      if (role === "collector" || role === "git" || role === "inputs" || role === "pr") return "Repository Collection";
+      if (role === "renderer" || role === "render-support") return "Rendering / Reports";
+      if (role === "test") return "Testing";
+      if (role === "fixture") return "Fixtures / Examples";
+      if (fact && fact.kind === "page") return "Browser App";
+      if (fact && fact.kind === "api") return "Application";
+      if (fact && (fact.kind === "database-adapter" || fact.kind === "database")) return "Storage";
+      return "Application";
+    }
+    if (role === "app-shell") return "App Entry / Shell";
+    if (role === "frontend-route") return "Frontend Routes / Views";
+    if (role === "frontend-component") return "Frontend Components";
+    if (role === "platform-analyzer") return "Services / Business Logic";
+    if (role === "backend-routes" || role === "backend-middleware" || role === "api-client") return "Backend / API Layer";
+    if (role === "backend-services" || role === "backend-module") return "Services / Business Logic";
+    if (role === "config") return "Configuration";
+    if (role === "content") return "Content / Data";
+    if (role === "build-output") return "Build Output";
+    if (role === "test") return "Testing";
+    if (role === "fixture") return "Fixtures / Examples";
+    if (role === "shared-module") return "Shared / Utilities";
+    if (fact && (fact.kind === "database-adapter" || fact.kind === "database")) return "Data / Storage";
+    return "Shared / Utilities";
+  }
+  function isArchitectureSignificantFile(path2, role, fact, framework, profile, importedByCore) {
+    if (isArchitectureTestFile(path2) || isArchitectureFixtureFile(path2) || isArchitectureBuildOutput(path2)) return false;
+    if (profile === "codeflow") {
+      if (role === "browser-shell" || role === "action-entry") return true;
+      if (role === "analyzer-loader" || role === "collector" || role === "git" || role === "inputs" || role === "pr" || role === "state" || role === "renderer" || role === "render-support") return true;
+      if (/(^|\/)card\/(lib|render)\//i.test(path2)) return true;
+      if (fact.kind === "page" || fact.kind === "api") return true;
+      if (fact.kind === "database-adapter" && fact.dbUsage) return true;
+      return false;
+    }
+    if (role === "app-shell") return true;
+    if (role === "frontend-route" && fact.route && canBeFrontendRoute(path2)) return true;
+    if (role === "frontend-component" && /\.(tsx|jsx)$/i.test(path2)) return true;
+    if (role === "backend-routes" || role === "backend-middleware" || role === "backend-services" || role === "platform-analyzer" || role === "api-client") return true;
+    if (role === "config" || role === "content") return true;
+    if (role === "backend-module" && /(middleware|routes?|services?|analyzer|platform)/i.test(path2)) return true;
+    if (fact.kind === "page" && fact.route && canBeFrontendRoute(path2)) return true;
+    if (fact.kind === "api") return true;
+    if (fact.kind === "database-adapter" && fact.dbUsage) return true;
+    if (importedByCore) return true;
+    return false;
+  }
+  function extractExportedComponentName(content) {
+    var match = (content || "").match(/export\s+default\s+function\s+([A-Z][A-Za-z0-9_]*)/);
+    if (match) return match[1];
+    match = (content || "").match(/export\s+default\s+(?:const|class)\s+([A-Z][A-Za-z0-9_]*)/);
+    if (match) return match[1];
+    match = (content || "").match(/export\s+function\s+([A-Z][A-Za-z0-9_]*)/);
+    if (match) return match[1];
+    return null;
+  }
+  function inferPageComponentTitle(path2, route, content) {
+    var special = inferNextSpecialFile(path2);
+    if (special && special.title) return special.title;
+    var exported = extractExportedComponentName(content);
+    if (exported) return exported;
+    var base = architectureFileBaseName(path2);
+    if (/^[A-Z]/.test(base) && base !== "Index" && base !== "Page") return base;
+    if (route && route !== "/") {
+      var segment = route.split("/").filter(Boolean).pop() || "";
+      if (segment) return segment.charAt(0).toUpperCase() + segment.slice(1).replace(/[-_](\w)/g, function(m, c) {
+        return c.toUpperCase();
+      }) + " Page";
+    }
+    if (/layout/i.test(base)) return "App Layout";
+    if (/page/i.test(base)) return "Page Module";
+    return "UI Module";
+  }
+  function testFileReferencesCore(content) {
+    return /CODEFLOW_ANALYZER|buildAnalysisData|loadAnalyzer|locateIndexHtml|const Parser=\{/.test(content || "");
+  }
+  function inferTestTargetPaths(testPath) {
+    var base = architectureFileBaseName(testPath).toLowerCase();
+    var targets = [];
+    if (/golden/.test(base)) targets.push("card/lib/analyzer.js");
+    if (/repo-smoke|smoke/.test(base)) targets.push("card/lib/collect.js");
+    if (/md-extractor|sync-with-html|html-inline/.test(base)) targets.push("index.html");
+    return targets;
+  }
+  function architectureDependencyLabel(sourceRole, targetRole, importPath) {
+    if (sourceRole === "test") return "tests";
+    if (sourceRole === "browser-shell" && targetRole === "analyzer-loader") return "runs analysis";
+    if (sourceRole === "browser-shell" && targetRole === "collector") return "loads repo data";
+    if (sourceRole === "action-entry" && targetRole === "browser-shell") return "loads analyzer from";
+    if (sourceRole === "action-entry" && targetRole === "collector") return "collects repo";
+    if (sourceRole === "action-entry" && targetRole === "analyzer-loader") return "runs analysis";
+    if (sourceRole === "action-entry" && targetRole === "state") return "stores derived state";
+    if (sourceRole === "action-entry" && targetRole === "renderer") return "renders report";
+    if (sourceRole === "collector" && targetRole === "git") return "uses GitHub API";
+    if (sourceRole === "collector" && targetRole === "inputs") return "normalizes input";
+    if (sourceRole === "pr" && targetRole === "git") return "analyzes pull requests";
+    if (sourceRole === "analyzer-loader" && targetRole === "state") return "stores derived state";
+    if (sourceRole === "renderer" && targetRole === "render-support") return "uses visual helpers";
+    if (sourceRole === "render-support" && targetRole === "render-support") {
+      if (/receipt-md/.test(importPath || "")) return "exports markdown";
+      if (/theme/.test(importPath || "")) return "uses";
+      return "uses";
+    }
+    if (targetRole === "database") return "queries";
+    if (sourceRole === "browser-shell" && targetRole === "api") return "calls";
+    if (sourceRole === "app-shell" && targetRole === "frontend-route") return "bootstraps";
+    if (sourceRole === "frontend-route" && targetRole === "frontend-component") return "renders";
+    if (sourceRole === "frontend-component" && targetRole === "platform-analyzer") return "calls";
+    if (sourceRole === "frontend-component" && targetRole === "backend-services") return "calls";
+    if (sourceRole === "backend-routes" && targetRole === "backend-middleware") return "passes through";
+    if (sourceRole === "backend-routes" && targetRole === "backend-services") return "dispatches";
+    if (sourceRole === "backend-services" && targetRole === "platform-analyzer") return "uses";
+    if (sourceRole === "platform-analyzer" && targetRole === "api-client") return "uses API";
+    if (sourceRole === "frontend-component" && targetRole === "content") return "reads content";
+    if ((sourceRole === "app-shell" || sourceRole === "backend-module") && targetRole === "config") return "depends on";
+    return "depends on";
+  }
+  function architectureDirname(path2) {
+    path2 = normalizeArchitecturePath(path2);
+    return path2.includes("/") ? path2.split("/").slice(0, -1).join("/") : "";
+  }
+  function stripArchitectureExt(path2) {
+    return normalizeArchitecturePath(path2).replace(/\.(jsx?|tsx?|mjs|cjs|html?|css|scss|sass|less|py|pyw|pyi|rb|go|java|php|rs|cs|swift|kt|kts)$/i, "");
+  }
+  function architectureFileBaseName(path2) {
+    var base = stripArchitectureExt(path2).split("/").pop() || "Block";
+    return base === "index" ? stripArchitectureExt(path2).split("/").slice(-2, -1)[0] || base : base;
+  }
+  function normalizeArchitectureRoute(route) {
+    route = String(route || "").split("#")[0].split("?")[0].trim();
+    if (!route) return "";
+    if (route[0] !== "/") route = "/" + route;
+    route = route.replace(/\/{2,}/g, "/");
+    if (route.length > 1) route = route.replace(/\/$/, "");
+    return route || "/";
+  }
+  function routeSegmentsMatch(patternRoute, targetRoute) {
+    patternRoute = normalizeArchitectureRoute(patternRoute);
+    targetRoute = normalizeArchitectureRoute(targetRoute);
+    if (patternRoute === targetRoute) return true;
+    var pattern = patternRoute.split("/").filter(Boolean);
+    var target = targetRoute.split("/").filter(Boolean);
+    for (var i = 0; i < pattern.length; i++) {
+      var segment = pattern[i];
+      if (segment.charAt(0) === ":" && segment.endsWith("*")) return true;
+      if (i >= target.length) return false;
+      if (segment.charAt(0) === ":") continue;
+      if (segment !== target[i]) return false;
+    }
+    return pattern.length === target.length;
+  }
+  function getArchitectureScanFiles(files) {
+    return (files || []).filter(function(file) {
+      var path2 = normalizeArchitecturePath(file.path || file.name);
+      return !isArchitectureTestFile(path2) && !isArchitectureFixtureFile(path2);
+    });
+  }
+  function detectArchitectureFramework(files) {
+    var paths = getArchitectureScanFiles(files).map(function(f) {
+      return normalizeArchitecturePath(f.path || f.name).toLowerCase();
+    });
+    if (paths.indexOf("mix.exs") >= 0) {
+      var phoenix = (files || []).some(function(file) {
+        return /^lib\//.test(file.path || "") && (file.elixir && file.elixir.modules || []).some(function(m) {
+          return (m.uses || []).concat(m.quotedUses || []).some(function(d) {
+            return /^Phoenix\./.test(d.module);
+          });
+        });
+      });
+      return phoenix ? "Phoenix" : "Elixir / OTP";
+    }
+    var hasNextConfig = paths.some(function(p) {
+      return /(^|\/)next\.config\.(js|mjs|ts|cjs)$/.test(p);
+    });
+    var hasAppRouter = paths.some(function(p) {
+      return /(^|\/)(src\/)?app\/.*(page|route)\.(js|jsx|ts|tsx)$/.test(p);
+    });
+    var hasPagesRouter = paths.some(function(p) {
+      return /(^|\/)(src\/)?pages\/.*\.(js|jsx|ts|tsx)$/.test(p);
+    });
+    if (hasNextConfig || hasAppRouter || hasPagesRouter) return "Next.js";
+    if (paths.some(function(p) {
+      return /\.(html?|xhtml)$/.test(p);
+    })) return "Browser App";
+    if (paths.some(function(p) {
+      return /\.(jsx?|tsx?|mjs|cjs)$/.test(p);
+    })) return "JavaScript/TypeScript";
+    if (paths.some(function(p) {
+      return /\.(py|pyw|pyi)$/.test(p);
+    })) return "Python";
+    if (paths.some(function(p) {
+      return /\.exs?$/.test(p);
+    })) return "Elixir / OTP";
+    return "Generic";
+  }
+  function convertNextRouteSegment(segment) {
+    if (!segment || /^\(.*\)$/.test(segment)) return null;
+    var optionalCatchAll = segment.match(/^\[\[\.\.\.(.+)\]\]$/);
+    if (optionalCatchAll) return ":" + optionalCatchAll[1] + "*";
+    var catchAll = segment.match(/^\[\.\.\.(.+)\]$/);
+    if (catchAll) return ":" + catchAll[1] + "*";
+    var dynamic = segment.match(/^\[(.+)\]$/);
+    if (dynamic) return ":" + dynamic[1];
+    return segment;
+  }
+  function nextRouteFromSegments(segments) {
+    var clean = [];
+    (segments || []).forEach(function(segment) {
+      var converted = convertNextRouteSegment(segment);
+      if (converted) clean.push(converted);
+    });
+    return normalizeArchitectureRoute("/" + clean.join("/"));
+  }
+  function inferArchitectureRoute(path2) {
+    var p = normalizeArchitecturePath(path2);
+    var match;
+    match = p.match(/^(?:src\/)?app\/api\/(.+)\/route\.(js|jsx|ts|tsx)$/i);
+    if (match) return nextRouteFromSegments(["api"].concat(match[1].split("/")));
+    match = p.match(/^(?:src\/)?app\/api\/route\.(js|jsx|ts|tsx)$/i);
+    if (match) return "/api";
+    match = p.match(/^(?:src\/)?app\/(.+)\/page\.(js|jsx|ts|tsx)$/i);
+    if (match) return nextRouteFromSegments(match[1].split("/"));
+    match = p.match(/^(?:src\/)?app\/page\.(js|jsx|ts|tsx)$/i);
+    if (match) return "/";
+    match = p.match(/^(?:src\/)?pages\/api\/(.+)\.(js|jsx|ts|tsx)$/i);
+    if (match) {
+      var apiParts = stripArchitectureExt(match[1]).split("/").filter(Boolean);
+      if (apiParts[apiParts.length - 1] === "index") apiParts.pop();
+      return nextRouteFromSegments(["api"].concat(apiParts));
+    }
+    match = p.match(/^(?:src\/)?pages\/(.+)\.(js|jsx|ts|tsx)$/i);
+    if (match) {
+      var routePath = stripArchitectureExt(match[1]);
+      var parts = routePath.split("/").filter(Boolean);
+      var first = parts[0] || "";
+      if (first.charAt(0) === "_") return null;
+      if (parts[parts.length - 1] === "index") parts.pop();
+      return nextRouteFromSegments(parts);
+    }
+    return null;
+  }
+  function extractArchitectureImports(content) {
+    var imports = [];
+    var regexes = [
+      /import\s+[\s\S]*?\s+from\s+['"`]([^'"`]+)['"`]/g,
+      /import\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g,
+      /require\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g
+    ];
+    regexes.forEach(function(regex) {
+      var match;
+      while (match = regex.exec(content || "")) imports.push(match[1]);
+    });
+    return Array.from(new Set(imports));
+  }
+  function extractJsxComponents(content) {
+    var components = [];
+    var ignored = /* @__PURE__ */ new Set(["Fragment", "React", "Suspense", "StrictMode"]);
+    var regex = /<([A-Z][A-Za-z0-9_]*)\b/g;
+    var match;
+    while (match = regex.exec(content || "")) {
+      if (!ignored.has(match[1])) components.push(match[1]);
+    }
+    return Array.from(new Set(components));
+  }
+  function extractNavigationLinks(content) {
+    var links = [];
+    var regexes = [
+      /<Link[^>]+href=["'`]([^"'`]+)["'`]/g,
+      /<a[^>]+href=["'`]([^"'`]+)["'`]/g,
+      /router\.(?:push|replace)\s*\(\s*["'`]([^"'`]+)["'`]\s*\)/g,
+      /navigate\s*\(\s*["'`]([^"'`]+)["'`]\s*\)/g
+    ];
+    regexes.forEach(function(regex) {
+      var match;
+      while (match = regex.exec(content || "")) {
+        var route = normalizeArchitectureRoute(match[1]);
+        if (route && route.charAt(0) === "/" && !route.startsWith("/api")) links.push(route);
+      }
+    });
+    return Array.from(new Set(links));
+  }
+  function extractApiCalls(content) {
+    var calls = [];
+    var match;
+    var fetchRegex = /fetch\s*\(\s*["'`]([^"'`]+)["'`](?:\s*,\s*\{([\s\S]{0,180}?)\})?/g;
+    while (match = fetchRegex.exec(content || "")) {
+      var method = "GET";
+      var methodMatch = (match[2] || "").match(/method\s*:\s*["'`]([A-Za-z]+)["'`]/);
+      if (methodMatch) method = methodMatch[1].toUpperCase();
+      calls.push({ method, url: normalizeArchitectureRoute(match[1]) });
+    }
+    var axiosRegex = /axios\.(get|post|put|patch|delete)\s*\(\s*["'`]([^"'`]+)["'`]/g;
+    while (match = axiosRegex.exec(content || "")) {
+      calls.push({ method: match[1].toUpperCase(), url: normalizeArchitectureRoute(match[2]) });
+    }
+    return calls.filter(function(call) {
+      return call.url && call.url.startsWith("/api");
+    });
+  }
+  function detectDatabaseUsage(content) {
+    return [
+      /\bnew\s+PrismaClient\s*\(/,
+      /\bprisma\.\w+\.(findMany|findUnique|findFirst|create|update|delete|upsert|count|aggregate)\s*\(/,
+      /\bsupabase\.from\s*\(/,
+      /\bmongoose\.model\b/,
+      /\bpool\.query\s*\(/,
+      /\bdb\.(select|insert|update|delete|query)\s*\(/,
+      /\bcollection\s*\(/
+    ].some(function(pattern) {
+      return pattern.test(content || "");
+    });
+  }
+  function isLikelyReactComponentFile(path2, content) {
+    var p = normalizeArchitecturePath(path2);
+    var base = architectureFileBaseName(p);
+    return /(^|\/)(components|ui)\//i.test(p) || /^[A-Z]/.test(base) || /\.(jsx|tsx)$/i.test(p) || /(from\s+['"`]react['"`]|React\.)/.test(content || "") && /<[A-Z][A-Za-z0-9_]*\b/.test(content || "");
+  }
+  function classifyArchitectureFile(path2, content) {
+    var p = normalizeArchitecturePath(path2);
+    var route = inferArchitectureRoute(p);
+    if (route) {
+      return route.startsWith("/api") ? { kind: "api", route } : { kind: "page", route };
+    }
+    var base = architectureFileBaseName(p);
+    var dbUsage = detectDatabaseUsage(content);
+    if (/^use[A-Z0-9_]/.test(base) || /(^|\/)hooks?\//i.test(p)) return { kind: "hook", route: null };
+    if (dbUsage && /(^|\/)(db|database|prisma|models?|schema|repositories?|data)\b/i.test(p)) return { kind: "database-adapter", route: null };
+    if (/(^|\/)(services?|controllers?|server|actions)\//i.test(p)) return { kind: "service", route: null };
+    if (isLikelyReactComponentFile(p, content)) return { kind: "component", route: null };
+    if (dbUsage) return { kind: "database-adapter", route: null };
+    return { kind: "utility", route: null };
+  }
+  function inferGenericArchitectureRoute(path2) {
+    var p = normalizeArchitecturePath(path2);
+    if (/(^|\/)index\.html?$/i.test(p)) return "/";
+    if (/\.(html?|xhtml)$/i.test(p)) {
+      return normalizeArchitectureRoute("/" + stripArchitectureExt(p).replace(/\/index$/i, ""));
+    }
+    return null;
+  }
+  function classifyGenericArchitectureFile(file, content) {
+    var p = normalizeArchitecturePath(file.path || file.name);
+    var name = file.name || p.split("/").pop() || "";
+    var layer = (file.layer || detectLayer(p) || "utils").toLowerCase();
+    var dbUsage = detectDatabaseUsage(content);
+    var route = inferGenericArchitectureRoute(p);
+    if (route || isHTML(name)) return { kind: "page", route: route || "/" + stripArchitectureExt(name) };
+    if (dbUsage || layer === "data" || layer === "classes") return { kind: "database-adapter", route: null };
+    if (layer === "ui" || layer === "forms" || layer === "components") return { kind: "component", route: null };
+    if (layer === "services") return { kind: "service", route: null };
+    if (layer === "config") return { kind: "utility", route: null };
+    if (file.functions && file.functions.length > 0) return { kind: "module", route: null };
+    return { kind: "utility", route: null };
+  }
+  function architectureModuleFacts(file, phoenixWrappers) {
+    var metadata = file.elixir;
+    if (!metadata || !Array.isArray(metadata.modules) || !metadata.modules.length) return null;
+    var modules = metadata.modules.filter(function(m) {
+      return m && typeof m.name === "string";
+    });
+    if (!modules.length) return null;
+    var names = modules.map(function(m) {
+      return m.name;
+    }).sort(function(a, b) {
+      return a.length - b.length || a.localeCompare(b);
+    });
+    var declarations = [];
+    modules.forEach(function(m) {
+      declarations.push({ kind: "module", module: m.name, line: m.line, path: file.path, evidence: metadata.provenance });
+      ["uses", "behaviours"].forEach(function(key) {
+        (m[key] || []).forEach(function(d) {
+          declarations.push({ kind: key === "uses" ? "use" : "behaviour", module: d.module, line: d.line, path: file.path, arguments: d.arguments || [], evidence: metadata.provenance });
+        });
+      });
+    });
+    var declared = declarations.map(function(d) {
+      return d.module;
+    });
+    var phoenixRole = { ":live_view": "Phoenix.LiveView", ":live_component": "Phoenix.LiveComponent", ":controller": "Phoenix.Controller", ":router": "Phoenix.Router" };
+    declarations.forEach(function(d) {
+      if (d.kind === "use" && phoenixWrappers && phoenixWrappers.has(d.module)) {
+        var argument = (d.arguments || [])[0], via = phoenixRole[argument];
+        if (via && phoenixWrappers.get(d.module).some(function(q) {
+          return q.module === via && q.viaFunction === argument.slice(1);
+        })) declared.push(via);
+      }
+    });
+    var role = "module", kind = "module", group = "Shared / Utilities";
+    if (declared.indexOf("Application") >= 0) {
+      role = "otp-application";
+      group = "Application";
+    } else if (declared.some(function(m) {
+      return m === "Supervisor" || m === "DynamicSupervisor" || m === "supervisor";
+    })) {
+      role = "otp-supervisor";
+      group = "Application";
+    } else if (declared.some(function(m) {
+      return m === "GenServer" || m === "GenStateMachine" || m === "gen_server" || m === "gen_statem";
+    })) {
+      role = "otp-process";
+      kind = "service";
+      group = "Services / Business Logic";
+    } else if (declared.indexOf("Phoenix.Endpoint") >= 0 || declared.indexOf("Phoenix.Router") >= 0) {
+      role = "phoenix-endpoint";
+      kind = "api";
+      group = "Backend / API Layer";
+    } else if (declared.indexOf("Phoenix.LiveView") >= 0 || declared.indexOf("Phoenix.LiveComponent") >= 0) {
+      role = "phoenix-live-view";
+      kind = "component";
+      group = "Frontend Routes / Views";
+    } else if (declared.indexOf("Phoenix.Controller") >= 0) {
+      role = "phoenix-controller";
+      kind = "api";
+      group = "Backend / API Layer";
+    } else if (declared.indexOf("Ecto.Repo") >= 0) {
+      role = "ecto-repo";
+      kind = "database-adapter";
+      group = "Data / Storage";
+    } else if (declared.indexOf("Mix.Task") >= 0) {
+      role = "mix-task";
+      group = "Application";
+    }
+    return { names, title: names[0], role, kind, group, declarations, calls: metadata.calls || [] };
+  }
+  function extractArchitectureFacts(files, framework) {
+    var profile = detectArchitectureProfile(files, framework);
+    var phoenixWrappers = /* @__PURE__ */ new Map();
+    (files || []).forEach(function(file) {
+      (file.elixir && file.elixir.modules || []).forEach(function(m) {
+        var quoted = (m.quotedUses || []).filter(function(d) {
+          return /^Phoenix\./.test(d.module);
+        });
+        if (quoted.length) phoenixWrappers.set(m.name, quoted);
+      });
+    });
+    var rawFacts = (files || []).filter(function(file) {
+      return file && file.content && isCode(file.name || file.path || "");
+    }).map(function(file) {
+      var path2 = normalizeArchitecturePath(file.path || file.name);
+      var content = file.content || "";
+      if (isArchitectureBuildOutput(path2, file.name)) {
+        return {
+          path: path2,
+          name: file.name || path2.split("/").pop(),
+          kind: "build-output",
+          route: null,
+          role: "build-output",
+          group: "Build Output",
+          profile,
+          isTest: false,
+          isFixture: false,
+          isBuildOutput: true,
+          isCore: false,
+          imports: [],
+          jsxComponents: [],
+          links: [],
+          apiCalls: [],
+          dbUsage: false,
+          content,
+          loc: file.lines || 0
+        };
+      }
+      var special = inferNextSpecialFile(path2);
+      var webRoute = canBeFrontendRoute(path2) ? inferWebAppRoute(path2) : null;
+      var classified = framework === "Next.js" ? classifyArchitectureFile(path2, content) : classifyGenericArchitectureFile(file, content);
+      if (special) {
+        classified = { kind: special.kind, route: special.route };
+      } else if (webRoute && profile !== "codeflow" && !isArchitectureBackendPath(path2)) {
+        classified = classified.kind === "api" ? classified : { kind: "page", route: webRoute };
+      } else if (isArchitectureBackendPath(path2) || isArchitectureBarrelIndex(path2)) {
+        if (classified.kind === "page") classified = { kind: "module", route: null };
+      }
+      var role = inferArchitectureRole(path2, profile, classified, content);
+      if (special) {
+        role = special.role;
+        if (special.route) classified.route = special.route;
+      }
+      if (role === "fixture") classified = { kind: "fixture", route: null };
+      else if (role === "browser-shell") classified = { kind: "shell", route: inferGenericArchitectureRoute(path2) || "/" };
+      else if (role === "action-entry") classified = { kind: "action-entry", route: null };
+      else if (role === "test") classified = { kind: "test", route: null };
+      else if (role === "build-output") classified = { kind: "build-output", route: null };
+      else if (role === "app-shell") classified = { kind: "shell", route: null };
+      else if (role === "frontend-route") classified = { kind: "page", route: classified.route || webRoute };
+      else if (role === "frontend-component") classified = { kind: "component", route: classified.route || null };
+      else if (role === "backend-routes" || role === "backend-middleware" || role === "backend-services" || role === "backend-module" || role === "platform-analyzer" || role === "api-client") {
+        classified = { kind: role === "platform-analyzer" ? "service" : "module", route: null };
+      }
+      var moduleFacts = architectureModuleFacts(file, phoenixWrappers);
+      if (moduleFacts && !isArchitectureTestFile(path2) && !isArchitectureFixtureFile(path2)) {
+        role = moduleFacts.role;
+        classified = { kind: moduleFacts.kind, route: null };
+      }
+      var exampleKind = /^examples?\//.test(path2) ? "example" : /^(bench|benchmarks)\//.test(path2) ? "benchmark" : null;
+      if (exampleKind) {
+        role = exampleKind;
+        classified = { kind: "module", route: null };
+      }
+      var displayTitle = moduleFacts ? moduleFacts.title : special ? special.title : null;
+      if (!displayTitle && role === "frontend-component") displayTitle = inferPageComponentTitle(path2, classified.route, content);
+      return {
+        path: path2,
+        name: file.name || path2.split("/").pop(),
+        kind: classified.kind,
+        route: classified.route,
+        displayTitle,
+        role,
+        group: exampleKind ? "Fixtures / Examples" : moduleFacts && !isArchitectureTestFile(path2) && !isArchitectureFixtureFile(path2) ? moduleFacts.group : inferArchitectureGroup(role, { kind: classified.kind }, profile),
+        modules: moduleFacts ? moduleFacts.names : [],
+        declarations: moduleFacts ? moduleFacts.declarations : [],
+        sourceCalls: moduleFacts ? moduleFacts.calls : [],
+        profile,
+        isTest: isArchitectureTestFile(path2),
+        isFixture: isArchitectureFixtureFile(path2),
+        isBuildOutput: isArchitectureBuildOutput(path2, file.name),
+        isCore: false,
+        imports: extractArchitectureImports(content),
+        jsxComponents: extractJsxComponents(content),
+        links: extractNavigationLinks(content),
+        apiCalls: extractApiCalls(content),
+        dbUsage: detectDatabaseUsage(content),
+        content,
+        loc: file.lines || 0
+      };
+    });
+    var corePaths = /* @__PURE__ */ new Set();
+    rawFacts.forEach(function(fact) {
+      if (fact.isBuildOutput || fact.isTest || fact.isFixture) return;
+      fact.isCore = !!(fact.modules && fact.modules.length) || isArchitectureSignificantFile(fact.path, fact.role, fact, framework, fact.profile, false);
+      if (fact.isCore) corePaths.add(fact.path);
+    });
+    var factsByPath = new Map(rawFacts.map(function(fact) {
+      return [fact.path, fact];
+    }));
+    var pending = rawFacts.filter(function(fact) {
+      return fact.isCore;
+    });
+    for (var cursor = 0; cursor < pending.length; cursor++) {
+      var importer = pending[cursor];
+      importer.imports.forEach(function(importPath) {
+        var resolved = resolveArchitectureImport(importPath, importer.path, files);
+        var dependency = resolved && factsByPath.get(resolved);
+        if (!dependency || dependency.isCore || dependency.isBuildOutput || dependency.isTest || dependency.isFixture) return;
+        dependency.isCore = true;
+        corePaths.add(dependency.path);
+        pending.push(dependency);
+      });
+    }
+    var namespaceBranches = /* @__PURE__ */ new Set();
+    rawFacts.forEach(function(fact) {
+      (fact.modules || []).forEach(function(name) {
+        var parts = name.split(".");
+        if (parts.length > 2) namespaceBranches.add(parts.slice(0, 2).join("."));
+      });
+    });
+    rawFacts.forEach(function(fact) {
+      if (!fact.modules || !fact.modules.length || fact.isTest || fact.isFixture) return;
+      var name = fact.modules[0], parts = name.split("."), branch = parts.slice(0, 2).join(".");
+      fact.namespaceRoot = parts[0];
+      if (fact.role === "module" || fact.role === "mix-task") fact.namespace = namespaceBranches.has(branch) ? branch : null;
+    });
+    return rawFacts;
+  }
+  function shouldShowArchitectureBlock(fact) {
+    return ["page", "api", "component", "hook", "service", "database-adapter", "module", "utility", "shell", "fixture", "action-entry", "test", "build-output"].includes(fact.kind);
+  }
+  function architectureLayer(fact) {
+    if (fact.kind === "page" || fact.kind === "component" || fact.kind === "hook") return "Frontend";
+    if (fact.kind === "api" || fact.kind === "service") return "Backend";
+    if (fact.kind === "database-adapter") return "Data Layer";
+    if (fact.kind === "database") return "Storage";
+    if (fact.kind === "module" || fact.kind === "utility") return "Shared";
+    return "Shared";
+  }
+  function architectureTitle(fact) {
+    if (fact.displayTitle) return fact.displayTitle;
+    if (fact.role === "app-shell") return "App Entry / Shell";
+    if (fact.kind === "shell" || fact.role === "browser-shell") return "Browser App Shell";
+    if (fact.kind === "action-entry") return "GitHub Action";
+    if (fact.role === "frontend-route") return fact.route === "/" ? "/" : fact.route;
+    if (fact.role === "frontend-component") return inferPageComponentTitle(fact.path, fact.route, fact.content);
+    if (fact.role === "platform-analyzer") {
+      var seg = (fact.path.match(/\/(youtube|reddit|twitter|github|tiktok|instagram)\b/i) || [])[1];
+      if (seg) return seg.charAt(0).toUpperCase() + seg.slice(1) + " Analyzer";
+      return architectureFileBaseName(fact.path) + " Analyzer";
+    }
+    if (fact.role === "backend-middleware") return "Middleware";
+    if (fact.role === "backend-routes") return "API Routes";
+    if (fact.role === "backend-services") return "Services";
+    if (fact.role === "backend-module") {
+      var seg = normalizeArchitecturePath(fact.path).split("/").filter(Boolean);
+      var name = architectureFileBaseName(fact.path);
+      if (name && name !== "index") return name.charAt(0).toUpperCase() + name.slice(1);
+      return seg.length ? seg[seg.length - 1].charAt(0).toUpperCase() + seg[seg.length - 1].slice(1) : "Backend Module";
+    }
+    if (fact.role === "api-client") return "API Clients";
+    if (fact.role === "config") return "Config";
+    if (fact.role === "content") return "Content";
+    if (fact.kind === "page") return fact.route === "/" ? "Home Page" : "Page " + fact.route;
+    if (fact.kind === "api") return "API " + fact.route;
+    if (fact.kind === "database") return "Database";
+    return architectureFileBaseName(fact.path);
+  }
+  function aggregateFrontendComponentKey(block) {
+    var files = (block.files || []).map(function(f) {
+      return normalizeArchitecturePath(f).toLowerCase();
+    });
+    var sample = files[0] || "";
+    var platform = sample.match(/\/platforms\/([^/]+)\//);
+    if (platform) {
+      var name = platform[1];
+      if (/\/tabs\/[^/]+\/insights\//.test(sample)) return "agg:fe:" + name + "-insight-tabs";
+      if (/\/tabs\//.test(sample)) return "agg:fe:" + name + "-tabs";
+      if (/\/components\/charts\//.test(sample) || /\/charts\//.test(sample)) return "agg:fe:" + name + "-chart-components";
+      if (/\/views\//.test(sample) || /\/pages\//.test(sample)) return "agg:fe:" + name + "-dashboard";
+      if (/\/components\//.test(sample)) return "agg:fe:" + name + "-components";
+      return "agg:fe:" + name + "-feature-ui";
+    }
+    if (/\/components\/charts\//.test(sample) || /\/charts\//.test(sample)) return "agg:fe:chart-components";
+    if (/\/components\//.test(sample) || /\/ui\/components\//.test(sample)) return "agg:fe:shared-ui-components";
+    if (/\/hooks\//.test(sample)) return "agg:fe:hooks";
+    if (/\/views\//.test(sample)) return "agg:fe:views";
+    return "agg:fe:feature-components";
+  }
+  function getArchitectureAggregateKey(block, profile) {
+    if (profile === "codeflow") return null;
+    if (block.role === "example" || block.role === "benchmark") return "agg:" + block.role;
+    if (block.modules && block.modules.length && !block.isTest && !block.isFixture && !block.isBuildOutput) return block.namespace ? "agg:namespace:" + block.namespace : null;
+    if (block.isBuildOutput) return null;
+    if (block.role === "app-shell" || block.role === "browser-shell") return "agg:app-shell";
+    if (block.role === "frontend-route" && block.route) return "agg:route:" + block.route;
+    if (block.role === "frontend-component") return aggregateFrontendComponentKey(block);
+    if (block.role === "platform-analyzer") {
+      var sample = String(block.files && block.files[0] || "").toLowerCase();
+      var seg = sample.match(/\/platforms\/([^/]+)\//);
+      if (seg) return "agg:analyzer:" + seg[1];
+      seg = sample.match(/\/(youtube|reddit|twitter|github|tiktok|instagram)\b/);
+      return "agg:analyzer:" + (seg ? seg[1] : block.title).toLowerCase();
+    }
+    if (block.role === "backend-middleware") return "agg:backend:middleware";
+    if (block.role === "backend-routes") return "agg:backend:routes";
+    if (block.role === "backend-services") return "agg:backend:services";
+    if (block.role === "api-client") return "agg:backend:api-client";
+    if (block.role === "backend-module") {
+      var sample = String(block.files && block.files[0] || "").toLowerCase();
+      if (/\/config\//.test(sample)) return "agg:backend:config";
+      if (/\/core\//.test(sample)) return "agg:backend:core";
+      return "agg:backend:" + architectureFileBaseName(block.files && block.files[0] || "module").toLowerCase();
+    }
+    if (block.role === "config") return "agg:config";
+    if (block.role === "content") return "agg:content";
+    if (block.group === "Shared / Utilities" || block.role === "shared-module") {
+      var sample = String(block.files && block.files[0] || "").toLowerCase();
+      if (/\/hooks\//.test(sample)) return "agg:shared:hooks";
+      if (/\/schemas?\//.test(sample)) return "agg:shared:schema";
+      if (/\/utils?\//.test(sample)) return "agg:shared:utils";
+      return "agg:shared:utilities";
+    }
+    return null;
+  }
+  function titleCaseSegment(value2) {
+    return String(value2 || "").split(/[-_]/).filter(Boolean).map(function(part) {
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    }).join(" ");
+  }
+  function resolveAggregateBlockTitle(key) {
+    if (!key || !key.startsWith("agg:")) return null;
+    var known = {
+      "agg:example": "Examples",
+      "agg:benchmark": "Benchmarks",
+      "agg:app-shell": "App Shell",
+      "agg:backend:middleware": "Middleware",
+      "agg:backend:routes": "API Routes",
+      "agg:backend:services": "Services",
+      "agg:backend:api-client": "API Clients",
+      "agg:backend:config": "Config",
+      "agg:backend:core": "Core",
+      "agg:config": "App Config",
+      "agg:content": "Content",
+      "agg:fe:chart-components": "Chart Components",
+      "agg:fe:shared-ui-components": "Shared UI Components",
+      "agg:fe:hooks": "Hooks",
+      "agg:fe:views": "Views",
+      "agg:fe:feature-components": "Feature Components",
+      "agg:shared:hooks": "Hooks",
+      "agg:shared:schema": "Schema",
+      "agg:shared:utils": "Utils",
+      "agg:shared:utilities": "Utilities"
+    };
+    if (known[key]) return known[key];
+    if (key.startsWith("agg:namespace:")) return key.slice("agg:namespace:".length);
+    var routeMatch = key.match(/^agg:route:(.+)$/);
+    if (routeMatch) {
+      var route = normalizeArchitectureRoute(routeMatch[1]);
+      return route === "/" ? "/" : route;
+    }
+    var analyzerMatch = key.match(/^agg:analyzer:(.+)$/);
+    if (analyzerMatch) return titleCaseSegment(analyzerMatch[1]) + " Analyzer";
+    var feMatch = key.match(/^agg:fe:([^-]+)-(.+)$/);
+    if (feMatch) return titleCaseSegment(feMatch[1]) + " " + titleCaseSegment(feMatch[2].replace(/-/g, " "));
+    var backendMatch = key.match(/^agg:backend:(.+)$/);
+    if (backendMatch) return titleCaseSegment(backendMatch[1]);
+    return null;
+  }
+  function aggregateArchitectureBlocks(blocks, profile, warnings) {
+    if (profile === "codeflow") return blocks;
+    var merged = /* @__PURE__ */ Object.create(null);
+    var passthrough = [];
+    blocks.forEach(function(block) {
+      var key = getArchitectureAggregateKey(block, profile);
+      if (!key) {
+        passthrough.push(block);
+        return;
+      }
+      if (!merged[key]) {
+        merged[key] = Object.assign({}, block, { files: (block.files || []).slice(), loc: block.loc || 0 });
+        merged[key].id = makeMermaidSafeId(key);
+        var aggregateTitle = resolveAggregateBlockTitle(key);
+        if (aggregateTitle) merged[key].title = aggregateTitle;
+      } else {
+        (block.files || []).forEach(function(filePath) {
+          if (merged[key].files.indexOf(filePath) < 0) merged[key].files.push(filePath);
+        });
+        merged[key].loc = (merged[key].loc || 0) + (block.loc || 0);
+        merged[key].modules = Array.from(new Set((merged[key].modules || []).concat(block.modules || [])));
+        merged[key].declarations = (merged[key].declarations || []).concat(block.declarations || []);
+      }
+    });
+    var aggregated = Object.keys(merged).map(function(key) {
+      var block = merged[key];
+      if (block.namespace && passthrough.some(function(other) {
+        return other.title === block.title;
+      })) block.title += ".*";
+      return block;
+    });
+    if (aggregated.length + passthrough.length < blocks.length) {
+      warnings.push("Aggregated " + blocks.length + " architecture files into " + (aggregated.length + passthrough.length) + " diagram blocks for readability.");
+    }
+    return aggregated.concat(passthrough);
+  }
+  function computeArchitectureHiddenSummary(facts, blocks, includeTests, includeBuildOutput) {
+    var shownPaths = /* @__PURE__ */ new Set();
+    getVisibleArchitectureBlocks(blocks, includeTests, includeBuildOutput).forEach(function(block) {
+      (block.files || []).forEach(function(filePath) {
+        shownPaths.add(normalizeArchitecturePath(filePath));
+      });
+    });
+    var hidden = { build: 0, tests: 0, fixtures: 0, lowSignal: 0, total: 0 };
+    (facts || []).forEach(function(fact) {
+      if (shownPaths.has(fact.path)) return;
+      if (fact.isBuildOutput) {
+        hidden.build++;
+      } else if (fact.isTest) {
+        hidden.tests++;
+      } else if (fact.isFixture) {
+        hidden.fixtures++;
+      } else {
+        hidden.lowSignal++;
+      }
+      hidden.total++;
+    });
+    return hidden;
+  }
+  function makeMermaidSafeId(value2) {
+    var safe = String(value2 || "Block").replace(/[^a-zA-Z0-9_]/g, "_").replace(/^([0-9])/, "_$1").slice(0, 80);
+    return safe || "Block";
+  }
+  function escapeMermaidLabel(value2) {
+    return String(value2 || "").replace(/"/g, "'").replace(/\|/g, "/").replace(/\n/g, " ").replace(/\r/g, " ").slice(0, 120);
+  }
+  function resolveArchitectureImport(importPath, fromFile, files) {
+    if (!importPath || /^(react|next|@?vercel|node:|https?:)/.test(importPath)) return null;
+    var candidates = [];
+    if (importPath.startsWith("@/")) candidates.push("src/" + importPath.slice(2));
+    if (importPath.startsWith("~/")) candidates.push("src/" + importPath.slice(2));
+    if (importPath.startsWith("./") || importPath.startsWith("../")) {
+      var baseParts = (architectureDirname(fromFile) ? architectureDirname(fromFile).split("/") : []).concat(importPath.split("/"));
+      var normalized = [];
+      baseParts.forEach(function(part) {
+        if (!part || part === ".") return;
+        if (part === "..") normalized.pop();
+        else normalized.push(part);
+      });
+      candidates.push(normalized.join("/"));
+    }
+    if (!candidates.length) return null;
+    var exts = ["", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", "/index.js", "/index.jsx", "/index.ts", "/index.tsx"];
+    var pathMap = /* @__PURE__ */ Object.create(null);
+    (files || []).forEach(function(file) {
+      var p = normalizeArchitecturePath(file.path || file.name);
+      pathMap[p.toLowerCase()] = file.path || file.name;
+    });
+    for (var i = 0; i < candidates.length; i++) {
+      for (var j = 0; j < exts.length; j++) {
+        var candidate = normalizeArchitecturePath(candidates[i] + exts[j]).toLowerCase();
+        if (pathMap[candidate]) return normalizeArchitecturePath(pathMap[candidate]);
+      }
+    }
+    return null;
+  }
+  function makeArchitectureBlocks(facts, files, warnings) {
+    var corePaths = /* @__PURE__ */ new Set();
+    var visiblePaths = /* @__PURE__ */ new Set();
+    facts.forEach(function(fact) {
+      if (fact.isCore) {
+        corePaths.add(fact.path);
+        visiblePaths.add(fact.path);
+      }
+    });
+    facts.forEach(function(fact) {
+      if (corePaths.has(fact.path)) {
+        fact.imports.forEach(function(importPath) {
+          var resolved = resolveArchitectureImport(importPath, fact.path, files);
+          if (resolved) visiblePaths.add(resolved);
+        });
+      } else {
+        fact.imports.forEach(function(importPath) {
+          var resolved = resolveArchitectureImport(importPath, fact.path, files);
+          if (resolved && corePaths.has(resolved)) visiblePaths.add(fact.path);
+        });
+      }
+    });
+    var candidates = facts.filter(function(fact) {
+      if (!shouldShowArchitectureBlock(fact)) return false;
+      if (fact.isTest || fact.isFixture || fact.isBuildOutput) return true;
+      return corePaths.has(fact.path) || visiblePaths.has(fact.path);
+    });
+    var priority = { shell: 0, "action-entry": 1, page: 2, api: 3, "database-adapter": 4, service: 5, component: 6, hook: 7, module: 8, utility: 9, test: 10, fixture: 11 };
+    function blockPriority(kind) {
+      return priority[kind] !== void 0 ? priority[kind] : 12;
+    }
+    candidates.sort(function(a, b) {
+      return blockPriority(a.kind) - blockPriority(b.kind) || a.path.localeCompare(b.path);
+    });
+    var usedIds = /* @__PURE__ */ Object.create(null);
+    var profile = facts[0] && facts[0].profile || "generic";
+    var blocks = candidates.map(function(fact) {
+      var baseId = makeMermaidSafeId(fact.path);
+      var id = baseId;
+      var counter = 2;
+      while (usedIds[id]) {
+        id = baseId + "_" + counter;
+        counter++;
+      }
+      usedIds[id] = true;
+      return {
+        id,
+        title: architectureTitle(fact),
+        modules: fact.modules || [],
+        declarations: fact.declarations || [],
+        namespace: fact.namespace || null,
+        namespaceRoot: fact.namespaceRoot || null,
+        kind: fact.kind,
+        role: fact.role,
+        group: fact.group,
+        layer: architectureLayer(fact),
+        route: fact.route,
+        files: [fact.path],
+        profile,
+        isTest: !!fact.isTest,
+        isFixture: !!fact.isFixture,
+        isBuildOutput: !!fact.isBuildOutput,
+        loc: fact.loc || 0
+      };
+    });
+    if (facts.some(function(fact) {
+      return fact.dbUsage;
+    })) {
+      blocks.push({ id: "Storage_Database", title: "Database", kind: "database", role: "database", group: "Storage", layer: "Storage", profile, files: [], isTest: false, isFixture: false, isBuildOutput: false, loc: 0 });
+    }
+    blocks = aggregateArchitectureBlocks(blocks, profile, warnings);
+    if (blocks.length > ARCHITECTURE_MAX_BLOCKS) {
+      var roots = {};
+      blocks.forEach(function(block) {
+        if (block.role === "module" && !block.namespace && block.namespaceRoot && !block.isTest && !block.isFixture) {
+          (roots[block.namespaceRoot] || (roots[block.namespaceRoot] = [])).push(block);
+        }
+      });
+      Object.keys(roots).sort(function(a, b) {
+        return roots[b].length - roots[a].length || a.localeCompare(b);
+      }).forEach(function(root) {
+        if (blocks.length <= ARCHITECTURE_MAX_BLOCKS || roots[root].length < 2) return;
+        roots[root].forEach(function(block) {
+          block.namespace = root;
+        });
+        blocks = aggregateArchitectureBlocks(blocks, profile, warnings);
+      });
+    }
+    return blocks;
+  }
+  function findBlockByFile(blocks, path2) {
+    path2 = normalizeArchitecturePath(path2);
+    return (blocks || []).find(function(block) {
+      return (block.files || []).indexOf(path2) >= 0;
+    }) || null;
+  }
+  function findBlockByRoute(blocks, route) {
+    route = normalizeArchitectureRoute(route);
+    var exact = (blocks || []).find(function(block) {
+      return block.route && normalizeArchitectureRoute(block.route) === route;
+    });
+    if (exact) return exact;
+    return (blocks || []).find(function(block) {
+      return block.route && routeSegmentsMatch(block.route, route);
+    }) || null;
+  }
+  function findBlockByComponentName(blocks, name) {
+    return (blocks || []).find(function(block) {
+      if (block.kind !== "component") return false;
+      if (block.title === name) return true;
+      var file = block.files && block.files[0] || "";
+      return architectureFileBaseName(file) === name;
+    }) || null;
+  }
+  function findBlockByRole(blocks, role) {
+    return (blocks || []).find(function(block) {
+      return block.role === role;
+    }) || null;
+  }
+  function findBlockByPathEnds(blocks, suffix) {
+    suffix = normalizeArchitecturePath(suffix).toLowerCase();
+    return (blocks || []).find(function(block) {
+      var file = normalizeArchitecturePath(block.files && block.files[0] || "").toLowerCase();
+      return file === suffix || file.endsWith("/" + suffix);
+    }) || null;
+  }
+  function inferDependencyKind(sourceKind, targetKind) {
+    if (targetKind === "database") return "database";
+    if (sourceKind === "page" && targetKind === "api") return "api-call";
+    if (targetKind === "component") return "renders";
+    if (targetKind === "hook") return "uses-hook";
+    return "depends-on";
+  }
+  function buildImportBasedDependencies(facts, blocks, files) {
+    var deps = [];
+    facts.forEach(function(fact) {
+      var source = findBlockByFile(blocks, fact.path);
+      if (!source) return;
+      fact.imports.forEach(function(importPath) {
+        var resolved = resolveArchitectureImport(importPath, fact.path, files);
+        if (!resolved) return;
+        var target = findBlockByFile(blocks, resolved);
+        if (!target || target.id === source.id) return;
+        deps.push({
+          from: source.id,
+          to: target.id,
+          kind: inferDependencyKind(source.kind, target.kind),
+          label: architectureDependencyLabel(source.role, target.role, importPath),
+          confidence: "high"
+        });
+      });
+      fact.jsxComponents.forEach(function(componentName) {
+        var target = findBlockByComponentName(blocks, componentName);
+        if (!target || target.id === source.id) return;
+        deps.push({ from: source.id, to: target.id, kind: "renders", label: "renders " + componentName, confidence: "medium" });
+      });
+    });
+    return deps;
+  }
+  function buildSyntheticArchitectureDependencies(blocks, facts) {
+    var deps = [];
+    var shell = findBlockByRole(blocks, "browser-shell");
+    var analyzer = findBlockByRole(blocks, "analyzer-loader") || findBlockByPathEnds(blocks, "card/lib/analyzer.js");
+    var collector = findBlockByRole(blocks, "collector") || findBlockByPathEnds(blocks, "card/lib/collect.js");
+    var action = findBlockByRole(blocks, "action-entry") || findBlockByPathEnds(blocks, "card/index.js");
+    if (shell && analyzer) {
+      deps.push({ from: shell.id, to: analyzer.id, kind: "runtime", label: architectureDependencyLabel(shell.role, analyzer.role), confidence: "high" });
+    }
+    if (shell && collector) {
+      deps.push({ from: shell.id, to: collector.id, kind: "runtime", label: architectureDependencyLabel(shell.role, collector.role), confidence: "high" });
+    }
+    if (action && shell) {
+      deps.push({ from: action.id, to: shell.id, kind: "runtime", label: architectureDependencyLabel(action.role, shell.role), confidence: "high" });
+    }
+    var state = findBlockByRole(blocks, "state") || findBlockByPathEnds(blocks, "card/lib/state.js");
+    var pr = findBlockByRole(blocks, "pr") || findBlockByPathEnds(blocks, "card/lib/pr.js");
+    var git = findBlockByRole(blocks, "git") || findBlockByPathEnds(blocks, "card/lib/git.js");
+    var inputs = findBlockByRole(blocks, "inputs") || findBlockByPathEnds(blocks, "card/lib/inputs.js");
+    if (analyzer && state) {
+      deps.push({ from: analyzer.id, to: state.id, kind: "runtime", label: architectureDependencyLabel("analyzer-loader", "state"), confidence: "medium" });
+    }
+    if (pr && git) {
+      deps.push({ from: pr.id, to: git.id, kind: "runtime", label: architectureDependencyLabel("pr", "git"), confidence: "high" });
+    }
+    if (action && collector && inputs) {
+      deps.push({ from: collector.id, to: inputs.id, kind: "runtime", label: architectureDependencyLabel("collector", "inputs"), confidence: "medium" });
+    }
+    if (action && collector && git) {
+      deps.push({ from: collector.id, to: git.id, kind: "runtime", label: architectureDependencyLabel("collector", "git"), confidence: "medium" });
+    }
+    var appShell = findBlockByRole(blocks, "app-shell");
+    if (appShell) {
+      blocks.forEach(function(block) {
+        if (block.role !== "frontend-route" || block.id === appShell.id) return;
+        deps.push({ from: appShell.id, to: block.id, kind: "runtime", label: architectureDependencyLabel("app-shell", "frontend-route"), confidence: "high" });
+      });
+    }
+    blocks.forEach(function(block) {
+      if (block.role !== "frontend-route") return;
+      var component = blocks.find(function(candidate) {
+        return candidate.role === "frontend-component" && candidate.route && block.route && normalizeArchitectureRoute(candidate.route) === normalizeArchitectureRoute(block.route);
+      });
+      if (component && component.id !== block.id) {
+        deps.push({ from: block.id, to: component.id, kind: "runtime", label: architectureDependencyLabel("frontend-route", "frontend-component"), confidence: "high" });
+      }
+    });
+    blocks.forEach(function(block) {
+      if (block.role !== "frontend-component") return;
+      var analyzer2 = blocks.find(function(candidate) {
+        return candidate.role === "platform-analyzer";
+      });
+      if (analyzer2 && analyzer2.id !== block.id) {
+        deps.push({ from: block.id, to: analyzer2.id, kind: "runtime", label: architectureDependencyLabel("frontend-component", "platform-analyzer"), confidence: "medium" });
+      }
+    });
+    var routesBlock = findBlockByRole(blocks, "backend-routes");
+    var middlewareBlock = findBlockByRole(blocks, "backend-middleware");
+    var servicesBlock = findBlockByRole(blocks, "backend-services");
+    if (routesBlock && middlewareBlock) {
+      deps.push({ from: routesBlock.id, to: middlewareBlock.id, kind: "runtime", label: architectureDependencyLabel("backend-routes", "backend-middleware"), confidence: "medium" });
+    }
+    if (routesBlock && servicesBlock) {
+      deps.push({ from: routesBlock.id, to: servicesBlock.id, kind: "runtime", label: architectureDependencyLabel("backend-routes", "backend-services"), confidence: "medium" });
+    }
+    facts.forEach(function(fact) {
+      if (!fact.isTest) return;
+      var source = findBlockByFile(blocks, fact.path);
+      if (!source) return;
+      var targets = [];
+      if (testFileReferencesCore(fact.content)) {
+        if (shell) targets.push(shell);
+        if (analyzer) targets.push(analyzer);
+        if (collector) targets.push(collector);
+      }
+      inferTestTargetPaths(fact.path).forEach(function(suffix) {
+        var target = findBlockByPathEnds(blocks, suffix);
+        if (target) targets.push(target);
+      });
+      var seen = /* @__PURE__ */ new Set();
+      targets.forEach(function(target) {
+        if (!target || target.id === source.id || seen.has(target.id)) return;
+        seen.add(target.id);
+        deps.push({ from: source.id, to: target.id, kind: "tests", label: "tests", confidence: "high" });
+      });
+    });
+    return deps;
+  }
+  function dedupeArchitectureDependencies(deps) {
+    var seen = /* @__PURE__ */ new Set();
+    return (deps || []).filter(function(dep) {
+      var key = [dep.from, dep.to, dep.kind, dep.label].join("|");
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+  function buildArchitectureDependencies(facts, blocks, files) {
+    var deps = [];
+    var modulePaths = {};
+    facts.forEach(function(fact) {
+      (fact.modules || []).forEach(function(name) {
+        if (!Object.prototype.hasOwnProperty.call(modulePaths, name)) modulePaths[name] = fact.path;
+        else if (modulePaths[name] !== fact.path) modulePaths[name] = null;
+      });
+    });
+    facts.forEach(function(fact) {
+      var source = findBlockByFile(blocks, fact.path);
+      if (!source) return;
+      (fact.sourceCalls || []).forEach(function(call) {
+        var target = findBlockByFile(blocks, modulePaths[call.module]);
+        if (target && target.id !== source.id) deps.push({ from: source.id, to: target.id, kind: "source-reference", label: "references", confidence: "high", evidence: "tree-sitter:elixir" });
+      });
+      (fact.declarations || []).filter(function(d) {
+        return d.kind !== "module";
+      }).forEach(function(d) {
+        var target = findBlockByFile(blocks, modulePaths[d.module]);
+        if (target && target.id !== source.id) deps.push({ from: source.id, to: target.id, kind: d.kind, label: d.kind, confidence: "high", evidence: d.evidence });
+      });
+      fact.links.forEach(function(link2) {
+        var target = findBlockByRoute(blocks, link2);
+        if (target && target.id !== source.id) {
+          deps.push({ from: source.id, to: target.id, kind: "navigation", label: "links " + link2, confidence: "high" });
+        }
+      });
+      fact.apiCalls.forEach(function(call) {
+        var target = findBlockByRoute(blocks, call.url);
+        if (target && target.id !== source.id) {
+          deps.push({ from: source.id, to: target.id, kind: "api-call", label: call.method + " " + call.url, confidence: "high" });
+        }
+      });
+      if (fact.dbUsage) {
+        deps.push({ from: source.id, to: "Storage_Database", kind: "database", label: "queries", confidence: "medium" });
+      }
+    });
+    deps = deps.concat(buildImportBasedDependencies(facts, blocks, files));
+    deps = deps.concat(buildSyntheticArchitectureDependencies(blocks, facts));
+    return dedupeArchitectureDependencies(deps).filter(function(dep) {
+      if (!dep.label || /^uses \d+ calls?$/i.test(dep.label)) return false;
+      return !!findBlockById(blocks, dep.from) && !!findBlockById(blocks, dep.to);
+    });
+  }
+  function groupArchitectureRelationships(dependencies) {
+    var pairs = /* @__PURE__ */ new Map();
+    (dependencies || []).forEach(function(observation) {
+      var key = JSON.stringify([observation.from, observation.to]);
+      if (!pairs.has(key)) pairs.set(key, { from: observation.from, to: observation.to, kinds: [], labels: [], evidence: [], observations: [] });
+      var relationship = pairs.get(key);
+      [["kinds", "kind"], ["labels", "label"], ["evidence", "evidence"]].forEach(function(fields) {
+        var value2 = observation[fields[1]];
+        if (value2 != null && relationship[fields[0]].indexOf(value2) < 0) relationship[fields[0]].push(value2);
+      });
+      relationship.observations.push(observation);
+    });
+    return Array.from(pairs.values());
+  }
+  function getRenderedArchitectureDependencies(dependencies, visibleBlockIds) {
+    var visible = visibleBlockIds || null;
+    var priority = { high: 0, medium: 1, low: 2 };
+    return (dependencies || []).filter(function(dep) {
+      if (!visible) return true;
+      return visible.has(dep.from) && visible.has(dep.to);
+    }).sort(function(a, b) {
+      return (priority[a.confidence] === void 0 ? 9 : priority[a.confidence]) - (priority[b.confidence] === void 0 ? 9 : priority[b.confidence]) || String(a.from).localeCompare(String(b.from)) || String(a.to).localeCompare(String(b.to));
+    });
+  }
+  function findBlockById(blocks, id) {
+    return (blocks || []).find(function(block) {
+      return block.id === id;
+    }) || null;
+  }
+  function buildArchitectureGroups(blocks) {
+    var groups = {};
+    (blocks || []).forEach(function(block) {
+      var key = block.group || block.layer || "Application";
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(block.id);
+    });
+    return groups;
+  }
+  function formatMermaidBlock(block) {
+    var label = escapeMermaidLabel(block.title);
+    var filePath = block.files && block.files[0] || "";
+    if (block.modules && block.modules.length) {
+      if ((block.files || []).length > 1) label += "<br/>" + block.files.length + " files";
+    } else if (block.kind === "shell" || block.group === "App Entry / Shell") {
+      if (filePath) label += "<br/>" + escapeMermaidLabel(filePath);
+      if ((block.files || []).length > 1) label += "<br/>" + (block.files || []).length + " shell files";
+      else if (block.role === "browser-shell" || block.group === "Browser App") label += "<br/>React UI + Worker + Visualization";
+    } else if (filePath) {
+      label += "<br/>" + escapeMermaidLabel(filePath);
+    } else if (block.route) {
+      label += "<br/>" + escapeMermaidLabel(block.route);
+    }
+    if (block.kind === "database") return '[("' + label + '")]';
+    if (block.kind === "api") return '{{"' + label + '"}}';
+    return '["' + label + '"]';
+  }
+  function architectureGroupStyleClass(group) {
+    if (group === "Browser App" || group === "App Entry / Shell") return group === "App Entry / Shell" ? "appentry" : "browser";
+    if (group === "GitHub Action") return "action";
+    if (group === "Analysis Core") return "analysis";
+    if (group === "Repository Collection") return "collection";
+    if (group === "Rendering / Reports") return "rendering";
+    if (group === "Frontend Routes / Views" || group === "Frontend Routes") return "frontend";
+    if (group === "Frontend Components" || group === "Frontend Page Components") return "fecomponents";
+    if (group === "Backend / API Layer" || group === "Backend API / Platform Logic") return "backend";
+    if (group === "Services / Business Logic") return "services";
+    if (group === "Data / Storage") return "storage";
+    if (group === "Shared / Utilities" || group === "Shared Services / Utils") return "shared";
+    if (group === "Configuration") return "config";
+    if (group === "Content / Data") return "content";
+    if (group === "Build Output") return "buildoutput";
+    if (group === "Testing") return "testing";
+    if (group === "Fixtures / Examples") return "fixtures";
+    if (group === "Storage") return "storage";
+    return "application";
+  }
+  function getVisibleArchitectureBlocks(blocks, includeTests, includeBuildOutput) {
+    return (blocks || []).filter(function(block) {
+      if (block.isBuildOutput || block.group === "Build Output" || block.role === "build-output") return !!includeBuildOutput;
+      if (block.isTest || block.isFixture) return !!includeTests;
+      return true;
+    });
+  }
+  function computeArchitectureStats(blocks, dependencies) {
+    var observations = getRenderedArchitectureDependencies(dependencies, new Set(blocks.map(function(block) {
+      return block.id;
+    })));
+    var relationships = groupArchitectureRelationships(observations);
+    return {
+      blocks: blocks.length,
+      dependencies: relationships.length,
+      dependencyObservations: observations.length,
+      routes: blocks.filter(function(block) {
+        return block.kind === "page" || block.kind === "shell";
+      }).length,
+      apiRoutes: blocks.filter(function(block) {
+        return block.kind === "api";
+      }).length,
+      databaseTouchpoints: relationships.filter(function(relationship) {
+        return relationship.kinds.indexOf("database") >= 0;
+      }).length
+    };
+  }
+  function groupBlocksByArchitectureGroup(blocks, profile) {
+    var order = getArchitectureGroupOrder(profile || "generic").slice();
+    var grouped = {};
+    order.forEach(function(group) {
+      grouped[group] = [];
+    });
+    (blocks || []).forEach(function(block) {
+      var group = block.group || "Application";
+      if (!grouped[group]) {
+        grouped[group] = [];
+        order.push(group);
+      }
+      grouped[group].push(block);
+    });
+    return { order, grouped };
+  }
+  function generateMermaidBlockDiagram(diagram, includeTests, includeBuildOutput, compact) {
+    var allBlocks = diagram.blocks || [];
+    var blocks = getVisibleArchitectureBlocks(allBlocks, !!includeTests, !!includeBuildOutput);
+    var profile = diagram.profile || "generic";
+    if (!blocks.length) {
+      return [
+        "flowchart TD",
+        "  classDef application fill:#252529,stroke:#8b8b95,color:#f0f0f2;",
+        '  NoArchitecture["No architecture blocks detected"]',
+        "  class NoArchitecture application;"
+      ].join("\n");
+    }
+    var visibleIds = new Set(blocks.map(function(block) {
+      return block.id;
+    }));
+    var lines = [];
+    lines.push('%%{init: {"flowchart": {"defaultRenderer": "elk", "nodeSpacing": 45, "rankSpacing": 80}} }%%');
+    lines.push("flowchart TB");
+    lines.push("  classDef browser fill:#102033,stroke:#4d9fff,color:#f0f0f2;");
+    lines.push("  classDef action fill:#1f2433,stroke:#7c8cff,color:#f0f0f2;");
+    lines.push("  classDef analysis fill:#102033,stroke:#4d9fff,color:#f0f0f2;");
+    lines.push("  classDef collection fill:#251b33,stroke:#a78bfa,color:#f0f0f2;");
+    lines.push("  classDef rendering fill:#2b2414,stroke:#ff9f43,color:#f0f0f2;");
+    lines.push("  classDef testing fill:#252529,stroke:#8b8b95,color:#f0f0f2;");
+    lines.push("  classDef fixtures fill:#1f2b1f,stroke:#22c55e,color:#f0f0f2;");
+    lines.push("  classDef storage fill:#2b2414,stroke:#ff9f43,color:#f0f0f2;");
+    lines.push("  classDef application fill:#252529,stroke:#8b8b95,color:#f0f0f2;");
+    lines.push("  classDef appentry fill:#102033,stroke:#4d9fff,color:#f0f0f2;");
+    lines.push("  classDef frontend fill:#102033,stroke:#4d9fff,color:#f0f0f2;");
+    lines.push("  classDef fecomponents fill:#152238,stroke:#6eb6ff,color:#f0f0f2;");
+    lines.push("  classDef backend fill:#251b33,stroke:#a78bfa,color:#f0f0f2;");
+    lines.push("  classDef config fill:#2b2414,stroke:#ff9f43,color:#f0f0f2;");
+    lines.push("  classDef content fill:#1f2b1f,stroke:#22c55e,color:#f0f0f2;");
+    lines.push("  classDef buildoutput fill:#252529,stroke:#666,color:#aaa;");
+    var layout = groupBlocksByArchitectureGroup(blocks, profile);
+    layout.order.forEach(function(group) {
+      if (!layout.grouped[group] || !layout.grouped[group].length) return;
+      var subgraphLabel = group;
+      if (group === "Testing" && !includeTests) return;
+      if (group === "Testing" && includeTests) subgraphLabel = "Testing - optional";
+      if (group === "Build Output" && !includeBuildOutput) return;
+      if (group === "Build Output" && includeBuildOutput) subgraphLabel = "Build Output - optional";
+      lines.push("  subgraph " + makeMermaidSafeId(group) + '_Group["' + escapeMermaidLabel(subgraphLabel) + '"]');
+      lines.push("    direction TB");
+      layout.grouped[group].forEach(function(block) {
+        lines.push("    " + block.id + formatMermaidBlock(block));
+      });
+      lines.push("  end");
+    });
+    var visibleDependencies = getRenderedArchitectureDependencies(diagram.dependencies || [], visibleIds);
+    var edges = compact ? groupArchitectureRelationships(visibleDependencies) : visibleDependencies;
+    edges.forEach(function(dep) {
+      var label = dep.label || dep.kind || "";
+      if (!compact && dep.kind && label.indexOf(dep.kind) < 0) label += " (" + dep.kind + ")";
+      lines.push("  " + dep.from + (compact ? " --> " : ' -->|"' + escapeMermaidLabel(label) + '"| ') + dep.to);
+    });
+    blocks.forEach(function(block) {
+      lines.push("  class " + block.id + " " + architectureGroupStyleClass(block.group) + ";");
+    });
+    return lines.join("\n");
+  }
+  function buildArchitectureDiagram(files) {
+    var warnings = [];
+    var framework = detectArchitectureFramework(files);
+    var facts = extractArchitectureFacts(files, framework);
+    var profile = facts[0] && facts[0].profile || detectArchitectureProfile(files, framework);
+    var blocks = makeArchitectureBlocks(facts, files, warnings);
+    var dependencies = buildArchitectureDependencies(facts, blocks, files);
+    if (framework === "Next.js" && !blocks.length) {
+      warnings.push("Next.js was detected, but no page or API route blocks were visible in the analyzed files.");
+    } else if (framework !== "Next.js" && !blocks.length) {
+      warnings.push("No code files with architecture-significant blocks were visible in the analyzed files.");
+    }
+    var visibleBlocks = getVisibleArchitectureBlocks(blocks, false, false);
+    var visibleIds = new Set(visibleBlocks.map(function(block) {
+      return block.id;
+    }));
+    var visibleDependencies = (dependencies || []).filter(function(dep) {
+      return visibleIds.has(dep.from) && visibleIds.has(dep.to);
+    });
+    var stats = computeArchitectureStats(visibleBlocks, visibleDependencies);
+    stats.warnings = warnings.length;
+    var hiddenSummary = computeArchitectureHiddenSummary(facts, blocks, false, false);
+    var diagram = {
+      framework,
+      profile,
+      type: "block-diagram",
+      options: { includeTests: false, includeBuildOutput: false },
+      mermaid: "",
+      blocks,
+      dependencies,
+      groups: buildArchitectureGroups(visibleBlocks),
+      stats,
+      hiddenSummary,
+      warnings
+    };
+    diagram.mermaid = generateMermaidBlockDiagram(diagram, false, false);
+    return diagram;
+  }
+
+  // src/analysis/evidence.mjs
+  function buildBeamAnalysisData(options) {
+    var data = options.data;
+    var snapshot = options.snapshot || { schemaVersion: 1, status: "unavailable", nodes: [], edges: [], warnings: ["Compiler evidence unavailable"] };
+    var compiled = new Set((snapshot.nodes || []).map(function(n) {
+      return n.path;
+    }));
+    var files = data.files.map(function(f) {
+      return Object.assign({}, f, { compiled: compiled.has(f.path) });
+    });
+    var included = new Set(files.map(function(f) {
+      return f.path;
+    }));
+    var connections = data.connections.filter(function(c) {
+      return c.evidence !== "mix xref";
+    }).map(function(c) {
+      return Object.assign({}, c, { evidence: c.evidence || "source analysis" });
+    });
+    var seen = /* @__PURE__ */ new Set();
+    (snapshot.status === "ready" ? snapshot.edges || [] : []).forEach(function(e) {
+      if (!included.has(e.source) || !included.has(e.target)) return;
+      var key = JSON.stringify([e.source, e.target, e.kind]);
+      if (seen.has(key)) return;
+      seen.add(key);
+      connections.push({ source: e.target, target: e.source, kind: e.kind, evidence: "mix xref", fn: null, count: 1 });
+    });
+    var architectureDiagram = data.architectureDiagram;
+    if (architectureDiagram) {
+      var dependencies = architectureDiagram.dependencies.filter(function(dep) {
+        return dep.evidence !== "mix xref";
+      });
+      connections.filter(function(c) {
+        return c.evidence === "mix xref";
+      }).forEach(function(c) {
+        var from = findBlockByFile(architectureDiagram.blocks, c.target);
+        var to = findBlockByFile(architectureDiagram.blocks, c.source);
+        if (from && to && from.id !== to.id) dependencies.push({ from: from.id, to: to.id, kind: c.kind, label: c.kind + " reference", confidence: "high", evidence: "mix xref" });
+      });
+      var dependencyKeys = /* @__PURE__ */ new Set();
+      dependencies = dependencies.filter(function(dep) {
+        var key = JSON.stringify([dep.from, dep.to, dep.kind, dep.label, dep.evidence || "source analysis"]);
+        if (dependencyKeys.has(key)) return false;
+        dependencyKeys.add(key);
+        return true;
+      });
+      architectureDiagram = Object.assign({}, architectureDiagram, { dependencies });
+      var visibleBlocks = getVisibleArchitectureBlocks(architectureDiagram.blocks, false, false);
+      var visibleIds = new Set(visibleBlocks.map(function(block) {
+        return block.id;
+      }));
+      architectureDiagram.stats = Object.assign({}, architectureDiagram.stats, computeArchitectureStats(visibleBlocks, dependencies.filter(function(dep) {
+        return visibleIds.has(dep.from) && visibleIds.has(dep.to);
+      })));
+      architectureDiagram.mermaid = generateMermaidBlockDiagram(architectureDiagram, false, false);
+    }
+    return Object.assign({}, data, {
+      files,
+      connections,
+      architectureDiagram,
+      beam: Object.assign({}, snapshot, { coverage: { compiled: (snapshot.nodes || []).length, included: files.filter(function(f) {
+        return f.compiled;
+      }).length } }),
+      stats: Object.assign({}, data.stats, { connections: connections.length })
+    });
+  }
+  function enrichAnalysisFindings(data, providers) {
+    var ids = new Set(providers.map(function(p) {
+      return p.id;
+    }));
+    var issues = data.issues.filter(function(issue) {
+      return !ids.has(issue.provider);
+    });
+    var assessments = Object.assign({}, data.assessments);
+    providers.forEach(function(provider) {
+      assessments[provider.id] = { name: provider.name, status: provider.status, reason: provider.reason || null };
+      var seen = /* @__PURE__ */ new Set();
+      (provider.findings || []).forEach(function(finding) {
+        var location = { path: finding.path || null, range: finding.range || null };
+        var key = JSON.stringify([location, finding.message, finding.check || finding.code]);
+        if (seen.has(key)) return;
+        seen.add(key);
+        issues.push({
+          provider: provider.id,
+          evidence: provider.name,
+          type: finding.severity === 1 ? "critical" : "warning",
+          title: finding.message,
+          desc: provider.name + (finding.check ? " \xB7 " + finding.check : ""),
+          sourceLocation: location,
+          finding,
+          items: [{ name: finding.message, file: location.path, line: location.range ? location.range.start.line + 1 : null }]
+        });
+      });
+    });
+    return Object.assign({}, data, { issues, assessments });
+  }
+
+  // src/project/exclusions.mjs
+  var import_exclusion_policy = __toESM(require_exclusion_policy(), 1);
+  var { IGNORE, DEFAULT_EXCLUDE_CHIPS, normalizeExcludePath, parseExcludePatterns, globMatches, compileExcludePatterns, matchesExcludePattern, shouldIgnoreDirectory } = import_exclusion_policy.default;
+  function shouldExcludeFile(path2, name, compiledPatterns) {
+    return !isIncluded(name) || matchesExcludePattern(compiledPatterns, path2, name);
+  }
+  function getArchiveRootPrefix(paths) {
+    var splitPaths = (paths || []).map(function(path2) {
+      return normalizeExcludePath(path2).split("/").filter(Boolean);
+    }).filter(function(parts) {
+      return parts.length > 0;
+    });
+    if (!splitPaths.length) return "";
+    var firstSegment = splitPaths[0][0];
+    var hasSingleRoot = splitPaths.every(function(parts) {
+      return parts.length > 1 && parts[0] === firstSegment;
+    });
+    return hasSingleRoot ? firstSegment + "/" : "";
+  }
+  function filterAnalyzableLocalFiles(files, compiledPatterns) {
+    var patterns = compiledPatterns || [];
+    var dirCache = /* @__PURE__ */ new Map();
+    return (files || []).filter(function(f) {
+      var entryPath = normalizeExcludePath(f && f.path);
+      if (!entryPath || entryPath.endsWith("/")) return false;
+      var name = f && f.name || entryPath.split("/").filter(Boolean).pop() || "";
+      if (!name || name === ".DS_Store") return false;
+      if (shouldSkipArchivePath(entryPath, patterns, dirCache)) return false;
+      if (shouldExcludeFile(entryPath, name, patterns)) return false;
+      return true;
+    });
+  }
+  function shouldSkipArchivePath(path2, compiledPatterns, dirCache) {
+    var segments = normalizeExcludePath(path2).split("/").filter(Boolean);
+    var current = "";
+    for (var i = 0; i < segments.length - 1; i++) {
+      current = current ? current + "/" + segments[i] : segments[i];
+      if (dirCache && dirCache.has(current)) {
+        if (dirCache.get(current)) return true;
+        continue;
+      }
+      var ignored = shouldIgnoreDirectory(current, segments[i], compiledPatterns);
+      if (dirCache) dirCache.set(current, ignored);
+      if (ignored) return true;
+    }
+    return false;
+  }
+
+  // src/project/size-policy.mjs
+  var maxAnalyzableFileBytes = 2 * 1024 * 1024;
+  function isOversized(size) {
+    return Number.isFinite(size) && size > maxAnalyzableFileBytes;
+  }
+
+  // src/project/collection.mjs
+  function descriptor(path2, size, read) {
+    path2 = normalizeExcludePath(path2);
+    return { path: path2, name: path2.split("/").pop(), folder: path2.includes("/") ? path2.slice(0, path2.lastIndexOf("/")) : "root", size: size || 0, read };
+  }
+  function include(file, patterns) {
+    return filterAnalyzableLocalFiles([file], patterns).length > 0;
+  }
+  async function collectDirectory(handle, { patterns = [], signal, progress = () => {
+  } } = {}) {
+    const files = [];
+    async function walk(directory, prefix2) {
+      signal?.throwIfAborted();
+      for await (const entry of directory.values()) {
+        signal?.throwIfAborted();
+        const path2 = prefix2 ? prefix2 + "/" + entry.name : entry.name;
+        if (entry.kind === "directory") {
+          if (!shouldIgnoreDirectory(path2, entry.name, patterns)) await walk(entry, path2);
+        } else if (entry.kind === "file") {
+          const file = descriptor(path2, 0, async () => {
+            const source = await entry.getFile();
+            signal?.throwIfAborted();
+            file.size = source.size;
+            return isOversized(file.size) ? "" : source.text();
+          });
+          if (include(file, patterns)) files.push(file);
+        }
+        if (files.length && files.length % 50 === 0) progress("Scanning files... " + files.length + " found");
+      }
+    }
+    await walk(handle, "");
+    signal?.throwIfAborted();
+    return { files, rootPrefix: "" };
+  }
+  function collectEntries(entries, options, make) {
+    const { patterns = [], signal, progress = () => {
+    } } = options;
+    signal?.throwIfAborted();
+    const rootPrefix = getArchiveRootPrefix(entries.map((entry) => entry.path));
+    const files = [], entriesByPath = /* @__PURE__ */ Object.create(null);
+    for (const entry of entries) {
+      signal?.throwIfAborted();
+      const raw = normalizeExcludePath(entry.path);
+      const path2 = rootPrefix && raw.startsWith(rootPrefix) ? raw.slice(rootPrefix.length) : raw;
+      const file = make(entry.value, path2);
+      if (!include(file, patterns)) continue;
+      files.push(file);
+      entriesByPath[file.path] = entry.value;
+      if (files.length % 50 === 0) progress("Scanning files... " + files.length + " found");
+    }
+    return { files, rootPrefix, entriesByPath };
+  }
+  async function collectSelectedFiles(fileObjs, options = {}) {
+    const { files, rootPrefix } = collectEntries(
+      Array.from(fileObjs, (file) => ({ path: file.webkitRelativePath || file.name, value: file })),
+      options,
+      (file, path2) => descriptor(path2, file.size, () => file.text())
+    );
+    return { files, rootPrefix };
+  }
+  async function collectArchive(zip, options = {}) {
+    const entries = Object.keys(zip.files).sort().map((key) => zip.files[key]).filter((entry) => entry && !entry.dir);
+    return collectEntries(
+      entries.map((entry) => ({ path: entry.name, value: entry })),
+      options,
+      (entry, path2) => descriptor(path2, entry._data?.uncompressedSize, () => entry.async("string"))
+    );
+  }
+  async function readCollectedFiles(files, { signal, progress = () => {
+  }, yieldFn = () => Promise.resolve() } = {}) {
+    const records = [];
+    for (let i = 0; i < files.length; i++) {
+      signal?.throwIfAborted();
+      if (i && i % 50 === 0) {
+        await yieldFn();
+        signal?.throwIfAborted();
+      }
+      const file = files[i];
+      progress("Reading " + (i + 1) + "/" + files.length + ": " + file.name);
+      const record = { path: file.path, name: file.name, folder: file.folder, size: file.size };
+      try {
+        const result = isOversized(file.size) ? "" : await file.read();
+        signal?.throwIfAborted();
+        const content = typeof result === "string" ? result : result?.content;
+        if (typeof content !== "string") throw new Error("Source read did not return text");
+        record.size = result && typeof result === "object" && result.size !== void 0 ? result.size : file.size;
+        if (result && typeof result === "object" && result.churn !== void 0) record.churn = result.churn;
+        if (isOversized(record.size) || isOversized(content.length)) record.analysisSkipped = "oversized";
+        else record.content = content;
+      } catch (error) {
+        if (signal?.aborted || error?.name === "AbortError") throw error;
+        record.analysisSkipped = "fetch-failed";
+      }
+      records.push(record);
+    }
+    signal?.throwIfAborted();
+    return records;
+  }
+
+  // src/browser/scheduling.mjs
+  function yieldToBrowser() {
+    if (typeof scheduler !== "undefined" && scheduler.yield) {
+      return scheduler.yield();
+    }
+    if (typeof MessageChannel !== "undefined") {
+      return new Promise(function(resolve) {
+        var channel = new MessageChannel();
+        channel.port1.onmessage = function() {
+          channel.port1.close();
+          channel.port2.close();
+          resolve();
+        };
+        channel.port2.postMessage(null);
+      });
+    }
+    return new Promise(function(resolve) {
+      setTimeout(resolve, 0);
+    });
+  }
+
+  // src/browser/project.mjs
+  function parseUrl(url) {
+    if (!url || typeof url !== "string") return null;
+    url = url.trim();
+    if (url.length > 200 || url.includes("{") || url.includes('"')) return null;
+    var m = url.match(/^(?:https?:\/\/)?(?:www\.)?github\.com\/([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)/);
+    if (m) return {
+      owner: m[1],
+      repo: m[2].replace(/\.git$/, "")
+    };
+    var simple = url.match(/^([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)$/);
+    if (simple) return {
+      owner: simple[1],
+      repo: simple[2]
+    };
+    return null;
+  }
+  function buildAppUrl(repo, autoRun) {
+    var url = new URL(window.location.href);
+    url.search = "";
+    if (repo) url.searchParams.set("repo", repo);
+    if (autoRun && repo) url.searchParams.set("run", "1");
+    return url.toString();
+  }
+  var ANALYSIS_LIMITS = {
+    repoSoft: 300,
+    localSoft: 500
+  };
+  function createProjectHook({
+    React: React2,
+    runAnalysisData: runAnalysisData2,
+    GitHub: GitHub2,
+    JSZip
+  }) {
+    const {
+      useState: useState2,
+      useRef: useRef2,
+      useMemo: useMemo2,
+      useEffect: useEffect2
+    } = React2;
+    return function useProject2({
+      repoUrl,
+      auth,
+      excludePatterns: activeExcludePatterns,
+      confirm: requestConfirm,
+      notify: showNotification,
+      onReset,
+      onRepositoryURL
+    }) {
+      const {
+        authMethod,
+        token,
+        appId,
+        privateKey
+      } = auth;
+      const [loading, setLoading] = useState2(false);
+      const [progress, setProgress] = useState2("");
+      const [error, setError] = useState2(null);
+      const [data, setData] = useState2(null);
+      const [repoInfo, setRepoInfo] = useState2(null);
+      const [localDirHandle, setLocalDirHandle] = useState2(null);
+      const [localSourceKind, setLocalSourceKind] = useState2(null);
+      const [recentAnalyses, setRecentAnalyses] = useState2([]);
+      const [cachedFromId, setCachedFromId] = useState2(null);
+      const [cliStatus, setCliStatus] = useState2(null);
+      const [beamAnalysis, setBeamAnalysis] = useState2(null);
+      const [cliDirty, setCliDirty] = useState2([]);
+      const [cliLiveByPath, setCliLiveByPath] = useState2(/* @__PURE__ */ Object.create(null));
+      const [codeSourceFailed, setCodeSourceFailed] = useState2(/* @__PURE__ */ Object.create(null));
+      const analysisHydrationIdRef = useRef2("");
+      const dataRef = useRef2(null);
+      const enqueueCliWatchDiffRef = useRef2(null);
+      const cliDiffTimerRef = useRef2(null);
+      const cliDiffPendingRef = useRef2([]);
+      const cliDiffGenRef = useRef2(/* @__PURE__ */ Object.create(null));
+      const cliDiffEpochRef = useRef2(1);
+      const cliAnalyzingRef = useRef2(false);
+      const cliWatchDuringRef = useRef2([]);
+      const cliWatchReadRef = useRef2(/* @__PURE__ */ Object.create(null));
+      const cliWatchSnapRevRef = useRef2(/* @__PURE__ */ Object.create(null));
+      const zipArchiveRef = useRef2(null);
+      const zipFileRef = useRef2(null);
+      const localFilesRef = useRef2(null);
+      const localFolderKeyRef = useRef2(null);
+      const localFolderSelectionRef = useRef2(null);
+      const zipKeyRef = useRef2(null);
+      const persistTimerRef = useRef2(null);
+      const codeSourceInFlightRef = useRef2(/* @__PURE__ */ Object.create(null));
+      const projectLoading = useMemo2(createProjectLoading, []);
+      dataRef.current = data;
+      var analysisGraphIdentity = useMemo2(function() {
+        return analysisGraphKey(data);
+      }, [data]);
+      var loadedSourceIdentity = useMemo2(function() {
+        var parsed = parseUrl(repoUrl);
+        var githubOwner = repoInfo && repoInfo.owner && repoInfo.owner !== "local" ? repoInfo.owner : parsed && parsed.owner;
+        var githubRepo = repoInfo && repoInfo.owner && repoInfo.owner !== "local" ? repoInfo.repo : parsed && parsed.repo;
+        return loadedAnalysisSourceIdentity({
+          localSourceKind,
+          folderKey: repoInfo && (repoInfo.folderKey || repoInfo.name),
+          zipKey: repoInfo && (repoInfo.zipKey || repoInfo.name),
+          cliRoot: repoInfo && repoInfo.cliRoot || cliStatus && cliStatus.root,
+          cliOk: !!(cliStatus && cliStatus.ok),
+          githubOwner,
+          githubRepo,
+          githubKey: githubOwner && githubRepo ? githubSourceKeyForLoadedAnalysis(githubOwner, githubRepo, data, activeExcludePatterns) : null
+        });
+      }, [localSourceKind, repoInfo, repoUrl, data, cliStatus]);
+      var currentHydrationId = useMemo2(function() {
+        return analysisHydrationIdFromParts(loadedSourceIdentity, analysisGraphIdentity);
+      }, [loadedSourceIdentity, analysisGraphIdentity]);
+      analysisHydrationIdRef.current = currentHydrationId;
+      var localTools = useMemo2(function() {
+        return createLocalTools({
+          identity: loadedSourceIdentity,
+          status: cliStatus
+        });
+      }, [loadedSourceIdentity && loadedSourceIdentity.sourceType, loadedSourceIdentity && loadedSourceIdentity.sourceKey, cliStatus && cliStatus.root, cliStatus && cliStatus.ok]);
+      useEffect2(() => {
+        setBeamAnalysis(null);
+        return () => localTools?.dispose();
+      }, [localTools]);
+      useEffect2(function() {
+        if (loading || !data || !data.beam || !localTools) return;
+        return subscribeCliAnalysis({
+          onUpdate: function(update) {
+            if (update.analysis) setBeamAnalysis(update.analysis);
+            if (update.diagnostics) setData(function(prev) {
+              return prev ? enrichAnalysisFindings(prev, update.diagnostics) : prev;
+            });
+            if (update.graph) setData(function(prev) {
+              return prev && prev.beam ? buildBeamAnalysisData({
+                data: prev,
+                snapshot: update.graph
+              }) : prev;
+            });
+          }
+        });
+      }, [loading, localTools, !!(data && data.beam)]);
+      useEffect2(function() {
+        if (!cliWatchAppliesToAnalysis(localSourceKind, cliStatus, currentAnalysisSource())) return;
+        if (!data || !data.files || !cliDirty.length) return;
+        var started = startedCliWatchDiffPaths(cliDiffPendingRef.current, cliDiffGenRef.current);
+        var missing = pendingCliWatchDiffPaths(cliDirty, cliLiveByPath, started);
+        if (!missing.length) return;
+        flushCliWatchDiffs(missing);
+      }, [currentHydrationId, cliDirty, localSourceKind, cliStatus, cliLiveByPath]);
+      function currentAnalysisSource() {
+        if (localSourceKind === "folder") return {
+          sourceType: "folder",
+          sourceKey: repoInfo && (repoInfo.folderKey || repoInfo.name) || "local-folder",
+          title: repoInfo && repoInfo.name || "Local Folder",
+          repoUrl: "",
+          localSourceKind: "folder"
+        };
+        if (localSourceKind === "zip") return {
+          sourceType: "zip",
+          sourceKey: repoInfo && (repoInfo.zipKey || repoInfo.name) || "zip",
+          title: repoInfo && repoInfo.name || "ZIP Archive",
+          repoUrl: "",
+          localSourceKind: "zip"
+        };
+        if (localSourceKind === "cli") return {
+          sourceType: "cli",
+          sourceKey: repoInfo && repoInfo.cliRoot || cliStatus && cliStatus.root || "cli",
+          title: cliStatus && cliStatus.name || repoInfo && repoInfo.name || "Local watch",
+          repoUrl: "",
+          localSourceKind: "cli"
+        };
+        if (repoInfo && repoInfo.owner && repoInfo.repo && repoInfo.owner !== "local") return {
+          sourceType: "github",
+          sourceKey: githubSourceKeyForLoadedAnalysis(repoInfo.owner, repoInfo.repo, data, activeExcludePatterns),
+          title: repoInfo.owner + "/" + repoInfo.repo,
+          repoUrl: repoInfo.owner + "/" + repoInfo.repo,
+          localSourceKind: null
+        };
+        var parsed = parseUrl(repoUrl);
+        if (parsed) return {
+          sourceType: "github",
+          sourceKey: githubSourceKeyForLoadedAnalysis(parsed.owner, parsed.repo, data, activeExcludePatterns),
+          title: parsed.owner + "/" + parsed.repo,
+          repoUrl: parsed.owner + "/" + parsed.repo,
+          localSourceKind: null
+        };
+        if (cliStatus && cliStatus.ok) return {
+          sourceType: "cli",
+          sourceKey: cliStatus.root || "cli",
+          title: cliStatus.name || "Local watch",
+          repoUrl: "",
+          localSourceKind: "cli"
+        };
+        return null;
+      }
+      function refreshRecentList() {
+        listRecentAnalyses().then(function(rows) {
+          setRecentAnalyses((rows || []).map(function(row) {
+            return {
+              id: row.id,
+              title: row.title,
+              sourceType: row.sourceType,
+              sourceKey: row.sourceKey,
+              repoUrl: row.repoUrl,
+              fileCount: row.fileCount,
+              savedAt: row.savedAt
+            };
+          }));
+        }).catch(function() {
+        });
+      }
+      function persistCurrentAnalysis(dataObj, meta) {
+        if (!dataObj) return;
+        var source = meta || currentAnalysisSource();
+        if (!source) return;
+        var record = buildRecentAnalysisRecord({
+          sourceType: source.sourceType,
+          sourceKey: source.sourceKey,
+          title: source.title,
+          repoUrl: source.repoUrl,
+          data: compactAnalysisForCache(dataObj),
+          repoInfo: source.repoInfo || repoInfo,
+          localSourceKind: source.localSourceKind
+        });
+        if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+        persistTimerRef.current = setTimeout(function() {
+          saveRecentAnalysis(record).then(function(ok) {
+            if (ok) refreshRecentList();
+          });
+        }, 80);
+      }
+      function applyCachedAnalysis(record) {
+        if (!record || !record.data) return;
+        projectLoading.begin();
+        onReset({
+          cached: true
+        });
+        setLoading(false);
+        setError(null);
+        cliAnalyzingRef.current = false;
+        setData(compactAnalysisForCache(record.data));
+        setCachedFromId(record.id);
+        setCliDirty([]);
+        clearCliLiveDiffs();
+        if (record.repoInfo) setRepoInfo(record.repoInfo);
+        if (record.repoUrl) onRepositoryURL(record.repoUrl);
+        var folderMatches = record.sourceType === "folder" && retainedFolderMatchesRecord(record, {
+          sourceKey: localFolderKeyRef.current
+        });
+        var zipMatches = record.sourceType === "zip" && retainedZipMatchesRecord(record, {
+          sourceKey: zipKeyRef.current,
+          identity: zipFileIdentity(zipFileRef.current)
+        });
+        if (!folderMatches) {
+          setLocalDirHandle(null);
+          localFolderKeyRef.current = null;
+          localFolderSelectionRef.current = null;
+          localFilesRef.current = null;
+        }
+        if (!zipMatches) {
+          zipArchiveRef.current = null;
+          zipFileRef.current = null;
+          zipKeyRef.current = null;
+        }
+        if (record.sourceType === "github" || record.sourceType === "cli") {
+          setLocalSourceKind(record.sourceType === "cli" ? "cli" : null);
+          setLocalDirHandle(null);
+        } else {
+          setLocalSourceKind(record.localSourceKind || record.sourceType);
+        }
+        showNotification("Loaded cached analysis. Re-analyze to refresh.", "success");
+      }
+      function loadRecentAnalysis(id) {
+        const selectionSignal = projectLoading.begin();
+        return getRecentAnalysis(id).then(function(record) {
+          if (selectionSignal.aborted) return null;
+          if (!record) {
+            showNotification("That analysis is no longer cached.", "warning");
+            refreshRecentList();
+            return null;
+          }
+          applyCachedAnalysis(record);
+          return record;
+        }).catch(function() {
+          if (selectionSignal.aborted) return null;
+          showNotification("Could not open cached analysis.", "error");
+          return null;
+        });
+      }
+      function reanalyzeRecent(id) {
+        const selectionSignal = projectLoading.begin();
+        return getRecentAnalysis(id).then(function(record) {
+          if (selectionSignal.aborted) return null;
+          if (!record) {
+            showNotification("That analysis is no longer cached.", "warning");
+            refreshRecentList();
+            return;
+          }
+          refreshAnalysis(record);
+        }).catch(function() {
+          if (selectionSignal.aborted) return null;
+          showNotification("Could not open cached analysis.", "error");
+        });
+      }
+      function removeRecentAnalysis(id) {
+        deleteRecentAnalysis(id).then(function() {
+          if (cachedFromId === id) setCachedFromId(null);
+          refreshRecentList();
+        }).catch(function() {
+        });
+      }
+      function clearCliLiveDiffs() {
+        cliDiffEpochRef.current = bumpCliWatchDiffEpoch(cliDiffEpochRef.current);
+        cliDiffPendingRef.current = [];
+        cliDiffGenRef.current = /* @__PURE__ */ Object.create(null);
+        if (cliDiffTimerRef.current) {
+          clearTimeout(cliDiffTimerRef.current);
+          cliDiffTimerRef.current = null;
+        }
+        setCliLiveByPath(/* @__PURE__ */ Object.create(null));
+      }
+      function flushCliWatchDiffs(paths) {
+        if (!cliWatchAppliesToAnalysis(localSourceKind, cliStatus, currentAnalysisSource())) return;
+        var wanted = cliWatchDiffPaths(dataRef.current && dataRef.current.files, paths);
+        if (!wanted.length) return;
+        wanted.forEach(function(path2) {
+          var epoch = cliDiffEpochRef.current;
+          var gen = (cliDiffGenRef.current[path2] || 0) + 1;
+          cliDiffGenRef.current[path2] = gen;
+          readCliWatchLiveSource(path2).then(function(result) {
+            if (!cliWatchDiffRequestIsCurrent(cliDiffEpochRef.current, epoch, cliDiffGenRef.current, path2, gen)) return;
+            if (!shouldApplyCliWatchLive(result)) return;
+            var live = result.kind === "missing" ? "" : result.content;
+            var file = analyzedFileForCliWatchPath(dataRef.current && dataRef.current.files, path2);
+            if (cliWatchLiveClearsDirty(file, live, result.kind)) {
+              setCliLiveByPath(function(prev) {
+                return mergeCliLiveContents(prev, [{
+                  path: path2,
+                  content: null
+                }]);
+              });
+              setCliDirty(function(prev) {
+                return forgetCliWatchPath(prev, path2);
+              });
+              return;
+            }
+            setCliLiveByPath(function(prev) {
+              return mergeCliLiveContents(prev, [{
+                path: path2,
+                content: live
+              }]);
+            });
+          });
+        });
+      }
+      function enqueueCliWatchDiff(path2, rev) {
+        var next = normalizeCliWatchPath(path2);
+        if (!next) return;
+        if (cliAnalyzingRef.current) cliWatchDuringRef.current = noteCliWatchDuringEvent(cliWatchDuringRef.current, next, rev);
+        if (!cliWatchAppliesToAnalysis(localSourceKind, cliStatus, currentAnalysisSource())) return;
+        setCliDirty(function(prev) {
+          return noteCliWatchPath(prev, next);
+        });
+        cliDiffPendingRef.current = noteCliWatchPath(cliDiffPendingRef.current, next);
+        if (cliDiffTimerRef.current) clearTimeout(cliDiffTimerRef.current);
+        cliDiffTimerRef.current = setTimeout(function() {
+          var pending = cliDiffPendingRef.current;
+          cliDiffPendingRef.current = [];
+          cliDiffTimerRef.current = null;
+          flushCliWatchDiffs(pending);
+        }, CLI_WATCH_DIFF_MS);
+      }
+      function probeCodeflowCli() {
+        const probeSignal = projectLoading.begin();
+        let src;
+        fetch("/__codeflow/status", {
+          signal: probeSignal
+        }).then(function(res) {
+          return res.ok ? res.json() : null;
+        }).then(function(status) {
+          if (probeSignal.aborted || !status || !status.ok) return;
+          setCliStatus(status);
+          if (!window.location.search || window.location.search.indexOf("repo=") < 0) {
+            analyzeFromCli(false, status);
+          }
+          if (window.EventSource) {
+            src = new EventSource("/__codeflow/events");
+            src.onmessage = function(ev) {
+              try {
+                var payload = JSON.parse(ev.data || "{}");
+                if (payload.path && enqueueCliWatchDiffRef.current) enqueueCliWatchDiffRef.current(payload.path, payload.rev);
+              } catch (e) {
+              }
+            };
+          }
+        }).catch(function() {
+        });
+        return function() {
+          src?.close();
+        };
+      }
+      async function analyzeFromCli(force, statusHint, wantedRoot) {
+        const selectionSignal = projectLoading.begin();
+        var status = statusHint || cliStatus;
+        if (!status || !status.ok) {
+          try {
+            var statusRes = await fetch("/__codeflow/status", {
+              signal: selectionSignal
+            });
+            if (statusRes.ok) {
+              var nextStatus = await statusRes.json();
+              if (nextStatus && nextStatus.ok) status = nextStatus;
+            }
+          } catch (e) {
+          }
+          if ((!status || !status.ok) && !force) return;
+        }
+        if (selectionSignal.aborted) return;
+        if (wantedRoot && !cliRecordMatchesStatus({
+          sourceKey: wantedRoot
+        }, status)) {
+          showNotification("Restart the CLI in that folder to re-analyze it.", "warning");
+          return false;
+        }
+        if (status && status.ok) setCliStatus(status);
+        var cliMeta = cliWatchCacheMeta(status);
+        cliWatchDuringRef.current = [];
+        cliWatchReadRef.current = /* @__PURE__ */ Object.create(null);
+        cliWatchSnapRevRef.current = /* @__PURE__ */ Object.create(null);
+        resetAnalysisState();
+        cliAnalyzingRef.current = true;
+        const loadSignal = projectLoading.signal;
+        setLocalDirHandle(null);
+        localFolderKeyRef.current = null;
+        localFolderSelectionRef.current = null;
+        setLocalSourceKind("cli");
+        zipArchiveRef.current = null;
+        zipFileRef.current = null;
+        zipKeyRef.current = null;
+        setLoading(true);
+        setProgress("Reading local folder from CLI...");
+        try {
+          var listRes = await fetch("/__codeflow/files", {
+            signal: loadSignal
+          });
+          if (!listRes.ok) throw new Error("CLI file list failed");
+          var list = await listRes.json();
+          var files = filterAnalyzableLocalFiles(list && list.files ? list.files : [], activeExcludePatterns);
+          if (!files.length) throw new Error(activeExcludePatterns.length ? "No code files found in the watched folder after applying exclude patterns" : "No code files found in the watched folder");
+          const analyzed = await readCollectedFiles(files.map((file) => ({
+            ...file,
+            read: async () => {
+              const response = await fetch("/__codeflow/file?path=" + encodeURIComponent(file.path), {
+                signal: loadSignal
+              });
+              if (!response.ok) throw new Error("CLI source request failed");
+              loadSignal.throwIfAborted();
+              const path2 = normalizeCliWatchPath(file.path);
+              cliWatchReadRef.current[path2] = true;
+              const revision = cliWatchSnapRevFromResponse(response);
+              if (revision != null) cliWatchSnapRevRef.current[path2] = revision;
+              return response.text();
+            }
+          })), {
+            signal: loadSignal,
+            progress: (message) => {
+              if (!loadSignal.aborted) setProgress(message);
+            },
+            yieldFn: yieldToBrowser
+          });
+          var snapshot = null;
+          if (status.beam) {
+            var beamRes = await fetch("/__codeflow/beam", {
+              signal: loadSignal
+            });
+            if (!beamRes.ok) throw new Error("Compiler snapshot request failed");
+            snapshot = await beamRes.json();
+          }
+          var dataObj = await runAnalysisData2({
+            signal: loadSignal,
+            files: analyzed,
+            excludePatterns: activeExcludePatterns.map(function(x2) {
+              return x2.raw;
+            }),
+            progress: function(message) {
+              if (!loadSignal.aborted) setProgress(message);
+            },
+            yieldFn: yieldToBrowser
+          });
+          if (loadSignal.aborted) return;
+          if (status.beam) dataObj = buildBeamAnalysisData({
+            data: dataObj,
+            snapshot
+          });
+          var cliInfo = {
+            owner: "local",
+            repo: "cli",
+            name: cliMeta.title,
+            cliRoot: cliMeta.sourceKey
+          };
+          var keep = retainCliWatchPathsAfterAnalysis(cliWatchDuringRef.current, cliWatchReadRef.current, cliWatchSnapRevRef.current);
+          cliAnalyzingRef.current = false;
+          cliWatchDuringRef.current = [];
+          cliWatchReadRef.current = /* @__PURE__ */ Object.create(null);
+          cliWatchSnapRevRef.current = /* @__PURE__ */ Object.create(null);
+          if (loadSignal.aborted) return;
+          setData(dataObj);
+          setRepoInfo(cliInfo);
+          setCachedFromId(null);
+          setCliDirty(keep);
+          clearCliLiveDiffs();
+          persistCurrentAnalysis(dataObj, {
+            sourceType: "cli",
+            sourceKey: cliMeta.sourceKey,
+            title: cliMeta.title,
+            repoUrl: "",
+            repoInfo: cliInfo,
+            localSourceKind: "cli"
+          });
+          setLoading(false);
+          return true;
+        } catch (err) {
+          if (loadSignal.aborted) return;
+          cliAnalyzingRef.current = false;
+          cliWatchDuringRef.current = [];
+          cliWatchReadRef.current = /* @__PURE__ */ Object.create(null);
+          cliWatchSnapRevRef.current = /* @__PURE__ */ Object.create(null);
+          setError("CLI analysis failed: " + (err.message || err));
+          setLoading(false);
+        }
+      }
+      function resetAnalysisState() {
+        projectLoading.begin();
+        onReset({
+          cached: false
+        });
+        cliAnalyzingRef.current = false;
+        setError(null);
+        setData(null);
+        setCachedFromId(null);
+        setCliDirty([]);
+        clearCliLiveDiffs();
+      }
+      function analyze(forceRefresh, explicitUrl) {
+        var p = parseUrl(explicitUrl || repoUrl);
+        if (!p) {
+          setError("Invalid URL. Use format: owner/repo");
+          return;
+        }
+        if (explicitUrl) onRepositoryURL(explicitUrl);
+        var shouldForce = forceRefresh === true;
+        var githubKey = githubCacheSourceKey(p.owner, p.repo, activeExcludePatterns);
+        var cacheId = analysisCacheKey("github", githubKey);
+        if (!shouldForce) {
+          const cacheSignal = projectLoading.begin();
+          getRecentAnalysis(cacheId).then(function(record) {
+            if (cacheSignal.aborted) return;
+            if (record && record.data && cachedAnalysisMatchesExcludes(record, activeExcludePatterns)) {
+              applyCachedAnalysis(record);
+              return;
+            }
+            analyze(true, p.owner + "/" + p.repo);
+          }).catch(function() {
+            if (!cacheSignal.aborted) analyze(true, p.owner + "/" + p.repo);
+          });
+          return;
+        }
+        var currentExcludePatterns = activeExcludePatterns;
+        if (authMethod === "pat" && !token) {
+          setError("Please enter a Personal Access Token");
+          return;
+        }
+        if (authMethod === "github_app") {
+          if (!appId) {
+            setError("Please enter the GitHub App ID");
+            return;
+          }
+          if (!privateKey) {
+            setError("Please set the GitHub App private key");
+            return;
+          }
+        }
+        resetAnalysisState();
+        const loadSignal = projectLoading.signal;
+        setLocalDirHandle(null);
+        setLocalSourceKind(null);
+        zipArchiveRef.current = null;
+        zipFileRef.current = null;
+        setLoading(true);
+        setProgress("Initializing...");
+        GitHub2.token = null;
+        GitHub2.appId = null;
+        GitHub2.privateKey = null;
+        GitHub2.installationToken = null;
+        if (authMethod === "pat") {
+          GitHub2.token = token;
+        } else if (authMethod === "github_app") {
+          GitHub2.appId = appId;
+          GitHub2.privateKey = privateKey;
+        }
+        setRepoInfo(p);
+        var authPromise;
+        if (authMethod === "github_app") {
+          setProgress("Authenticating with GitHub App...");
+          authPromise = GitHub2.authenticateApp(p.owner, p.repo, loadSignal).catch(function(err) {
+            throw new Error("GitHub App authentication failed: " + err.message);
+          });
+        } else {
+          authPromise = Promise.resolve();
+        }
+        authPromise.then(function() {
+          loadSignal.throwIfAborted();
+          setProgress("Checking rate limit...");
+          return GitHub2.getRateLimit(loadSignal);
+        }).then(function(rl) {
+          loadSignal.throwIfAborted();
+          var hasAuth = !!GitHub2.token || authMethod === "github_app";
+          var estimatedRequests = 50;
+          if (!hasAuth && rl.remaining < estimatedRequests) {
+            var resetTime = new Date(rl.reset * 1e3).toLocaleTimeString();
+            return requestConfirm({
+              tone: "warning",
+              icon: "warning",
+              title: "GitHub API rate limit is low",
+              message: "Remaining requests: " + rl.remaining + "/" + rl.limit + "\nResets at: " + resetTime + "\n\nThe folder picker is faster when the API is rate-limited. Open Folder and analyze locally, or download a ZIP and use Open ZIP.\n\nWithout authentication, you only get 60 requests per hour.\nAdding a token or GitHub App raises that to 5,000 requests per hour.\n\nToken (PAT): GitHub Settings -> Developer Settings -> Personal access tokens\nGitHub App: use App ID + Private Key for organization access\n\nContinue anyway with the remaining requests?",
+              confirmLabel: "Continue anyway"
+            }).then(function(proceed) {
+              loadSignal.throwIfAborted();
+              if (!proceed) {
+                setLoading(false);
+                return Promise.reject("cancelled");
+              }
+              setProgress("Scanning repository...");
+              return GitHub2.scan(p.owner, p.repo, function(message) {
+                if (!loadSignal.aborted) setProgress(message);
+              }, currentExcludePatterns, loadSignal);
+            });
+          }
+          setProgress("Scanning repository...");
+          return GitHub2.scan(p.owner, p.repo, function(message) {
+            if (!loadSignal.aborted) setProgress(message);
+          }, currentExcludePatterns, loadSignal);
+        }).then(function(files) {
+          loadSignal.throwIfAborted();
+          if (!files) return;
+          if (!files.length) throw new Error(currentExcludePatterns.length ? "No code files found after applying exclude patterns" : "No code files found");
+          var SOFT_LIMIT = ANALYSIS_LIMITS.repoSoft;
+          async function beginRepoAnalysis() {
+            const analyzed = await readCollectedFiles(files.map((file) => ({
+              ...file,
+              read: async () => {
+                const [content, commits] = await Promise.all([GitHub2.getFile(p.owner, p.repo, file.path, loadSignal), isCode(file.name) ? GitHub2.getCommits(p.owner, p.repo, file.path, 10, loadSignal) : Promise.resolve([])]);
+                if (typeof content !== "string") throw new Error("GitHub source request failed");
+                return {
+                  content,
+                  churn: Array.isArray(commits) ? commits.length : 0
+                };
+              }
+            })), {
+              signal: loadSignal,
+              progress: (message) => {
+                if (!loadSignal.aborted) setProgress(message);
+              },
+              yieldFn: yieldToBrowser
+            });
+            async function finishAnalysis() {
+              if (loadSignal.aborted) return;
+              try {
+                var dataObj = await runAnalysisData2({
+                  signal: loadSignal,
+                  files: analyzed,
+                  excludePatterns: currentExcludePatterns.map(function(x2) {
+                    return x2.raw;
+                  }),
+                  progress: function(message) {
+                    if (!loadSignal.aborted) setProgress(message);
+                  },
+                  yieldFn: yieldToBrowser
+                });
+                var failedCount = analyzed.filter(function(af) {
+                  return af.analysisSkipped === "fetch-failed";
+                }).length;
+                if (failedCount > 0) {
+                  showNotification(failedCount + " of " + analyzed.length + " files could not be fetched (GitHub rate limit?). Results are PARTIAL \u2014 add a token or use Open ZIP for full analysis.", "warning");
+                }
+                if (loadSignal.aborted) return;
+                setData(dataObj);
+                setCachedFromId(null);
+                persistCurrentAnalysis(dataObj, {
+                  sourceType: "github",
+                  sourceKey: githubKey,
+                  title: p.owner + "/" + p.repo,
+                  repoUrl: p.owner + "/" + p.repo,
+                  repoInfo: p,
+                  localSourceKind: null
+                });
+                window.history.replaceState({}, "", buildAppUrl(p.owner + "/" + p.repo, false));
+                setLoading(false);
+              } catch (err) {
+                if (loadSignal.aborted) return;
+                setError("Analysis failed: " + (err.message || err) + ". Try a smaller repository.");
+                setLoading(false);
+              }
+            }
+            await finishAnalysis();
+          }
+          if (files.length > SOFT_LIMIT) {
+            return requestConfirm({
+              tone: "warning",
+              icon: "warning",
+              title: "Analyze a large repository?",
+              message: "This repository has " + files.length + " files.\n\nAnalyzing larger repositories can take longer and may hit GitHub API rate limits.\n\nThe folder picker is faster when the API is rate-limited. You can also download a ZIP and use Open ZIP.\n\nTip: add a token or GitHub App for higher limits.",
+              confirmLabel: "Analyze repository"
+            }).then(function(proceed) {
+              loadSignal.throwIfAborted();
+              if (!proceed) {
+                setLoading(false);
+                return Promise.reject("cancelled");
+              }
+              return beginRepoAnalysis();
+            });
+          }
+          return beginRepoAnalysis();
+        }).catch(function(e) {
+          if (!loadSignal.aborted && e !== "cancelled") {
+            setError(e.message || e);
+            setLoading(false);
+          }
+        });
+      }
+      function refreshAnalysis(record) {
+        var source = record && record.sourceType ? record : null;
+        var kind = source ? source.sourceType : localSourceKind || (parseUrl(repoUrl) ? "github" : null);
+        var githubUrl = source ? source.repoUrl || source.sourceKey : repoUrl;
+        setCachedFromId(null);
+        if (kind === "cli" || !source && cliStatus && cliStatus.ok && localSourceKind === "cli") {
+          var wantedRoot = source && source.sourceType === "cli" ? source.sourceKey : "";
+          if (wantedRoot && cliStatus && cliStatus.ok && !cliRecordMatchesStatus(source, cliStatus)) {
+            applyCachedAnalysis(source);
+            showNotification("Restart the CLI in that folder to re-analyze it.", "warning");
+            return;
+          }
+          Promise.resolve(analyzeFromCli(true, cliStatus, wantedRoot || null)).then(function(ok) {
+            if (ok === false && source) applyCachedAnalysis(source);
+          });
+          return;
+        }
+        if (kind === "folder") {
+          var retained = {
+            sourceKey: localFolderKeyRef.current
+          };
+          var handleMatches = !source || retainedFolderMatchesRecord(source, retained);
+          if (localDirHandle && handleMatches) {
+            resetAnalysisState();
+            setLoading(true);
+            setProgress("Reading local folder...");
+            readLocalFolder(localDirHandle, activeExcludePatterns);
+            return;
+          }
+          if (localFilesRef.current && handleMatches) {
+            resetAnalysisState();
+            setLoading(true);
+            setProgress("Reading local folder...");
+            readLocalFolderFromFiles(localFilesRef.current, activeExcludePatterns);
+            return;
+          }
+          if (source) applyCachedAnalysis(source);
+          showNotification("Open Folder again to re-analyze this local tree.", "warning");
+          return;
+        }
+        if (kind === "zip") {
+          var zipMatches = !source || retainedZipMatchesRecord(source, {
+            sourceKey: zipKeyRef.current,
+            identity: zipFileIdentity(zipFileRef.current)
+          });
+          if (!zipFileRef.current || !zipMatches) {
+            if (source) applyCachedAnalysis(source);
+            showNotification("Open ZIP again to re-analyze this archive.", "warning");
+            return;
+          }
+          resetAnalysisState();
+          setLocalDirHandle(null);
+          setLocalSourceKind("zip");
+          zipArchiveRef.current = null;
+          setLoading(true);
+          setProgress("Reading ZIP archive...");
+          readZipArchive(zipFileRef.current, activeExcludePatterns);
+          return;
+        }
+        if (kind === "github" || parseUrl(githubUrl)) {
+          analyze(true, githubUrl);
+          return;
+        }
+        analyze(true);
+      }
+      function readLocalFolder(dirHandle, patterns) {
+        return loadLocalCollection({
+          kind: "folder",
+          patterns,
+          title: dirHandle.name,
+          collect: (options) => collectDirectory(dirHandle, options)
+        });
+      }
+      function readLocalFolderFromFiles(fileObjs, patterns) {
+        return loadLocalCollection({
+          kind: "folder",
+          patterns,
+          collect: (options) => collectSelectedFiles(fileObjs, options)
+        });
+      }
+      function readZipArchive(zipFile, patterns) {
+        return loadLocalCollection({
+          kind: "zip",
+          patterns,
+          zipFile,
+          collect: async (options) => {
+            if (!JSZip) throw new Error("ZIP support failed to load");
+            const zip = await JSZip.loadAsync(zipFile);
+            options.signal.throwIfAborted();
+            return {
+              ...await collectArchive(zip, options),
+              zip
+            };
+          }
+        });
+      }
+      async function loadLocalCollection({
+        kind,
+        patterns = activeExcludePatterns,
+        title,
+        zipFile,
+        collect
+      }) {
+        const signal = projectLoading.signal;
+        const progress2 = (message) => {
+          if (!signal.aborted) setProgress(message);
+        };
+        const archive = kind === "zip";
+        const label = archive ? "ZIP archive" : "selected folder";
+        try {
+          progress2(archive ? "Reading ZIP archive..." : "Scanning local folder...");
+          const collection = await collect({
+            patterns,
+            signal,
+            progress: progress2
+          });
+          signal.throwIfAborted();
+          if (!collection.files.length) throw new Error("No code files found in the " + label + (patterns.length ? " after applying exclude patterns" : ""));
+          if (collection.files.length > ANALYSIS_LIMITS.localSoft) {
+            const proceed = await requestConfirm({
+              tone: "warning",
+              icon: archive ? "archive" : "folder",
+              title: "Analyze " + collection.files.length + " files?",
+              message: "CodeFlow will analyze every eligible file. Large " + (archive ? "archives" : "folders") + " can take minutes and use significant browser memory.",
+              confirmLabel: "Analyze all files"
+            });
+            signal.throwIfAborted();
+            if (!proceed) {
+              if (archive) {
+                setLocalSourceKind(null);
+                zipFileRef.current = null;
+              }
+              setLoading(false);
+              return;
+            }
+          }
+          const files = await readCollectedFiles(collection.files, {
+            signal,
+            progress: progress2,
+            yieldFn: yieldToBrowser
+          });
+          const dataObj = await runAnalysisData2({
+            signal,
+            files,
+            excludePatterns: patterns.map((x2) => x2.raw),
+            progress: progress2,
+            yieldFn: yieldToBrowser
+          });
+          signal.throwIfAborted();
+          let meta, info;
+          if (archive) {
+            meta = zipArchiveCacheMeta({
+              name: zipFile.name,
+              size: zipFile.size,
+              lastModified: zipFile.lastModified,
+              paths: files.map((f) => f.path)
+            });
+            info = {
+              owner: "local",
+              repo: "zip",
+              name: meta.title,
+              zipKey: meta.sourceKey
+            };
+            zipArchiveRef.current = {
+              zip: collection.zip,
+              entriesByPath: collection.entriesByPath,
+              name: zipFile.name
+            };
+            zipFileRef.current = zipFile;
+            zipKeyRef.current = meta.sourceKey;
+            setLocalDirHandle(null);
+            setLocalSourceKind("zip");
+          } else {
+            if (!localFolderSelectionRef.current) localFolderSelectionRef.current = newLocalSelectionId();
+            meta = localFolderCacheMeta({
+              title,
+              rootPrefix: collection.rootPrefix,
+              paths: files.map((f) => f.path),
+              selectionId: localFolderSelectionRef.current
+            });
+            info = {
+              owner: "local",
+              repo: "folder",
+              name: meta.title,
+              folderKey: meta.sourceKey,
+              folderSelectionId: meta.selectionId
+            };
+            localFolderKeyRef.current = meta.sourceKey;
+          }
+          setData(dataObj);
+          setRepoInfo(info);
+          setCachedFromId(null);
+          persistCurrentAnalysis(dataObj, {
+            sourceType: kind,
+            sourceKey: meta.sourceKey,
+            title: meta.title,
+            repoUrl: "",
+            repoInfo: info,
+            localSourceKind: kind
+          });
+          setLoading(false);
+        } catch (error2) {
+          if (signal.aborted) return;
+          if (archive) {
+            setLocalSourceKind(null);
+            zipArchiveRef.current = null;
+          }
+          setError("Failed to analyze " + label + ": " + (error2.message || error2));
+          setLoading(false);
+        }
+      }
+      function readCliWatchLiveSource(path2) {
+        if (!path2) return Promise.resolve({
+          kind: "error"
+        });
+        return fetch("/__codeflow/file?path=" + encodeURIComponent(path2)).then(function(res) {
+          var length = Number(res.headers && res.headers.get ? res.headers.get("content-length") : NaN);
+          if (cliWatchLiveRejectsOversized(length)) {
+            if (res.body && typeof res.body.cancel === "function") res.body.cancel();
+            return {
+              kind: "error"
+            };
+          }
+          if (res.ok) return res.text().then(function(text) {
+            return cliWatchLiveFromResponse(res.status, text, true, length);
+          });
+          return cliWatchLiveFromResponse(res.status, "", false);
+        }).catch(function() {
+          return {
+            kind: "error"
+          };
+        });
+      }
+      async function readLiveFileSource(path2) {
+        if (!projectSource) return null;
+        const hydrationId = currentHydrationId;
+        try {
+          const result = await projectSource.read(path2, {
+            signal: sourceReads.signal
+          });
+          if (result.status !== "ready") return null;
+          rememberHydratedSources([{
+            path: path2,
+            content: result.content,
+            hydrationId
+          }]);
+          return result.content;
+        } catch (error2) {
+          if (error2.name === "AbortError") return null;
+          throw error2;
+        }
+      }
+      function rememberHydratedSources(updates) {
+        if (!updates || !updates.length) return;
+        setData(function(prev) {
+          return mergeHydratedFileSources(prev, updates, analysisHydrationIdRef.current);
+        });
+      }
+      enqueueCliWatchDiffRef.current = enqueueCliWatchDiff;
+      const projectSource = createProjectSource({
+        identity: currentAnalysisSource(),
+        cli: cliStatus,
+        folder: {
+          handle: localDirHandle,
+          sourceKey: localFolderKeyRef.current
+        },
+        archive: {
+          entriesByPath: zipArchiveRef.current && zipArchiveRef.current.entriesByPath,
+          sourceKey: zipKeyRef.current,
+          file: zipFileRef.current
+        },
+        github: repoInfo ? {
+          owner: repoInfo.owner,
+          repo: repoInfo.repo,
+          client: GitHub2
+        } : null
+      });
+      const sourceReads = useMemo2(() => new AbortController(), [currentHydrationId]);
+      useEffect2(() => () => sourceReads.abort(), [sourceReads]);
+      function ensureSources(paths) {
+        var missing = filesNeedingSource((data?.files || []).filter((file) => paths.includes(file.path)));
+        if (!missing.length || !projectSource) return;
+        var inflight = codeSourceInFlightRef.current;
+        var hydrationId = analysisHydrationIdRef.current;
+        nextCodeSourceReads(missing.map(function(file) {
+          return file.path;
+        }), inflight, codeSourceFailed).forEach(function(path2) {
+          inflight[path2] = true;
+          readLiveFileSource(path2).then(function(content) {
+            if (typeof content === "string") {
+              setCodeSourceFailed(function(prev) {
+                return clearCodeSourceFailureIfCurrent(prev, path2, hydrationId, analysisHydrationIdRef.current);
+              });
+              return;
+            }
+            setCodeSourceFailed(function(prev) {
+              return recordCodeSourceFailureIfCurrent(prev, path2, hydrationId, analysisHydrationIdRef.current);
+            });
+          }).then(function() {
+            delete inflight[path2];
+          }, function() {
+            delete inflight[path2];
+            setCodeSourceFailed(function(prev) {
+              return recordCodeSourceFailureIfCurrent(prev, path2, hydrationId, analysisHydrationIdRef.current);
+            });
+          });
+        });
+      }
+      function retrySource(path2) {
+        delete codeSourceInFlightRef.current[path2];
+        setCodeSourceFailed((prev) => clearCodeSourceFailure(prev, path2));
+      }
+      useEffect2(() => {
+        codeSourceInFlightRef.current = /* @__PURE__ */ Object.create(null);
+        setCodeSourceFailed(/* @__PURE__ */ Object.create(null));
+      }, [loadedSourceIdentity?.sourceType, loadedSourceIdentity?.sourceKey]);
+      useEffect2(() => {
+        refreshRecentList();
+        const close = probeCodeflowCli();
+        return () => {
+          projectLoading.dispose();
+          close();
+          clearTimeout(persistTimerRef.current);
+          clearTimeout(cliDiffTimerRef.current);
+        };
+      }, []);
+      function openFolder(handle, patterns = activeExcludePatterns) {
+        resetAnalysisState();
+        setRepoInfo(null);
+        localFolderKeyRef.current = null;
+        localFolderSelectionRef.current = newLocalSelectionId();
+        setLocalDirHandle(handle);
+        setLocalSourceKind("folder");
+        zipArchiveRef.current = null;
+        zipFileRef.current = null;
+        setLoading(true);
+        setProgress("Reading local folder...");
+        return readLocalFolder(handle, patterns);
+      }
+      function openSelectedFiles(fileObjs, patterns = activeExcludePatterns) {
+        localFilesRef.current = Array.from(fileObjs);
+        resetAnalysisState();
+        setRepoInfo(null);
+        localFolderKeyRef.current = null;
+        localFolderSelectionRef.current = newLocalSelectionId();
+        setLocalDirHandle(null);
+        setLocalSourceKind("folder");
+        zipArchiveRef.current = null;
+        zipFileRef.current = null;
+        setLoading(true);
+        setProgress("Reading local folder...");
+        return readLocalFolderFromFiles(localFilesRef.current, patterns);
+      }
+      function openArchive(file) {
+        resetAnalysisState();
+        setRepoInfo(null);
+        setLocalDirHandle(null);
+        setLocalSourceKind("zip");
+        zipArchiveRef.current = null;
+        zipFileRef.current = file;
+        zipKeyRef.current = null;
+        setLoading(true);
+        setProgress("Reading ZIP archive...");
+        return readZipArchive(file, activeExcludePatterns);
+      }
+      function clear() {
+        projectLoading.dispose();
+        setLoading(false);
+        setError(null);
+        cliAnalyzingRef.current = false;
+        setData(null);
+        setRepoInfo(null);
+        setLocalDirHandle(null);
+        setLocalSourceKind(null);
+        setCachedFromId(null);
+        setCliDirty([]);
+        clearCliLiveDiffs();
+        localFolderKeyRef.current = null;
+        localFolderSelectionRef.current = null;
+        localFilesRef.current = null;
+        zipKeyRef.current = null;
+        zipArchiveRef.current = null;
+        zipFileRef.current = null;
+      }
+      return {
+        data,
+        repoInfo,
+        localSourceKind,
+        source: currentAnalysisSource(),
+        identity: loadedSourceIdentity,
+        hydrationId: currentHydrationId,
+        loading,
+        progress,
+        error,
+        recentAnalyses,
+        cachedFromId,
+        cliStatus,
+        cliDirty,
+        cliLiveByPath,
+        beamAnalysis,
+        localTools,
+        sourceAvailable: !!projectSource,
+        codeSourceFailed,
+        openGitHub: (url) => analyze(false, url),
+        openFolder,
+        openSelectedFiles,
+        openArchive,
+        openRecent: loadRecentAnalysis,
+        refreshRecent: reanalyzeRecent,
+        refresh: refreshAnalysis,
+        removeRecent: removeRecentAnalysis,
+        ensureSources,
+        readSource: readLiveFileSource,
+        retrySource,
+        clear,
+        dismissError: () => setError(null)
+      };
+    };
+  }
+
+  // node_modules/d3-array/src/ascending.js
+  function ascending_default(a, b) {
+    return a < b ? -1 : a > b ? 1 : a >= b ? 0 : NaN;
+  }
+
+  // node_modules/d3-array/src/bisector.js
+  function bisector_default(compare) {
+    if (compare.length === 1) compare = ascendingComparator(compare);
+    return {
+      left: function(a, x2, lo, hi) {
+        if (lo == null) lo = 0;
+        if (hi == null) hi = a.length;
+        while (lo < hi) {
+          var mid = lo + hi >>> 1;
+          if (compare(a[mid], x2) < 0) lo = mid + 1;
+          else hi = mid;
+        }
+        return lo;
+      },
+      right: function(a, x2, lo, hi) {
+        if (lo == null) lo = 0;
+        if (hi == null) hi = a.length;
+        while (lo < hi) {
+          var mid = lo + hi >>> 1;
+          if (compare(a[mid], x2) > 0) hi = mid;
+          else lo = mid + 1;
+        }
+        return lo;
+      }
+    };
+  }
+  function ascendingComparator(f) {
+    return function(d, x2) {
+      return ascending_default(f(d), x2);
+    };
+  }
+
+  // node_modules/d3-array/src/bisect.js
+  var ascendingBisect = bisector_default(ascending_default);
+  var bisectRight = ascendingBisect.right;
+  var bisectLeft = ascendingBisect.left;
+
+  // node_modules/d3-array/src/number.js
+  function number_default(x2) {
+    return x2 === null ? NaN : +x2;
+  }
+
+  // node_modules/d3-array/src/array.js
+  var array = Array.prototype;
+  var slice = array.slice;
+  var map = array.map;
+
+  // node_modules/d3-array/src/ticks.js
+  var e10 = Math.sqrt(50);
+  var e5 = Math.sqrt(10);
+  var e2 = Math.sqrt(2);
+
+  // node_modules/d3-array/src/max.js
+  function max_default(values, valueof) {
+    var n = values.length, i = -1, value2, max;
+    if (valueof == null) {
+      while (++i < n) {
+        if ((value2 = values[i]) != null && value2 >= value2) {
+          max = value2;
+          while (++i < n) {
+            if ((value2 = values[i]) != null && value2 > max) {
+              max = value2;
+            }
+          }
+        }
+      }
+    } else {
+      while (++i < n) {
+        if ((value2 = valueof(values[i], i, values)) != null && value2 >= value2) {
+          max = value2;
+          while (++i < n) {
+            if ((value2 = valueof(values[i], i, values)) != null && value2 > max) {
+              max = value2;
+            }
+          }
+        }
+      }
+    }
+    return max;
+  }
+
+  // node_modules/d3-array/src/mean.js
+  function mean_default(values, valueof) {
+    var n = values.length, m = n, i = -1, value2, sum = 0;
+    if (valueof == null) {
+      while (++i < n) {
+        if (!isNaN(value2 = number_default(values[i]))) sum += value2;
+        else --m;
+      }
+    } else {
+      while (++i < n) {
+        if (!isNaN(value2 = number_default(valueof(values[i], i, values)))) sum += value2;
+        else --m;
+      }
+    }
+    if (m) return sum / m;
+  }
+
+  // node_modules/d3-array/src/min.js
+  function min_default(values, valueof) {
+    var n = values.length, i = -1, value2, min;
+    if (valueof == null) {
+      while (++i < n) {
+        if ((value2 = values[i]) != null && value2 >= value2) {
+          min = value2;
+          while (++i < n) {
+            if ((value2 = values[i]) != null && min > value2) {
+              min = value2;
+            }
+          }
+        }
+      }
+    } else {
+      while (++i < n) {
+        if ((value2 = valueof(values[i], i, values)) != null && value2 >= value2) {
+          min = value2;
+          while (++i < n) {
+            if ((value2 = valueof(values[i], i, values)) != null && min > value2) {
+              min = value2;
+            }
+          }
+        }
+      }
+    }
+    return min;
+  }
+
+  // node_modules/d3-array/src/sum.js
+  function sum_default(values, valueof) {
+    var n = values.length, i = -1, value2, sum = 0;
+    if (valueof == null) {
+      while (++i < n) {
+        if (value2 = +values[i]) sum += value2;
+      }
+    } else {
+      while (++i < n) {
+        if (value2 = +valueof(values[i], i, values)) sum += value2;
+      }
+    }
+    return sum;
+  }
+
+  // node_modules/d3-collection/src/map.js
+  var prefix = "$";
+  function Map2() {
+  }
+  Map2.prototype = map2.prototype = {
+    constructor: Map2,
+    has: function(key) {
+      return prefix + key in this;
+    },
+    get: function(key) {
+      return this[prefix + key];
+    },
+    set: function(key, value2) {
+      this[prefix + key] = value2;
+      return this;
+    },
+    remove: function(key) {
+      var property = prefix + key;
+      return property in this && delete this[property];
+    },
+    clear: function() {
+      for (var property in this) if (property[0] === prefix) delete this[property];
+    },
+    keys: function() {
+      var keys = [];
+      for (var property in this) if (property[0] === prefix) keys.push(property.slice(1));
+      return keys;
+    },
+    values: function() {
+      var values = [];
+      for (var property in this) if (property[0] === prefix) values.push(this[property]);
+      return values;
+    },
+    entries: function() {
+      var entries = [];
+      for (var property in this) if (property[0] === prefix) entries.push({ key: property.slice(1), value: this[property] });
+      return entries;
+    },
+    size: function() {
+      var size = 0;
+      for (var property in this) if (property[0] === prefix) ++size;
+      return size;
+    },
+    empty: function() {
+      for (var property in this) if (property[0] === prefix) return false;
+      return true;
+    },
+    each: function(f) {
+      for (var property in this) if (property[0] === prefix) f(this[property], property.slice(1), this);
+    }
+  };
+  function map2(object, f) {
+    var map3 = new Map2();
+    if (object instanceof Map2) object.each(function(value2, key2) {
+      map3.set(key2, value2);
+    });
+    else if (Array.isArray(object)) {
+      var i = -1, n = object.length, o;
+      if (f == null) while (++i < n) map3.set(i, object[i]);
+      else while (++i < n) map3.set(f(o = object[i], i, object), o);
+    } else if (object) for (var key in object) map3.set(key, object[key]);
+    return map3;
+  }
+  var map_default = map2;
+
+  // node_modules/d3-collection/src/nest.js
+  function nest_default() {
+    var keys = [], sortKeys = [], sortValues, rollup, nest;
+    function apply(array2, depth, createResult, setResult) {
+      if (depth >= keys.length) {
+        if (sortValues != null) array2.sort(sortValues);
+        return rollup != null ? rollup(array2) : array2;
+      }
+      var i = -1, n = array2.length, key = keys[depth++], keyValue, value2, valuesByKey = map_default(), values, result = createResult();
+      while (++i < n) {
+        if (values = valuesByKey.get(keyValue = key(value2 = array2[i]) + "")) {
+          values.push(value2);
+        } else {
+          valuesByKey.set(keyValue, [value2]);
+        }
+      }
+      valuesByKey.each(function(values2, key2) {
+        setResult(result, key2, apply(values2, depth, createResult, setResult));
+      });
+      return result;
+    }
+    function entries(map3, depth) {
+      if (++depth > keys.length) return map3;
+      var array2, sortKey = sortKeys[depth - 1];
+      if (rollup != null && depth >= keys.length) array2 = map3.entries();
+      else array2 = [], map3.each(function(v, k) {
+        array2.push({ key: k, values: entries(v, depth) });
+      });
+      return sortKey != null ? array2.sort(function(a, b) {
+        return sortKey(a.key, b.key);
+      }) : array2;
+    }
+    return nest = {
+      object: function(array2) {
+        return apply(array2, 0, createObject, setObject);
+      },
+      map: function(array2) {
+        return apply(array2, 0, createMap, setMap);
+      },
+      entries: function(array2) {
+        return entries(apply(array2, 0, createMap, setMap), 0);
+      },
+      key: function(d) {
+        keys.push(d);
+        return nest;
+      },
+      sortKeys: function(order) {
+        sortKeys[keys.length - 1] = order;
+        return nest;
+      },
+      sortValues: function(order) {
+        sortValues = order;
+        return nest;
+      },
+      rollup: function(f) {
+        rollup = f;
+        return nest;
+      }
+    };
+  }
+  function createObject() {
+    return {};
+  }
+  function setObject(object, key, value2) {
+    object[key] = value2;
+  }
+  function createMap() {
+    return map_default();
+  }
+  function setMap(map3, key, value2) {
+    map3.set(key, value2);
+  }
+
+  // node_modules/d3-collection/src/set.js
+  function Set2() {
+  }
+  var proto = map_default.prototype;
+  Set2.prototype = set.prototype = {
+    constructor: Set2,
+    has: proto.has,
+    add: function(value2) {
+      value2 += "";
+      this[prefix + value2] = value2;
+      return this;
+    },
+    remove: proto.remove,
+    clear: proto.clear,
+    values: proto.keys,
+    size: proto.size,
+    empty: proto.empty,
+    each: proto.each
+  };
+  function set(object, f) {
+    var set2 = new Set2();
+    if (object instanceof Set2) object.each(function(value2) {
+      set2.add(value2);
+    });
+    else if (object) {
+      var i = -1, n = object.length;
+      if (f == null) while (++i < n) set2.add(object[i]);
+      else while (++i < n) set2.add(f(object[i], i, object));
+    }
+    return set2;
+  }
+
+  // node_modules/d3-path/src/path.js
+  var pi = Math.PI;
+  var tau = 2 * pi;
+  var epsilon = 1e-6;
+  var tauEpsilon = tau - epsilon;
+  function Path() {
+    this._x0 = this._y0 = // start of current subpath
+    this._x1 = this._y1 = null;
+    this._ = "";
+  }
+  function path() {
+    return new Path();
+  }
+  Path.prototype = path.prototype = {
+    constructor: Path,
+    moveTo: function(x2, y2) {
+      this._ += "M" + (this._x0 = this._x1 = +x2) + "," + (this._y0 = this._y1 = +y2);
+    },
+    closePath: function() {
+      if (this._x1 !== null) {
+        this._x1 = this._x0, this._y1 = this._y0;
+        this._ += "Z";
+      }
+    },
+    lineTo: function(x2, y2) {
+      this._ += "L" + (this._x1 = +x2) + "," + (this._y1 = +y2);
+    },
+    quadraticCurveTo: function(x1, y1, x2, y2) {
+      this._ += "Q" + +x1 + "," + +y1 + "," + (this._x1 = +x2) + "," + (this._y1 = +y2);
+    },
+    bezierCurveTo: function(x1, y1, x2, y2, x3, y3) {
+      this._ += "C" + +x1 + "," + +y1 + "," + +x2 + "," + +y2 + "," + (this._x1 = +x3) + "," + (this._y1 = +y3);
+    },
+    arcTo: function(x1, y1, x2, y2, r) {
+      x1 = +x1, y1 = +y1, x2 = +x2, y2 = +y2, r = +r;
+      var x0 = this._x1, y0 = this._y1, x21 = x2 - x1, y21 = y2 - y1, x01 = x0 - x1, y01 = y0 - y1, l01_2 = x01 * x01 + y01 * y01;
+      if (r < 0) throw new Error("negative radius: " + r);
+      if (this._x1 === null) {
+        this._ += "M" + (this._x1 = x1) + "," + (this._y1 = y1);
+      } else if (!(l01_2 > epsilon)) ;
+      else if (!(Math.abs(y01 * x21 - y21 * x01) > epsilon) || !r) {
+        this._ += "L" + (this._x1 = x1) + "," + (this._y1 = y1);
+      } else {
+        var x20 = x2 - x0, y20 = y2 - y0, l21_2 = x21 * x21 + y21 * y21, l20_2 = x20 * x20 + y20 * y20, l21 = Math.sqrt(l21_2), l01 = Math.sqrt(l01_2), l = r * Math.tan((pi - Math.acos((l21_2 + l01_2 - l20_2) / (2 * l21 * l01))) / 2), t01 = l / l01, t21 = l / l21;
+        if (Math.abs(t01 - 1) > epsilon) {
+          this._ += "L" + (x1 + t01 * x01) + "," + (y1 + t01 * y01);
+        }
+        this._ += "A" + r + "," + r + ",0,0," + +(y01 * x20 > x01 * y20) + "," + (this._x1 = x1 + t21 * x21) + "," + (this._y1 = y1 + t21 * y21);
+      }
+    },
+    arc: function(x2, y2, r, a0, a1, ccw) {
+      x2 = +x2, y2 = +y2, r = +r, ccw = !!ccw;
+      var dx = r * Math.cos(a0), dy = r * Math.sin(a0), x0 = x2 + dx, y0 = y2 + dy, cw = 1 ^ ccw, da = ccw ? a0 - a1 : a1 - a0;
+      if (r < 0) throw new Error("negative radius: " + r);
+      if (this._x1 === null) {
+        this._ += "M" + x0 + "," + y0;
+      } else if (Math.abs(this._x1 - x0) > epsilon || Math.abs(this._y1 - y0) > epsilon) {
+        this._ += "L" + x0 + "," + y0;
+      }
+      if (!r) return;
+      if (da < 0) da = da % tau + tau;
+      if (da > tauEpsilon) {
+        this._ += "A" + r + "," + r + ",0,1," + cw + "," + (x2 - dx) + "," + (y2 - dy) + "A" + r + "," + r + ",0,1," + cw + "," + (this._x1 = x0) + "," + (this._y1 = y0);
+      } else if (da > epsilon) {
+        this._ += "A" + r + "," + r + ",0," + +(da >= pi) + "," + cw + "," + (this._x1 = x2 + r * Math.cos(a1)) + "," + (this._y1 = y2 + r * Math.sin(a1));
+      }
+    },
+    rect: function(x2, y2, w, h) {
+      this._ += "M" + (this._x0 = this._x1 = +x2) + "," + (this._y0 = this._y1 = +y2) + "h" + +w + "v" + +h + "h" + -w + "Z";
+    },
+    toString: function() {
+      return this._;
+    }
+  };
+  var path_default = path;
+
+  // node_modules/d3-shape/src/constant.js
+  function constant_default2(x2) {
+    return function constant2() {
+      return x2;
+    };
+  }
+
+  // node_modules/d3-shape/src/point.js
+  function x(p) {
+    return p[0];
+  }
+  function y(p) {
+    return p[1];
+  }
+
+  // node_modules/d3-shape/src/array.js
+  var slice2 = Array.prototype.slice;
+
+  // node_modules/d3-shape/src/link/index.js
+  function linkSource(d) {
+    return d.source;
+  }
+  function linkTarget(d) {
+    return d.target;
+  }
+  function link(curve) {
+    var source = linkSource, target = linkTarget, x2 = x, y2 = y, context = null;
+    function link2() {
+      var buffer, argv = slice2.call(arguments), s = source.apply(this, argv), t = target.apply(this, argv);
+      if (!context) context = buffer = path_default();
+      curve(context, +x2.apply(this, (argv[0] = s, argv)), +y2.apply(this, argv), +x2.apply(this, (argv[0] = t, argv)), +y2.apply(this, argv));
+      if (buffer) return context = null, buffer + "" || null;
+    }
+    link2.source = function(_) {
+      return arguments.length ? (source = _, link2) : source;
+    };
+    link2.target = function(_) {
+      return arguments.length ? (target = _, link2) : target;
+    };
+    link2.x = function(_) {
+      return arguments.length ? (x2 = typeof _ === "function" ? _ : constant_default2(+_), link2) : x2;
+    };
+    link2.y = function(_) {
+      return arguments.length ? (y2 = typeof _ === "function" ? _ : constant_default2(+_), link2) : y2;
+    };
+    link2.context = function(_) {
+      return arguments.length ? (context = _ == null ? null : _, link2) : context;
+    };
+    return link2;
+  }
+  function curveHorizontal(context, x0, y0, x1, y1) {
+    context.moveTo(x0, y0);
+    context.bezierCurveTo(x0 = (x0 + x1) / 2, y0, x0, y1, x1, y1);
+  }
+  function linkHorizontal() {
+    return link(curveHorizontal);
+  }
+
+  // node_modules/d3-sankey-circular/dist/d3-sankey-circular.es.js
+  var import_elementary_circuits_directed_graph = __toESM(require_johnson());
+  function justify(node, n) {
+    return node.sourceLinks.length ? node.depth : n - 1;
+  }
+  function constant(x2) {
+    return function() {
+      return x2;
+    };
+  }
+  var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function(obj) {
+    return typeof obj;
+  } : function(obj) {
+    return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj;
+  };
+  function ascendingSourceBreadth(a, b) {
+    return ascendingBreadth(a.source, b.source) || a.index - b.index;
+  }
+  function ascendingTargetBreadth(a, b) {
+    return ascendingBreadth(a.target, b.target) || a.index - b.index;
+  }
+  function ascendingBreadth(a, b) {
+    if (a.partOfCycle === b.partOfCycle) {
+      return a.y0 - b.y0;
+    } else {
+      if (a.circularLinkType === "top" || b.circularLinkType === "bottom") {
+        return -1;
+      } else {
+        return 1;
+      }
+    }
+  }
+  function value(d) {
+    return d.value;
+  }
+  function nodeCenter(node) {
+    return (node.y0 + node.y1) / 2;
+  }
+  function linkSourceCenter(link2) {
+    return nodeCenter(link2.source);
+  }
+  function linkTargetCenter(link2) {
+    return nodeCenter(link2.target);
+  }
+  function defaultId(d) {
+    return d.index;
+  }
+  function defaultNodes(graph) {
+    return graph.nodes;
+  }
+  function defaultLinks(graph) {
+    return graph.links;
+  }
+  function find(nodeById, id) {
+    var node = nodeById.get(id);
+    if (!node) throw new Error("missing: " + id);
+    return node;
+  }
+  function getNodeID(node, id) {
+    return id(node);
+  }
+  var verticalMargin = 25;
+  var baseRadius = 10;
+  var scale = 0.3;
+  function sankeyCircular() {
+    var x0 = 0, y0 = 0, x1 = 1, y1 = 1, dx = 24, py, id = defaultId, align = justify, nodes = defaultNodes, links = defaultLinks, iterations = 32, circularLinkGap = 2, paddingRatio, sortNodes = null;
+    function sankeyCircular2() {
+      var graph = {
+        nodes: nodes.apply(null, arguments),
+        links: links.apply(null, arguments)
+        // Process the graph's nodes and links, setting their positions
+        // 1.  Associate the nodes with their respective links, and vice versa
+      };
+      computeNodeLinks(graph);
+      identifyCircles(graph, id, sortNodes);
+      computeNodeValues(graph);
+      computeNodeDepths(graph);
+      selectCircularLinkTypes(graph, id);
+      computeNodeBreadths(graph, iterations, id);
+      computeLinkBreadths(graph);
+      var linkSortingIterations = 4;
+      for (var iteration = 0; iteration < linkSortingIterations; iteration++) {
+        sortSourceLinks(graph, y1, id);
+        sortTargetLinks(graph, y1, id);
+        resolveNodeLinkOverlaps(graph, y0, y1, id);
+        sortSourceLinks(graph, y1, id);
+        sortTargetLinks(graph, y1, id);
+      }
+      fillHeight(graph, y0, y1);
+      addCircularPathData(graph, circularLinkGap, y1, id);
+      return graph;
+    }
+    sankeyCircular2.nodeId = function(_) {
+      return arguments.length ? (id = typeof _ === "function" ? _ : constant(_), sankeyCircular2) : id;
+    };
+    sankeyCircular2.nodeAlign = function(_) {
+      return arguments.length ? (align = typeof _ === "function" ? _ : constant(_), sankeyCircular2) : align;
+    };
+    sankeyCircular2.nodeWidth = function(_) {
+      return arguments.length ? (dx = +_, sankeyCircular2) : dx;
+    };
+    sankeyCircular2.nodePadding = function(_) {
+      return arguments.length ? (py = +_, sankeyCircular2) : py;
+    };
+    sankeyCircular2.nodes = function(_) {
+      return arguments.length ? (nodes = typeof _ === "function" ? _ : constant(_), sankeyCircular2) : nodes;
+    };
+    sankeyCircular2.links = function(_) {
+      return arguments.length ? (links = typeof _ === "function" ? _ : constant(_), sankeyCircular2) : links;
+    };
+    sankeyCircular2.size = function(_) {
+      return arguments.length ? (x0 = y0 = 0, x1 = +_[0], y1 = +_[1], sankeyCircular2) : [x1 - x0, y1 - y0];
+    };
+    sankeyCircular2.extent = function(_) {
+      return arguments.length ? (x0 = +_[0][0], x1 = +_[1][0], y0 = +_[0][1], y1 = +_[1][1], sankeyCircular2) : [[x0, y0], [x1, y1]];
+    };
+    sankeyCircular2.iterations = function(_) {
+      return arguments.length ? (iterations = +_, sankeyCircular2) : iterations;
+    };
+    sankeyCircular2.circularLinkGap = function(_) {
+      return arguments.length ? (circularLinkGap = +_, sankeyCircular2) : circularLinkGap;
+    };
+    sankeyCircular2.nodePaddingRatio = function(_) {
+      return arguments.length ? (paddingRatio = +_, sankeyCircular2) : paddingRatio;
+    };
+    sankeyCircular2.sortNodes = function(_) {
+      return arguments.length ? (sortNodes = _, sankeyCircular2) : sortNodes;
+    };
+    sankeyCircular2.update = function(graph) {
+      selectCircularLinkTypes(graph, id);
+      computeLinkBreadths(graph);
+      graph.links.forEach(function(link2) {
+        if (link2.circular) {
+          link2.circularLinkType = link2.y0 + link2.y1 < y1 ? "top" : "bottom";
+          link2.source.circularLinkType = link2.circularLinkType;
+          link2.target.circularLinkType = link2.circularLinkType;
+        }
+      });
+      sortSourceLinks(graph, y1, id, false);
+      sortTargetLinks(graph, y1, id);
+      addCircularPathData(graph, circularLinkGap, y1, id);
+      return graph;
+    };
+    function computeNodeLinks(graph) {
+      graph.nodes.forEach(function(node, i) {
+        node.index = i;
+        node.sourceLinks = [];
+        node.targetLinks = [];
+      });
+      var nodeById = map_default(graph.nodes, id);
+      graph.links.forEach(function(link2, i) {
+        link2.index = i;
+        var source = link2.source;
+        var target = link2.target;
+        if ((typeof source === "undefined" ? "undefined" : _typeof(source)) !== "object") {
+          source = link2.source = find(nodeById, source);
+        }
+        if ((typeof target === "undefined" ? "undefined" : _typeof(target)) !== "object") {
+          target = link2.target = find(nodeById, target);
+        }
+        source.sourceLinks.push(link2);
+        target.targetLinks.push(link2);
+      });
+      return graph;
+    }
+    function computeNodeValues(graph) {
+      graph.nodes.forEach(function(node) {
+        node.partOfCycle = false;
+        node.value = Math.max(sum_default(node.sourceLinks, value), sum_default(node.targetLinks, value));
+        node.sourceLinks.forEach(function(link2) {
+          if (link2.circular) {
+            node.partOfCycle = true;
+            node.circularLinkType = link2.circularLinkType;
+          }
+        });
+        node.targetLinks.forEach(function(link2) {
+          if (link2.circular) {
+            node.partOfCycle = true;
+            node.circularLinkType = link2.circularLinkType;
+          }
+        });
+      });
+    }
+    function getCircleMargins(graph) {
+      var totalTopLinksWidth = 0, totalBottomLinksWidth = 0, totalRightLinksWidth = 0, totalLeftLinksWidth = 0;
+      var maxColumn = max_default(graph.nodes, function(node) {
+        return node.column;
+      });
+      graph.links.forEach(function(link2) {
+        if (link2.circular) {
+          if (link2.circularLinkType == "top") {
+            totalTopLinksWidth = totalTopLinksWidth + link2.width;
+          } else {
+            totalBottomLinksWidth = totalBottomLinksWidth + link2.width;
+          }
+          if (link2.target.column == 0) {
+            totalLeftLinksWidth = totalLeftLinksWidth + link2.width;
+          }
+          if (link2.source.column == maxColumn) {
+            totalRightLinksWidth = totalRightLinksWidth + link2.width;
+          }
+        }
+      });
+      totalTopLinksWidth = totalTopLinksWidth > 0 ? totalTopLinksWidth + verticalMargin + baseRadius : totalTopLinksWidth;
+      totalBottomLinksWidth = totalBottomLinksWidth > 0 ? totalBottomLinksWidth + verticalMargin + baseRadius : totalBottomLinksWidth;
+      totalRightLinksWidth = totalRightLinksWidth > 0 ? totalRightLinksWidth + verticalMargin + baseRadius : totalRightLinksWidth;
+      totalLeftLinksWidth = totalLeftLinksWidth > 0 ? totalLeftLinksWidth + verticalMargin + baseRadius : totalLeftLinksWidth;
+      return { "top": totalTopLinksWidth, "bottom": totalBottomLinksWidth, "left": totalLeftLinksWidth, "right": totalRightLinksWidth };
+    }
+    function scaleSankeySize(graph, margin) {
+      var maxColumn = max_default(graph.nodes, function(node) {
+        return node.column;
+      });
+      var currentWidth = x1 - x0;
+      var currentHeight = y1 - y0;
+      var newWidth = currentWidth + margin.right + margin.left;
+      var newHeight = currentHeight + margin.top + margin.bottom;
+      var scaleX = currentWidth / newWidth;
+      var scaleY = currentHeight / newHeight;
+      x0 = x0 * scaleX + margin.left;
+      x1 = margin.right == 0 ? x1 : x1 * scaleX;
+      y0 = y0 * scaleY + margin.top;
+      y1 = y1 * scaleY;
+      graph.nodes.forEach(function(node) {
+        node.x0 = x0 + node.column * ((x1 - x0 - dx) / maxColumn);
+        node.x1 = node.x0 + dx;
+      });
+      return scaleY;
+    }
+    function computeNodeDepths(graph) {
+      var nodes2, next, x2;
+      for (nodes2 = graph.nodes, next = [], x2 = 0; nodes2.length; ++x2, nodes2 = next, next = []) {
+        nodes2.forEach(function(node) {
+          node.depth = x2;
+          node.sourceLinks.forEach(function(link2) {
+            if (next.indexOf(link2.target) < 0 && !link2.circular) {
+              next.push(link2.target);
+            }
+          });
+        });
+      }
+      for (nodes2 = graph.nodes, next = [], x2 = 0; nodes2.length; ++x2, nodes2 = next, next = []) {
+        nodes2.forEach(function(node) {
+          node.height = x2;
+          node.targetLinks.forEach(function(link2) {
+            if (next.indexOf(link2.source) < 0 && !link2.circular) {
+              next.push(link2.source);
+            }
+          });
+        });
+      }
+      graph.nodes.forEach(function(node) {
+        node.column = Math.floor(align.call(null, node, x2));
+      });
+    }
+    function computeNodeBreadths(graph, iterations2, id2) {
+      var columns = nest_default().key(function(d) {
+        return d.column;
+      }).sortKeys(ascending_default).entries(graph.nodes).map(function(d) {
+        return d.values;
+      });
+      initializeNodeBreadth(id2);
+      resolveCollisions();
+      for (var alpha = 1, n = iterations2; n > 0; --n) {
+        relaxLeftAndRight(alpha *= 0.99, id2);
+        resolveCollisions();
+      }
+      function initializeNodeBreadth(id3) {
+        if (paddingRatio) {
+          var padding = Infinity;
+          columns.forEach(function(nodes2) {
+            var thisPadding = y1 * paddingRatio / (nodes2.length + 1);
+            padding = thisPadding < padding ? thisPadding : padding;
+          });
+          py = padding;
+        }
+        var ky = min_default(columns, function(nodes2) {
+          return (y1 - y0 - (nodes2.length - 1) * py) / sum_default(nodes2, value);
+        });
+        ky = ky * scale;
+        graph.links.forEach(function(link2) {
+          link2.width = link2.value * ky;
+        });
+        var margin = getCircleMargins(graph);
+        var ratio = scaleSankeySize(graph, margin);
+        ky = ky * ratio;
+        graph.links.forEach(function(link2) {
+          link2.width = link2.value * ky;
+        });
+        columns.forEach(function(nodes2) {
+          var nodesLength = nodes2.length;
+          nodes2.forEach(function(node, i) {
+            if (node.depth == columns.length - 1 && nodesLength == 1) {
+              node.y0 = y1 / 2 - node.value * ky;
+              node.y1 = node.y0 + node.value * ky;
+            } else if (node.depth == 0 && nodesLength == 1) {
+              node.y0 = y1 / 2 - node.value * ky;
+              node.y1 = node.y0 + node.value * ky;
+            } else if (node.partOfCycle) {
+              if (numberOfNonSelfLinkingCycles(node, id3) == 0) {
+                node.y0 = y1 / 2 + i;
+                node.y1 = node.y0 + node.value * ky;
+              } else if (node.circularLinkType == "top") {
+                node.y0 = y0 + i;
+                node.y1 = node.y0 + node.value * ky;
+              } else {
+                node.y0 = y1 - node.value * ky - i;
+                node.y1 = node.y0 + node.value * ky;
+              }
+            } else {
+              if (margin.top == 0 || margin.bottom == 0) {
+                node.y0 = (y1 - y0) / nodesLength * i;
+                node.y1 = node.y0 + node.value * ky;
+              } else {
+                node.y0 = (y1 - y0) / 2 - nodesLength / 2 + i;
+                node.y1 = node.y0 + node.value * ky;
+              }
+            }
+          });
+        });
+      }
+      function relaxLeftAndRight(alpha2, id3) {
+        var columnsLength = columns.length;
+        columns.forEach(function(nodes2) {
+          var n2 = nodes2.length;
+          var depth = nodes2[0].depth;
+          nodes2.forEach(function(node) {
+            var nodeHeight;
+            if (node.sourceLinks.length || node.targetLinks.length) {
+              if (node.partOfCycle && numberOfNonSelfLinkingCycles(node, id3) > 0) ;
+              else if (depth == 0 && n2 == 1) {
+                nodeHeight = node.y1 - node.y0;
+                node.y0 = y1 / 2 - nodeHeight / 2;
+                node.y1 = y1 / 2 + nodeHeight / 2;
+              } else if (depth == columnsLength - 1 && n2 == 1) {
+                nodeHeight = node.y1 - node.y0;
+                node.y0 = y1 / 2 - nodeHeight / 2;
+                node.y1 = y1 / 2 + nodeHeight / 2;
+              } else {
+                var avg = 0;
+                var avgTargetY = mean_default(node.sourceLinks, linkTargetCenter);
+                var avgSourceY = mean_default(node.targetLinks, linkSourceCenter);
+                if (avgTargetY && avgSourceY) {
+                  avg = (avgTargetY + avgSourceY) / 2;
+                } else {
+                  avg = avgTargetY || avgSourceY;
+                }
+                var dy = (avg - nodeCenter(node)) * alpha2;
+                node.y0 += dy;
+                node.y1 += dy;
+              }
+            }
+          });
+        });
+      }
+      function resolveCollisions() {
+        columns.forEach(function(nodes2) {
+          var node, dy, y2 = y0, n2 = nodes2.length, i;
+          nodes2.sort(ascendingBreadth);
+          for (i = 0; i < n2; ++i) {
+            node = nodes2[i];
+            dy = y2 - node.y0;
+            if (dy > 0) {
+              node.y0 += dy;
+              node.y1 += dy;
+            }
+            y2 = node.y1 + py;
+          }
+          dy = y2 - py - y1;
+          if (dy > 0) {
+            y2 = node.y0 -= dy, node.y1 -= dy;
+            for (i = n2 - 2; i >= 0; --i) {
+              node = nodes2[i];
+              dy = node.y1 + py - y2;
+              if (dy > 0) node.y0 -= dy, node.y1 -= dy;
+              y2 = node.y0;
+            }
+          }
+        });
+      }
+    }
+    function computeLinkBreadths(graph) {
+      graph.nodes.forEach(function(node) {
+        node.sourceLinks.sort(ascendingTargetBreadth);
+        node.targetLinks.sort(ascendingSourceBreadth);
+      });
+      graph.nodes.forEach(function(node) {
+        var y02 = node.y0;
+        var y12 = y02;
+        var y0cycle = node.y1;
+        var y1cycle = y0cycle;
+        node.sourceLinks.forEach(function(link2) {
+          if (link2.circular) {
+            link2.y0 = y0cycle - link2.width / 2;
+            y0cycle = y0cycle - link2.width;
+          } else {
+            link2.y0 = y02 + link2.width / 2;
+            y02 += link2.width;
+          }
+        });
+        node.targetLinks.forEach(function(link2) {
+          if (link2.circular) {
+            link2.y1 = y1cycle - link2.width / 2;
+            y1cycle = y1cycle - link2.width;
+          } else {
+            link2.y1 = y12 + link2.width / 2;
+            y12 += link2.width;
+          }
+        });
+      });
+    }
+    return sankeyCircular2;
+  }
+  function identifyCircles(graph, id, sortNodes) {
+    var circularLinkID = 0;
+    if (sortNodes === null) {
+      var adjList = [];
+      for (var i = 0; i < graph.links.length; i++) {
+        var link2 = graph.links[i];
+        var source = link2.source.index;
+        var target = link2.target.index;
+        if (!adjList[source]) adjList[source] = [];
+        if (!adjList[target]) adjList[target] = [];
+        if (adjList[source].indexOf(target) === -1) adjList[source].push(target);
+      }
+      var cycles = (0, import_elementary_circuits_directed_graph.default)(adjList);
+      cycles.sort(function(a, b) {
+        return a.length - b.length;
+      });
+      var circularLinks = {};
+      for (i = 0; i < cycles.length; i++) {
+        var cycle = cycles[i];
+        var last = cycle.slice(-2);
+        if (!circularLinks[last[0]]) circularLinks[last[0]] = {};
+        circularLinks[last[0]][last[1]] = true;
+      }
+      graph.links.forEach(function(link3) {
+        var target2 = link3.target.index;
+        var source2 = link3.source.index;
+        if (target2 === source2 || circularLinks[source2] && circularLinks[source2][target2]) {
+          link3.circular = true;
+          link3.circularLinkID = circularLinkID;
+          circularLinkID = circularLinkID + 1;
+        } else {
+          link3.circular = false;
+        }
+      });
+    } else {
+      graph.links.forEach(function(link3) {
+        if (link3.source[sortNodes] < link3.target[sortNodes]) {
+          link3.circular = false;
+        } else {
+          link3.circular = true;
+          link3.circularLinkID = circularLinkID;
+          circularLinkID = circularLinkID + 1;
+        }
+      });
+    }
+  }
+  function selectCircularLinkTypes(graph, id) {
+    var numberOfTops = 0;
+    var numberOfBottoms = 0;
+    graph.links.forEach(function(link2) {
+      if (link2.circular) {
+        if (link2.source.circularLinkType || link2.target.circularLinkType) {
+          link2.circularLinkType = link2.source.circularLinkType ? link2.source.circularLinkType : link2.target.circularLinkType;
+        } else {
+          link2.circularLinkType = numberOfTops < numberOfBottoms ? "top" : "bottom";
+        }
+        if (link2.circularLinkType == "top") {
+          numberOfTops = numberOfTops + 1;
+        } else {
+          numberOfBottoms = numberOfBottoms + 1;
+        }
+        graph.nodes.forEach(function(node) {
+          if (getNodeID(node, id) == getNodeID(link2.source, id) || getNodeID(node, id) == getNodeID(link2.target, id)) {
+            node.circularLinkType = link2.circularLinkType;
+          }
+        });
+      }
+    });
+    graph.links.forEach(function(link2) {
+      if (link2.circular) {
+        if (link2.source.circularLinkType == link2.target.circularLinkType) {
+          link2.circularLinkType = link2.source.circularLinkType;
+        }
+        if (selfLinking(link2, id)) {
+          link2.circularLinkType = link2.source.circularLinkType;
+        }
+      }
+    });
+  }
+  function linkAngle(link2) {
+    var adjacent = Math.abs(link2.y1 - link2.y0);
+    var opposite = Math.abs(link2.target.x0 - link2.source.x1);
+    return Math.atan(opposite / adjacent);
+  }
+  function circularLinksCross(link1, link2) {
+    if (link1.source.column < link2.target.column) {
+      return false;
+    } else if (link1.target.column > link2.source.column) {
+      return false;
+    } else {
+      return true;
+    }
+  }
+  function numberOfNonSelfLinkingCycles(node, id) {
+    var sourceCount = 0;
+    node.sourceLinks.forEach(function(l) {
+      sourceCount = l.circular && !selfLinking(l, id) ? sourceCount + 1 : sourceCount;
+    });
+    var targetCount = 0;
+    node.targetLinks.forEach(function(l) {
+      targetCount = l.circular && !selfLinking(l, id) ? targetCount + 1 : targetCount;
+    });
+    return sourceCount + targetCount;
+  }
+  function onlyCircularLink(link2) {
+    var nodeSourceLinks = link2.source.sourceLinks;
+    var sourceCount = 0;
+    nodeSourceLinks.forEach(function(l) {
+      sourceCount = l.circular ? sourceCount + 1 : sourceCount;
+    });
+    var nodeTargetLinks = link2.target.targetLinks;
+    var targetCount = 0;
+    nodeTargetLinks.forEach(function(l) {
+      targetCount = l.circular ? targetCount + 1 : targetCount;
+    });
+    if (sourceCount > 1 || targetCount > 1) {
+      return false;
+    } else {
+      return true;
+    }
+  }
+  function calcVerticalBuffer(links, circularLinkGap, id) {
+    links.sort(sortLinkColumnAscending);
+    links.forEach(function(link2, i) {
+      var buffer = 0;
+      if (selfLinking(link2, id) && onlyCircularLink(link2)) {
+        link2.circularPathData.verticalBuffer = buffer + link2.width / 2;
+      } else {
+        var j = 0;
+        for (j; j < i; j++) {
+          if (circularLinksCross(links[i], links[j])) {
+            var bufferOverThisLink = links[j].circularPathData.verticalBuffer + links[j].width / 2 + circularLinkGap;
+            buffer = bufferOverThisLink > buffer ? bufferOverThisLink : buffer;
+          }
+        }
+        link2.circularPathData.verticalBuffer = buffer + link2.width / 2;
+      }
+    });
+    return links;
+  }
+  function addCircularPathData(graph, circularLinkGap, y1, id) {
+    var buffer = 5;
+    var minY = min_default(graph.links, function(link2) {
+      return link2.source.y0;
+    });
+    graph.links.forEach(function(link2) {
+      if (link2.circular) {
+        link2.circularPathData = {};
+      }
+    });
+    var topLinks = graph.links.filter(function(l) {
+      return l.circularLinkType == "top";
+    });
+    calcVerticalBuffer(topLinks, circularLinkGap, id);
+    var bottomLinks = graph.links.filter(function(l) {
+      return l.circularLinkType == "bottom";
+    });
+    calcVerticalBuffer(bottomLinks, circularLinkGap, id);
+    graph.links.forEach(function(link2) {
+      if (link2.circular) {
+        link2.circularPathData.arcRadius = link2.width + baseRadius;
+        link2.circularPathData.leftNodeBuffer = buffer;
+        link2.circularPathData.rightNodeBuffer = buffer;
+        link2.circularPathData.sourceWidth = link2.source.x1 - link2.source.x0;
+        link2.circularPathData.sourceX = link2.source.x0 + link2.circularPathData.sourceWidth;
+        link2.circularPathData.targetX = link2.target.x0;
+        link2.circularPathData.sourceY = link2.y0;
+        link2.circularPathData.targetY = link2.y1;
+        if (selfLinking(link2, id) && onlyCircularLink(link2)) {
+          link2.circularPathData.leftSmallArcRadius = baseRadius + link2.width / 2;
+          link2.circularPathData.leftLargeArcRadius = baseRadius + link2.width / 2;
+          link2.circularPathData.rightSmallArcRadius = baseRadius + link2.width / 2;
+          link2.circularPathData.rightLargeArcRadius = baseRadius + link2.width / 2;
+          if (link2.circularLinkType == "bottom") {
+            link2.circularPathData.verticalFullExtent = link2.source.y1 + verticalMargin + link2.circularPathData.verticalBuffer;
+            link2.circularPathData.verticalLeftInnerExtent = link2.circularPathData.verticalFullExtent - link2.circularPathData.leftLargeArcRadius;
+            link2.circularPathData.verticalRightInnerExtent = link2.circularPathData.verticalFullExtent - link2.circularPathData.rightLargeArcRadius;
+          } else {
+            link2.circularPathData.verticalFullExtent = link2.source.y0 - verticalMargin - link2.circularPathData.verticalBuffer;
+            link2.circularPathData.verticalLeftInnerExtent = link2.circularPathData.verticalFullExtent + link2.circularPathData.leftLargeArcRadius;
+            link2.circularPathData.verticalRightInnerExtent = link2.circularPathData.verticalFullExtent + link2.circularPathData.rightLargeArcRadius;
+          }
+        } else {
+          var thisColumn = link2.source.column;
+          var thisCircularLinkType = link2.circularLinkType;
+          var sameColumnLinks = graph.links.filter(function(l) {
+            return l.source.column == thisColumn && l.circularLinkType == thisCircularLinkType;
+          });
+          if (link2.circularLinkType == "bottom") {
+            sameColumnLinks.sort(sortLinkSourceYDescending);
+          } else {
+            sameColumnLinks.sort(sortLinkSourceYAscending);
+          }
+          var radiusOffset = 0;
+          sameColumnLinks.forEach(function(l, i) {
+            if (l.circularLinkID == link2.circularLinkID) {
+              link2.circularPathData.leftSmallArcRadius = baseRadius + link2.width / 2 + radiusOffset;
+              link2.circularPathData.leftLargeArcRadius = baseRadius + link2.width / 2 + i * circularLinkGap + radiusOffset;
+            }
+            radiusOffset = radiusOffset + l.width;
+          });
+          thisColumn = link2.target.column;
+          sameColumnLinks = graph.links.filter(function(l) {
+            return l.target.column == thisColumn && l.circularLinkType == thisCircularLinkType;
+          });
+          if (link2.circularLinkType == "bottom") {
+            sameColumnLinks.sort(sortLinkTargetYDescending);
+          } else {
+            sameColumnLinks.sort(sortLinkTargetYAscending);
+          }
+          radiusOffset = 0;
+          sameColumnLinks.forEach(function(l, i) {
+            if (l.circularLinkID == link2.circularLinkID) {
+              link2.circularPathData.rightSmallArcRadius = baseRadius + link2.width / 2 + radiusOffset;
+              link2.circularPathData.rightLargeArcRadius = baseRadius + link2.width / 2 + i * circularLinkGap + radiusOffset;
+            }
+            radiusOffset = radiusOffset + l.width;
+          });
+          if (link2.circularLinkType == "bottom") {
+            link2.circularPathData.verticalFullExtent = Math.max(y1, link2.source.y1, link2.target.y1) + verticalMargin + link2.circularPathData.verticalBuffer;
+            link2.circularPathData.verticalLeftInnerExtent = link2.circularPathData.verticalFullExtent - link2.circularPathData.leftLargeArcRadius;
+            link2.circularPathData.verticalRightInnerExtent = link2.circularPathData.verticalFullExtent - link2.circularPathData.rightLargeArcRadius;
+          } else {
+            link2.circularPathData.verticalFullExtent = minY - verticalMargin - link2.circularPathData.verticalBuffer;
+            link2.circularPathData.verticalLeftInnerExtent = link2.circularPathData.verticalFullExtent + link2.circularPathData.leftLargeArcRadius;
+            link2.circularPathData.verticalRightInnerExtent = link2.circularPathData.verticalFullExtent + link2.circularPathData.rightLargeArcRadius;
+          }
+        }
+        link2.circularPathData.leftInnerExtent = link2.circularPathData.sourceX + link2.circularPathData.leftNodeBuffer;
+        link2.circularPathData.rightInnerExtent = link2.circularPathData.targetX - link2.circularPathData.rightNodeBuffer;
+        link2.circularPathData.leftFullExtent = link2.circularPathData.sourceX + link2.circularPathData.leftLargeArcRadius + link2.circularPathData.leftNodeBuffer;
+        link2.circularPathData.rightFullExtent = link2.circularPathData.targetX - link2.circularPathData.rightLargeArcRadius - link2.circularPathData.rightNodeBuffer;
+      }
+      if (link2.circular) {
+        link2.path = createCircularPathString(link2);
+      } else {
+        var normalPath = linkHorizontal().source(function(d) {
+          var x2 = d.source.x0 + (d.source.x1 - d.source.x0);
+          var y2 = d.y0;
+          return [x2, y2];
+        }).target(function(d) {
+          var x2 = d.target.x0;
+          var y2 = d.y1;
+          return [x2, y2];
+        });
+        link2.path = normalPath(link2);
+      }
+    });
+  }
+  function createCircularPathString(link2) {
+    var pathString = "";
+    if (link2.circularLinkType == "top") {
+      pathString = // start at the right of the source node
+      "M" + link2.circularPathData.sourceX + " " + link2.circularPathData.sourceY + " L" + link2.circularPathData.leftInnerExtent + " " + link2.circularPathData.sourceY + " A" + link2.circularPathData.leftLargeArcRadius + " " + link2.circularPathData.leftSmallArcRadius + " 0 0 0 " + // End of arc X //End of arc Y
+      link2.circularPathData.leftFullExtent + " " + (link2.circularPathData.sourceY - link2.circularPathData.leftSmallArcRadius) + " L" + link2.circularPathData.leftFullExtent + " " + link2.circularPathData.verticalLeftInnerExtent + " A" + link2.circularPathData.leftLargeArcRadius + " " + link2.circularPathData.leftLargeArcRadius + " 0 0 0 " + // End of arc X //End of arc Y
+      link2.circularPathData.leftInnerExtent + " " + link2.circularPathData.verticalFullExtent + " L" + link2.circularPathData.rightInnerExtent + " " + link2.circularPathData.verticalFullExtent + " A" + link2.circularPathData.rightLargeArcRadius + " " + link2.circularPathData.rightLargeArcRadius + " 0 0 0 " + // End of arc X //End of arc Y
+      link2.circularPathData.rightFullExtent + " " + link2.circularPathData.verticalRightInnerExtent + " L" + link2.circularPathData.rightFullExtent + " " + (link2.circularPathData.targetY - link2.circularPathData.rightSmallArcRadius) + " A" + link2.circularPathData.rightLargeArcRadius + " " + link2.circularPathData.rightSmallArcRadius + " 0 0 0 " + // End of arc X //End of arc Y
+      link2.circularPathData.rightInnerExtent + " " + link2.circularPathData.targetY + " L" + link2.circularPathData.targetX + " " + link2.circularPathData.targetY;
+    } else {
+      pathString = // start at the right of the source node
+      "M" + link2.circularPathData.sourceX + " " + link2.circularPathData.sourceY + " L" + link2.circularPathData.leftInnerExtent + " " + link2.circularPathData.sourceY + " A" + link2.circularPathData.leftLargeArcRadius + " " + link2.circularPathData.leftSmallArcRadius + " 0 0 1 " + // End of arc X //End of arc Y
+      link2.circularPathData.leftFullExtent + " " + (link2.circularPathData.sourceY + link2.circularPathData.leftSmallArcRadius) + " L" + link2.circularPathData.leftFullExtent + " " + link2.circularPathData.verticalLeftInnerExtent + " A" + link2.circularPathData.leftLargeArcRadius + " " + link2.circularPathData.leftLargeArcRadius + " 0 0 1 " + // End of arc X //End of arc Y
+      link2.circularPathData.leftInnerExtent + " " + link2.circularPathData.verticalFullExtent + " L" + link2.circularPathData.rightInnerExtent + " " + link2.circularPathData.verticalFullExtent + " A" + link2.circularPathData.rightLargeArcRadius + " " + link2.circularPathData.rightLargeArcRadius + " 0 0 1 " + // End of arc X //End of arc Y
+      link2.circularPathData.rightFullExtent + " " + link2.circularPathData.verticalRightInnerExtent + " L" + link2.circularPathData.rightFullExtent + " " + (link2.circularPathData.targetY + link2.circularPathData.rightSmallArcRadius) + " A" + link2.circularPathData.rightLargeArcRadius + " " + link2.circularPathData.rightSmallArcRadius + " 0 0 1 " + // End of arc X //End of arc Y
+      link2.circularPathData.rightInnerExtent + " " + link2.circularPathData.targetY + " L" + link2.circularPathData.targetX + " " + link2.circularPathData.targetY;
+    }
+    return pathString;
+  }
+  function sortLinkColumnAscending(link1, link2) {
+    if (linkColumnDistance(link1) == linkColumnDistance(link2)) {
+      return link1.circularLinkType == "bottom" ? sortLinkSourceYDescending(link1, link2) : sortLinkSourceYAscending(link1, link2);
+    } else {
+      return linkColumnDistance(link2) - linkColumnDistance(link1);
+    }
+  }
+  function sortLinkSourceYAscending(link1, link2) {
+    return link1.y0 - link2.y0;
+  }
+  function sortLinkSourceYDescending(link1, link2) {
+    return link2.y0 - link1.y0;
+  }
+  function sortLinkTargetYAscending(link1, link2) {
+    return link1.y1 - link2.y1;
+  }
+  function sortLinkTargetYDescending(link1, link2) {
+    return link2.y1 - link1.y1;
+  }
+  function linkColumnDistance(link2) {
+    return link2.target.column - link2.source.column;
+  }
+  function linkXLength(link2) {
+    return link2.target.x0 - link2.source.x1;
+  }
+  function linkPerpendicularYToLinkSource(longerLink, shorterLink) {
+    var angle = linkAngle(longerLink);
+    var heightFromY1ToPependicular = linkXLength(shorterLink) / Math.tan(angle);
+    var yPerpendicular = incline(longerLink) == "up" ? longerLink.y1 + heightFromY1ToPependicular : longerLink.y1 - heightFromY1ToPependicular;
+    return yPerpendicular;
+  }
+  function linkPerpendicularYToLinkTarget(longerLink, shorterLink) {
+    var angle = linkAngle(longerLink);
+    var heightFromY1ToPependicular = linkXLength(shorterLink) / Math.tan(angle);
+    var yPerpendicular = incline(longerLink) == "up" ? longerLink.y1 - heightFromY1ToPependicular : longerLink.y1 + heightFromY1ToPependicular;
+    return yPerpendicular;
+  }
+  function resolveNodeLinkOverlaps(graph, y0, y1, id) {
+    graph.links.forEach(function(link2) {
+      if (link2.circular) {
+        return;
+      }
+      if (link2.target.column - link2.source.column > 1) {
+        var columnToTest = link2.source.column + 1;
+        var maxColumnToTest = link2.target.column - 1;
+        var i = 1;
+        var numberOfColumnsToTest = maxColumnToTest - columnToTest + 1;
+        for (i = 1; columnToTest <= maxColumnToTest; columnToTest++, i++) {
+          graph.nodes.forEach(function(node) {
+            if (node.column == columnToTest) {
+              var t = i / (numberOfColumnsToTest + 1);
+              var B0_t = Math.pow(1 - t, 3);
+              var B1_t = 3 * t * Math.pow(1 - t, 2);
+              var B2_t = 3 * Math.pow(t, 2) * (1 - t);
+              var B3_t = Math.pow(t, 3);
+              var py_t = B0_t * link2.y0 + B1_t * link2.y0 + B2_t * link2.y1 + B3_t * link2.y1;
+              var linkY0AtColumn = py_t - link2.width / 2;
+              var linkY1AtColumn = py_t + link2.width / 2;
+              var dy;
+              if (linkY0AtColumn > node.y0 && linkY0AtColumn < node.y1) {
+                dy = node.y1 - linkY0AtColumn + 10;
+                dy = node.circularLinkType == "bottom" ? dy : -dy;
+                node = adjustNodeHeight(node, dy, y0, y1);
+                graph.nodes.forEach(function(otherNode) {
+                  if (getNodeID(otherNode, id) == getNodeID(node, id) || otherNode.column != node.column) {
+                    return;
+                  }
+                  if (nodesOverlap(node, otherNode)) {
+                    adjustNodeHeight(otherNode, dy, y0, y1);
+                  }
+                });
+              } else if (linkY1AtColumn > node.y0 && linkY1AtColumn < node.y1) {
+                dy = linkY1AtColumn - node.y0 + 10;
+                node = adjustNodeHeight(node, dy, y0, y1);
+                graph.nodes.forEach(function(otherNode) {
+                  if (getNodeID(otherNode, id) == getNodeID(node, id) || otherNode.column != node.column) {
+                    return;
+                  }
+                  if (otherNode.y0 < node.y1 && otherNode.y1 > node.y1) {
+                    adjustNodeHeight(otherNode, dy, y0, y1);
+                  }
+                });
+              } else if (linkY0AtColumn < node.y0 && linkY1AtColumn > node.y1) {
+                dy = linkY1AtColumn - node.y0 + 10;
+                node = adjustNodeHeight(node, dy, y0, y1);
+                graph.nodes.forEach(function(otherNode) {
+                  if (getNodeID(otherNode, id) == getNodeID(node, id) || otherNode.column != node.column) {
+                    return;
+                  }
+                  if (otherNode.y0 < node.y1 && otherNode.y1 > node.y1) {
+                    adjustNodeHeight(otherNode, dy, y0, y1);
+                  }
+                });
+              }
+            }
+          });
+        }
+      }
+    });
+  }
+  function nodesOverlap(nodeA, nodeB) {
+    if (nodeA.y0 > nodeB.y0 && nodeA.y0 < nodeB.y1) {
+      return true;
+    } else if (nodeA.y1 > nodeB.y0 && nodeA.y1 < nodeB.y1) {
+      return true;
+    } else if (nodeA.y0 < nodeB.y0 && nodeA.y1 > nodeB.y1) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+  function adjustNodeHeight(node, dy, sankeyY0, sankeyY1) {
+    if (node.y0 + dy >= sankeyY0 && node.y1 + dy <= sankeyY1) {
+      node.y0 = node.y0 + dy;
+      node.y1 = node.y1 + dy;
+      node.targetLinks.forEach(function(l) {
+        l.y1 = l.y1 + dy;
+      });
+      node.sourceLinks.forEach(function(l) {
+        l.y0 = l.y0 + dy;
+      });
+    }
+    return node;
+  }
+  function sortSourceLinks(graph, y1, id, moveNodes) {
+    graph.nodes.forEach(function(node) {
+      if (moveNodes && node.y + (node.y1 - node.y0) > y1) {
+        node.y = node.y - (node.y + (node.y1 - node.y0) - y1);
+      }
+      var nodesSourceLinks = graph.links.filter(function(l) {
+        return getNodeID(l.source, id) == getNodeID(node, id);
+      });
+      var nodeSourceLinksLength = nodesSourceLinks.length;
+      if (nodeSourceLinksLength > 1) {
+        nodesSourceLinks.sort(function(link1, link2) {
+          if (!link1.circular && !link2.circular) {
+            if (link1.target.column == link2.target.column) {
+              return link1.y1 - link2.y1;
+            } else if (!sameInclines(link1, link2)) {
+              return link1.y1 - link2.y1;
+            } else {
+              if (link1.target.column > link2.target.column) {
+                var link2Adj = linkPerpendicularYToLinkTarget(link2, link1);
+                return link1.y1 - link2Adj;
+              }
+              if (link2.target.column > link1.target.column) {
+                var link1Adj = linkPerpendicularYToLinkTarget(link1, link2);
+                return link1Adj - link2.y1;
+              }
+            }
+          }
+          if (link1.circular && !link2.circular) {
+            return link1.circularLinkType == "top" ? -1 : 1;
+          } else if (link2.circular && !link1.circular) {
+            return link2.circularLinkType == "top" ? 1 : -1;
+          }
+          if (link1.circular && link2.circular) {
+            if (link1.circularLinkType === link2.circularLinkType && link1.circularLinkType == "top") {
+              if (link1.target.column === link2.target.column) {
+                return link1.target.y1 - link2.target.y1;
+              } else {
+                return link2.target.column - link1.target.column;
+              }
+            } else if (link1.circularLinkType === link2.circularLinkType && link1.circularLinkType == "bottom") {
+              if (link1.target.column === link2.target.column) {
+                return link2.target.y1 - link1.target.y1;
+              } else {
+                return link1.target.column - link2.target.column;
+              }
+            } else {
+              return link1.circularLinkType == "top" ? -1 : 1;
+            }
+          }
+        });
+      }
+      var ySourceOffset = node.y0;
+      nodesSourceLinks.forEach(function(link2) {
+        link2.y0 = ySourceOffset + link2.width / 2;
+        ySourceOffset = ySourceOffset + link2.width;
+      });
+      nodesSourceLinks.forEach(function(link2, i) {
+        if (link2.circularLinkType == "bottom") {
+          var j = i + 1;
+          var offsetFromBottom = 0;
+          for (j; j < nodeSourceLinksLength; j++) {
+            offsetFromBottom = offsetFromBottom + nodesSourceLinks[j].width;
+          }
+          link2.y0 = node.y1 - offsetFromBottom - link2.width / 2;
+        }
+      });
+    });
+  }
+  function sortTargetLinks(graph, y1, id) {
+    graph.nodes.forEach(function(node) {
+      var nodesTargetLinks = graph.links.filter(function(l) {
+        return getNodeID(l.target, id) == getNodeID(node, id);
+      });
+      var nodesTargetLinksLength = nodesTargetLinks.length;
+      if (nodesTargetLinksLength > 1) {
+        nodesTargetLinks.sort(function(link1, link2) {
+          if (!link1.circular && !link2.circular) {
+            if (link1.source.column == link2.source.column) {
+              return link1.y0 - link2.y0;
+            } else if (!sameInclines(link1, link2)) {
+              return link1.y0 - link2.y0;
+            } else {
+              if (link2.source.column < link1.source.column) {
+                var link2Adj = linkPerpendicularYToLinkSource(link2, link1);
+                return link1.y0 - link2Adj;
+              }
+              if (link1.source.column < link2.source.column) {
+                var link1Adj = linkPerpendicularYToLinkSource(link1, link2);
+                return link1Adj - link2.y0;
+              }
+            }
+          }
+          if (link1.circular && !link2.circular) {
+            return link1.circularLinkType == "top" ? -1 : 1;
+          } else if (link2.circular && !link1.circular) {
+            return link2.circularLinkType == "top" ? 1 : -1;
+          }
+          if (link1.circular && link2.circular) {
+            if (link1.circularLinkType === link2.circularLinkType && link1.circularLinkType == "top") {
+              if (link1.source.column === link2.source.column) {
+                return link1.source.y1 - link2.source.y1;
+              } else {
+                return link1.source.column - link2.source.column;
+              }
+            } else if (link1.circularLinkType === link2.circularLinkType && link1.circularLinkType == "bottom") {
+              if (link1.source.column === link2.source.column) {
+                return link1.source.y1 - link2.source.y1;
+              } else {
+                return link2.source.column - link1.source.column;
+              }
+            } else {
+              return link1.circularLinkType == "top" ? -1 : 1;
+            }
+          }
+        });
+      }
+      var yTargetOffset = node.y0;
+      nodesTargetLinks.forEach(function(link2) {
+        link2.y1 = yTargetOffset + link2.width / 2;
+        yTargetOffset = yTargetOffset + link2.width;
+      });
+      nodesTargetLinks.forEach(function(link2, i) {
+        if (link2.circularLinkType == "bottom") {
+          var j = i + 1;
+          var offsetFromBottom = 0;
+          for (j; j < nodesTargetLinksLength; j++) {
+            offsetFromBottom = offsetFromBottom + nodesTargetLinks[j].width;
+          }
+          link2.y1 = node.y1 - offsetFromBottom - link2.width / 2;
+        }
+      });
+    });
+  }
+  function sameInclines(link1, link2) {
+    return incline(link1) == incline(link2);
+  }
+  function incline(link2) {
+    return link2.y0 - link2.y1 > 0 ? "up" : "down";
+  }
+  function selfLinking(link2, id) {
+    return getNodeID(link2.source, id) == getNodeID(link2.target, id);
+  }
+  function fillHeight(graph, y0, y1) {
+    var nodes = graph.nodes;
+    var links = graph.links;
+    var top = false;
+    var bottom = false;
+    links.forEach(function(link2) {
+      if (link2.circularLinkType == "top") {
+        top = true;
+      } else if (link2.circularLinkType == "bottom") {
+        bottom = true;
+      }
+    });
+    if (top == false || bottom == false) {
+      var minY0 = min_default(nodes, function(node) {
+        return node.y0;
+      });
+      var maxY1 = max_default(nodes, function(node) {
+        return node.y1;
+      });
+      var currentHeight = maxY1 - minY0;
+      var chartHeight = y1 - y0;
+      var ratio = chartHeight / currentHeight;
+      nodes.forEach(function(node) {
+        var nodeHeight = (node.y1 - node.y0) * ratio;
+        node.y0 = (node.y0 - minY0) * ratio;
+        node.y1 = node.y0 + nodeHeight;
+      });
+      links.forEach(function(link2) {
+        link2.y0 = (link2.y0 - minY0) * ratio;
+        link2.y1 = (link2.y1 - minY0) * ratio;
+        link2.width = link2.width * ratio;
+      });
+    }
+  }
 
   // src/investigation/preferences.mjs
   var UI_PREFS_STORAGE_KEY = "codeflow-ui-prefs";
   var LINE_THICKNESS_MIN = 1;
   var LINE_THICKNESS_MAX = 6;
   var LINE_THICKNESS_DEFAULT = 1;
-  function clampLineThickness(value) {
-    var n = Number(value);
+  function clampLineThickness(value2) {
+    var n = Number(value2);
     if (!isFinite(n)) return LINE_THICKNESS_DEFAULT;
     n = Math.round(n);
     if (n < LINE_THICKNESS_MIN) return LINE_THICKNESS_MIN;
@@ -221,12 +5847,12 @@
     if (!isFinite(n) || n <= 0) n = 1;
     return Math.max(0.4, n * clampLineThickness(thickness));
   }
-  function graph3dLinkWidth(link, selectedPath, thickness) {
-    link = link || {};
-    var baseWidth = Math.max(0.8, Math.min(3, Math.sqrt(link.count || 1) * 0.4));
+  function graph3dLinkWidth(link2, selectedPath, thickness) {
+    link2 = link2 || {};
+    var baseWidth = Math.max(0.8, Math.min(3, Math.sqrt(link2.count || 1) * 0.4));
     if (selectedPath) {
-      var s = link.source && (link.source.id || link.source);
-      var t = link.target && (link.target.id || link.target);
+      var s = link2.source && (link2.source.id || link2.source);
+      var t = link2.target && (link2.target.id || link2.target);
       if (s === selectedPath || t === selectedPath) return scaleStrokeWidth(baseWidth * 2, thickness);
       return scaleStrokeWidth(baseWidth * 0.3, thickness);
     }
@@ -237,10 +5863,10 @@
     if (typeof end === "object") return String(end.id || "");
     return String(end);
   }
-  function forceLinkRole(link, selectedPath) {
-    if (!link || !selectedPath) return "";
-    if (forceLinkEndId(link.source) === selectedPath) return "out";
-    if (forceLinkEndId(link.target) === selectedPath) return "in";
+  function forceLinkRole(link2, selectedPath) {
+    if (!link2 || !selectedPath) return "";
+    if (forceLinkEndId(link2.source) === selectedPath) return "out";
+    if (forceLinkEndId(link2.target) === selectedPath) return "in";
     return "";
   }
   function prefersReducedMotion(query) {
@@ -289,13 +5915,13 @@
   function forceLinkIdleStroke(theme) {
     return theme === "light" ? "#ccc" : "#333";
   }
-  function forceLinkVisual(link, selectedPath, options) {
+  function forceLinkVisual(link2, selectedPath, options) {
     options = options || {};
     var theme = options.theme === "light" ? "light" : "dark";
     var reduced = !!options.reducedMotion;
     var allowParticles = options.particles !== false && (options.vizType == null || vizUsesForceLinkParticles(options.vizType)) && !reduced;
-    var width = graphLinkStrokeWidth(link && link.count, options.thickness);
-    var role = forceLinkRole(link, selectedPath);
+    var width = graphLinkStrokeWidth(link2 && link2.count, options.thickness);
+    var role = forceLinkRole(link2, selectedPath);
     var idle = forceLinkIdleStroke(theme);
     if (selectedPath && (role === "out" || role === "in")) {
       return {
@@ -434,8 +6060,8 @@
   }
 
   // src/browser/html.mjs
-  function escapeHtml(value) {
-    return String(value == null ? "" : value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  function escapeHtml(value2) {
+    return String(value2 == null ? "" : value2).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
   function renderTooltipHtml(title, stats) {
     return '<div class="treemap-tooltip-title">' + escapeHtml(title) + "</div>" + stats.map(function(stat) {
@@ -600,9 +6226,9 @@
           var tgt = typeof c.target === "object" ? c.target.id : c.target;
           if (!fileIdx.has(src) || !fileIdx.has(tgt)) return;
           var key = fileIdx.get(src) * n + fileIdx.get(tgt);
-          var value = (weights.get(key) || 0) + (c.count || 1);
-          weights.set(key, value);
-          maxVal = Math.max(maxVal, value);
+          var value2 = (weights.get(key) || 0) + (c.count || 1);
+          weights.set(key, value2);
+          maxVal = Math.max(maxVal, value2);
         });
         var tooltip = container.append("div").attr("class", "treemap-tooltip").style("display", "none").style("position", "absolute");
         var cells = g.selectAll("rect.matrix-cell-rect"), colLabels = colAxis.selectAll("text"), rowLabels = rowAxis.selectAll("text");
@@ -623,11 +6249,11 @@
         }
         function drawViewport() {
           frame = null;
-          var k = transform.k, x = left + transform.x, y = top + transform.y;
-          var firstCol = Math.max(0, Math.floor((left - x) / (k * cellSize)));
-          var lastCol = Math.min(n, Math.ceil((w - x) / (k * cellSize)));
-          var firstRow = Math.max(0, Math.floor((top - y) / (k * cellSize)));
-          var lastRow = Math.min(n, Math.ceil((h - y) / (k * cellSize)));
+          var k = transform.k, x2 = left + transform.x, y2 = top + transform.y;
+          var firstCol = Math.max(0, Math.floor((left - x2) / (k * cellSize)));
+          var lastCol = Math.min(n, Math.ceil((w - x2) / (k * cellSize)));
+          var firstRow = Math.max(0, Math.floor((top - y2) / (k * cellSize)));
+          var lastRow = Math.min(n, Math.ceil((h - y2) / (k * cellSize)));
           var cellData = [], rows = [], cols = [];
           for (var i = firstRow; i < lastRow; i++) {
             rows.push(files[i]);
@@ -646,7 +6272,7 @@
           colLabels = colAxis.selectAll("text.col-label").data(cols, function(d) {
             return d.path;
           }).join("text").attr("class", "col-label").attr("transform", function(d) {
-            return "translate(" + (x + (fileIdx.get(d.path) + 0.5) * cellSize * k) + "," + (top - 8) + ") rotate(-45)";
+            return "translate(" + (x2 + (fileIdx.get(d.path) + 0.5) * cellSize * k) + "," + (top - 8) + ") rotate(-45)";
           }).attr("text-anchor", "start").attr("fill", "var(--t2)").attr("font-size", "9px").text(function(d) {
             return label(d);
           }).style("cursor", "pointer").on("click", function(e, d) {
@@ -655,7 +6281,7 @@
           rowLabels = rowAxis.selectAll("text.row-label").data(rows, function(d) {
             return d.path;
           }).join("text").attr("class", "row-label").attr("x", left - 8).attr("y", function(d) {
-            return y + (fileIdx.get(d.path) + 0.5) * cellSize * k + 3;
+            return y2 + (fileIdx.get(d.path) + 0.5) * cellSize * k + 3;
           }).attr("text-anchor", "end").attr("fill", "var(--t2)").attr("font-size", "9px").text(function(d) {
             return label(d);
           }).style("cursor", "pointer").on("click", function(e, d) {
@@ -866,36 +6492,22 @@
           }
         });
         var nodes = folders.map(function(f, i) {
-          return { id: i, name: f.split("/").pop() || "root", fullPath: f, fileCount: filteredFiles.filter(function(x) {
-            return x.folder === f;
+          return { id: i, name: f.split("/").pop() || "root", fullPath: f, fileCount: filteredFiles.filter(function(x2) {
+            return x2.folder === f;
           }).length };
         });
-        var linkMap = {};
-        Object.entries(flowMap).forEach(function(e) {
-          var parts = e[0].split("|"), val = e[1];
-          var si = folderIdx[parts[0]], ti = folderIdx[parts[1]];
-          if (si !== void 0 && ti !== void 0 && si !== ti) {
-            var key = Math.min(si, ti) + "|" + Math.max(si, ti);
-            if (!linkMap[key]) linkMap[key] = { a: Math.min(si, ti), b: Math.max(si, ti), ab: 0, ba: 0 };
-            if (si < ti) linkMap[key].ab += val;
-            else linkMap[key].ba += val;
-          }
-        });
-        var links = [];
-        Object.values(linkMap).forEach(function(l) {
-          var net = l.ab - l.ba;
-          if (net > 0) links.push({ source: l.a, target: l.b, value: net });
-          else if (net < 0) links.push({ source: l.b, target: l.a, value: -net });
-          else if (l.ab > 0) links.push({ source: l.a, target: l.b, value: l.ab });
+        var links = Object.entries(flowMap).flatMap(function([key, value2]) {
+          var [source, target] = key.split("|").map((folder) => folderIdx[folder]);
+          return source !== void 0 && target !== void 0 && source !== target ? [{ source, target, value: value2 }] : [];
         });
         if (links.length === 0) {
           g.append("text").attr("x", w / 2 - 20).attr("y", h / 2).attr("fill", "var(--t3)").attr("font-size", "12px").text("No cross-folder dependencies to visualize");
           return cleanup;
         }
         var worldHeight = h - 60, worldWidth = w - 60;
-        var sankey = d3.sankey().nodeId(function(d) {
+        var sankey = sankeyCircular().nodeId(function(d) {
           return d.id;
-        }).nodeWidth(20).nodePadding(15).extent([[0, 0], [worldWidth, worldHeight]]);
+        }).nodeWidth(20).nodePaddingRatio(0.5).extent([[0, 0], [worldWidth, worldHeight]]);
         var graph;
         try {
           graph = sankey({ nodes: nodes.map(function(d) {
@@ -904,18 +6516,20 @@
             return Object.assign({}, d);
           }) });
           const columns = /* @__PURE__ */ new Map();
-          graph.nodes.forEach((node2) => columns.set(node2.depth, (columns.get(node2.depth) || 0) + 1));
+          graph.nodes.forEach((node2) => columns.set(node2.column, (columns.get(node2.column) || 0) + 1));
           worldHeight = Math.max(h - 60, Math.max(...columns.values()) * 32);
           worldWidth = Math.max(w - 60, columns.size * 180);
           graph = sankey.extent([[0, 0], [worldWidth, worldHeight]])(graph);
           zoom.scaleExtent([Math.min(0.5, (h - 40) / worldHeight, (w - 40) / worldWidth), 2]);
-          if (!cameraRef.current) svg.call(zoom.transform, d3.zoomIdentity.scale(Math.min(1, (w - 40) / worldWidth, (h - 40) / worldHeight)));
+          if (!cameraRef.current) svg.call(zoom.transform, d3.zoomIdentity.scale(Math.min(1, (w - 40) / worldWidth)));
         } catch (e) {
-          g.append("text").attr("x", w / 2 - 20).attr("y", h / 2).attr("fill", "var(--t3)").attr("font-size", "12px").attr("text-anchor", "middle").text("Sankey diagram unavailable: dependency graph has circular references. Try the Force Graph view.");
+          g.append("text").attr("x", w / 2 - 20).attr("y", h / 2).attr("fill", "var(--t3)").attr("font-size", "12px").attr("text-anchor", "middle").text("Unable to lay out these folder dependencies.");
           return cleanup;
         }
         var tooltip = container.append("div").attr("class", "treemap-tooltip").style("display", "none").style("position", "absolute");
-        g.selectAll("path.sankey-link").data(graph.links).join("path").attr("class", "sankey-link").attr("d", d3.sankeyLinkHorizontal()).attr("fill", "none").attr("stroke", function(d) {
+        g.selectAll("path.sankey-link").data(graph.links).join("path").attr("class", "sankey-link").attr("d", function(d) {
+          return d.path;
+        }).attr("fill", "none").attr("stroke", function(d) {
           return stateRef.current.colorMap[d.source.fullPath] || COLORS2[d.source.id % COLORS2.length];
         }).attr("stroke-width", function(d) {
           return scaleStrokeWidth(Math.max(2, d.width), stateRef.current.lineThickness);
@@ -1023,10 +6637,10 @@
           columnWidths[i % cols] = Math.max(columnWidths[i % cols], clusterSize(folder));
           rowHeights[Math.floor(i / cols)] = Math.max(rowHeights[Math.floor(i / cols)], clusterSize(folder));
         });
-        var offsets = (values) => values.map((_, i) => values.slice(0, i).reduce((sum, value) => sum + value, 0));
+        var offsets = (values) => values.map((_, i) => values.slice(0, i).reduce((sum, value2) => sum + value2, 0));
         var columnX = offsets(columnWidths), rowY = offsets(rowHeights);
-        var worldWidth = Math.max(w, columnWidths.reduce((sum, value) => sum + value, 0));
-        var worldHeight = Math.max(h, rowHeights.reduce((sum, value) => sum + value, 0));
+        var worldWidth = Math.max(w, columnWidths.reduce((sum, value2) => sum + value2, 0));
+        var worldHeight = Math.max(h, rowHeights.reduce((sum, value2) => sum + value2, 0));
         zoom.scaleExtent([Math.min(0.2, w / worldWidth, h / worldHeight), 4]);
         if (!cameraRef.current) svg.call(zoom.transform, d3.zoomIdentity.scale(Math.min(1, (w - 40) / worldWidth, (h - 40) / worldHeight)));
         var bounds = folders.map((folder, i) => ({ x: columnX[i % cols], y: rowY[Math.floor(i / cols)], width: columnWidths[i % cols], height: rowHeights[Math.floor(i / cols)] }));
@@ -1066,7 +6680,7 @@
         }).attr("fill", "var(--t2)").attr("font-size", "11px").attr("font-weight", "600").text(function(d) {
           return d.split("/").pop() || "root";
         });
-        var link = g.selectAll("line.disjoint-link").data(links).join("line").attr("class", "disjoint-link").attr("stroke", "var(--border)").attr("stroke-width", scaleStrokeWidth(1, stateRef.current.lineThickness)).attr("stroke-opacity", 0.3);
+        var link2 = g.selectAll("line.disjoint-link").data(links).join("line").attr("class", "disjoint-link").attr("stroke", "var(--border)").attr("stroke-width", scaleStrokeWidth(1, stateRef.current.lineThickness)).attr("stroke-opacity", 0.3);
         var tooltip = container.append("div").attr("class", "treemap-tooltip").style("display", "none").style("position", "absolute");
         var node = g.selectAll("g.disjoint-node").data(nodes).join("g").attr("class", "disjoint-node").style("cursor", "pointer").call(d3.drag().on("start", function(e, d) {
           if (!e.active) sim.alphaTarget(0.3).restart();
@@ -1091,7 +6705,7 @@
             { label: "Functions", value: d.fns || 0 },
             { label: "Folder", value: d.folder }
           ])).style("display", "block").style("left", e.offsetX + 15 + "px").style("top", e.offsetY + 15 + "px");
-          link.attr("stroke-opacity", function(l) {
+          link2.attr("stroke-opacity", function(l) {
             return l.source.id === d.id || l.target.id === d.id ? 0.8 : 0.05;
           }).attr("stroke", function(l) {
             return l.source.id === d.id || l.target.id === d.id ? "var(--acc)" : "var(--border)";
@@ -1101,14 +6715,14 @@
           tooltip.style("left", e.offsetX + 15 + "px").style("top", e.offsetY + 15 + "px");
         }).on("mouseleave", function(e, d) {
           tooltip.style("display", "none");
-          link.attr("stroke-opacity", 0.3).attr("stroke", "var(--border)");
+          link2.attr("stroke-opacity", 0.3).attr("stroke", "var(--border)");
           d3.select(this).select("circle").transition().duration(150).attr("r", Math.max(6, Math.min(14, 4 + d.fns))).attr("stroke", "var(--bg0)").attr("stroke-width", 1.5);
         }).on("click", function(e, d) {
           e.stopPropagation();
           if (stateRef.current.onSelect) stateRef.current.onSelect(d.id);
         });
         sim.on("tick", function() {
-          link.attr("x1", function(d) {
+          link2.attr("x1", function(d) {
             return d.source.x;
           }).attr("y1", function(d) {
             return d.source.y;
@@ -1126,7 +6740,7 @@
         });
         paintRef.current = () => {
           node.select("circle").attr("fill", (d) => stateRef.current.colorMap[d.folder] || COLORS2[0]);
-          link.attr("stroke-width", scaleStrokeWidth(1, stateRef.current.lineThickness));
+          link2.attr("stroke-width", scaleStrokeWidth(1, stateRef.current.lineThickness));
           g.selectAll(".cluster-bg").attr("fill", (d) => stateRef.current.colorMap[d] || COLORS2[0]).attr("stroke", (d) => stateRef.current.colorMap[d] || COLORS2[0]);
         };
         paintRef.current?.();
@@ -1219,7 +6833,7 @@
           });
           return connected;
         }
-        var link = mainG.selectAll("path.bundle-link").data(links).join("path").attr("class", "bundle-link").attr("d", function(d) {
+        var link2 = mainG.selectAll("path.bundle-link").data(links).join("path").attr("class", "bundle-link").attr("d", function(d) {
           var a1 = d.source.angle, a2 = d.target.angle;
           var x1 = Math.cos(a1 - Math.PI / 2) * (radius - 15), y1 = Math.sin(a1 - Math.PI / 2) * (radius - 15);
           var x2 = Math.cos(a2 - Math.PI / 2) * (radius - 15), y2 = Math.sin(a2 - Math.PI / 2) * (radius - 15);
@@ -1246,14 +6860,14 @@
           return n.length > 16 ? n.slice(0, 13) + "\u2026" : n;
         });
         function applyBundleDefaultState() {
-          link.transition().duration(200).attr("stroke-opacity", 0.35).attr("stroke-width", scaleStrokeWidth(1.8, stateRef.current.lineThickness)).attr("stroke", getBundleLinkColor);
+          link2.transition().duration(200).attr("stroke-opacity", 0.35).attr("stroke-width", scaleStrokeWidth(1.8, stateRef.current.lineThickness)).attr("stroke", getBundleLinkColor);
           node.selectAll(".bundle-circle").transition().duration(200).attr("fill", function(d) {
             return stateRef.current.colorMap[d.folder] || COLORS2[0];
           }).attr("opacity", 1).attr("r", 6).attr("stroke", "var(--bg0)").attr("stroke-width", 1.5);
         }
         function applyBundleHoverState(nodeId) {
           var directConnections = getBundleDirectConnections(nodeId);
-          link.transition().duration(200).attr("stroke-opacity", function(linkDatum) {
+          link2.transition().duration(200).attr("stroke-opacity", function(linkDatum) {
             return isBundleLinkMatch(nodeId, linkDatum) ? 0.88 : 0.04;
           }).attr("stroke-width", function(linkDatum) {
             return scaleStrokeWidth(isBundleLinkMatch(nodeId, linkDatum) ? 3.1 : 1, stateRef.current.lineThickness);
@@ -1273,7 +6887,7 @@
         function applyBundleSelectionState(nodeId, blast) {
           var directConnections = getBundleDirectConnections(nodeId);
           var affectedSet = new Set(blast && blast.affected ? blast.affected : []);
-          link.transition().duration(300).attr("stroke-opacity", function(linkDatum) {
+          link2.transition().duration(300).attr("stroke-opacity", function(linkDatum) {
             return isBundleLinkMatch(nodeId, linkDatum) ? 0.96 : 0.08;
           }).attr("stroke-width", function(linkDatum) {
             return scaleStrokeWidth(isBundleLinkMatch(nodeId, linkDatum) ? 3.6 : 1.15, stateRef.current.lineThickness);
@@ -1440,520 +7054,6 @@
     return result;
   }
 
-  // src/project/identity.mjs
-  function newLocalSelectionId() {
-    return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
-  }
-  function localFolderCacheMeta(options) {
-    options = options || {};
-    var title = String(options.title || "").trim();
-    var paths = (options.paths || []).map(function(p) {
-      return String(p || "").replace(/\\/g, "/");
-    }).filter(Boolean).slice().sort();
-    if (!title) {
-      var raw = String(options.rootPrefix || "").replace(/\\/g, "/");
-      title = (raw.split("/").filter(Boolean)[0] || "").trim();
-    }
-    if (!title) title = "Local Folder";
-    var selectionId = String(options.selectionId || "").trim() || newLocalSelectionId();
-    return { sourceKey: title + "|sel:" + selectionId, title, selectionId };
-  }
-  function cliWatchCacheMeta(status) {
-    status = status || {};
-    var root = String(status.root || "").replace(/\\/g, "/");
-    var title = String(status.name || "").trim();
-    if (!title && root) title = (root.split("/").filter(Boolean).pop() || "").trim();
-    if (!title) title = "Local watch";
-    return { sourceKey: root || "cli", title };
-  }
-  function zipArchiveCacheMeta(options) {
-    options = options || {};
-    var title = String(options.name || options.title || "").trim() || "ZIP Archive";
-    var size = Number(options.size);
-    if (!isFinite(size) || size < 0) size = 0;
-    var modified = Number(options.lastModified);
-    if (!isFinite(modified) || modified < 0) modified = 0;
-    var paths = (options.paths || []).map(function(p) {
-      return String(p || "").replace(/\\/g, "/");
-    }).filter(Boolean).slice().sort();
-    return { sourceKey: title + "|" + size + "|" + modified + "|" + paths.length + "|" + paths.slice(0, 12).join("|"), title };
-  }
-  function retainedFolderMatchesRecord(record, retained) {
-    if (!record || !record.sourceKey) return true;
-    retained = retained || {};
-    return String(retained.sourceKey || "") === String(record.sourceKey);
-  }
-  function normalizeCliRoot(root) {
-    return String(root || "").replace(/\\/g, "/").replace(/\/+$/, "");
-  }
-  function cliRecordMatchesStatus(record, status) {
-    if (!record || !record.sourceKey) return true;
-    if (!status || !status.ok) return false;
-    return normalizeCliRoot(status.root) === normalizeCliRoot(record.sourceKey);
-  }
-  function zipFileIdentity(zipFile) {
-    if (!zipFile) return "";
-    var title = String(zipFile.name || "").trim() || "ZIP Archive";
-    var size = Number(zipFile.size);
-    if (!isFinite(size) || size < 0) size = 0;
-    var modified = Number(zipFile.lastModified);
-    if (!isFinite(modified) || modified < 0) modified = 0;
-    return title + "|" + size + "|" + modified;
-  }
-  function retainedZipMatchesRecord(record, retained) {
-    if (!record || !record.sourceKey) return true;
-    retained = retained || {};
-    if (retained.sourceKey && String(retained.sourceKey) === String(record.sourceKey)) return true;
-    var identity = String(retained.identity || "");
-    return !!identity && String(record.sourceKey).indexOf(identity + "|") === 0;
-  }
-  function normalizeExcludeKey(patterns) {
-    var list = [];
-    (patterns || []).forEach(function(p) {
-      var raw = typeof p === "string" ? p : p && p.raw;
-      raw = String(raw || "").trim();
-      if (raw && list.indexOf(raw) < 0) list.push(raw);
-    });
-    list.sort();
-    return list.join("\n");
-  }
-  function githubCacheSourceKey(owner, repo, patterns) {
-    var base = String(owner || "") + "/" + String(repo || "");
-    var excl = normalizeExcludeKey(patterns);
-    return excl ? base + "|excl:" + excl : base;
-  }
-  function githubSourceKeyForLoadedAnalysis(owner, repo, data, pendingPatterns) {
-    var patterns = data && data.excludePatterns != null ? data.excludePatterns : pendingPatterns;
-    return githubCacheSourceKey(owner, repo, patterns);
-  }
-  function cachedAnalysisMatchesExcludes(record, patterns) {
-    if (!record) return false;
-    var wanted = normalizeExcludeKey(patterns);
-    var key = String(record.sourceKey || "");
-    var marker = key.indexOf("|excl:");
-    if (marker >= 0) return key.slice(marker + 6) === wanted;
-    return normalizeExcludeKey(record.data && record.data.excludePatterns) === wanted;
-  }
-  function githubZipDownloadUrl(owner, repo) {
-    return "https://github.com/" + encodeURIComponent(owner) + "/" + encodeURIComponent(repo) + "/archive/HEAD.zip";
-  }
-  function analysisCacheKey(sourceType, sourceKey) {
-    return String(sourceType || "unknown") + ":" + String(sourceKey || "").replace(/\\/g, "/");
-  }
-  function connectionIdentity(connection) {
-    var src = connection && (typeof connection.source === "object" ? connection.source.id : connection.source);
-    var tgt = connection && (typeof connection.target === "object" ? connection.target.id : connection.target);
-    var count = connection && connection.count != null ? connection.count : 1;
-    return String(src || "") + "	" + String(tgt || "") + "	" + String(connection && connection.fn || "") + "	" + String(count);
-  }
-  function fileGraphIdentity(file) {
-    if (!file) return "";
-    var fnCount = file.functions && file.functions.length ? file.functions.length : 0;
-    return [file.path || "", file.name || "", file.folder || "", file.layer || "", file.churn || 0, fnCount].join("	");
-  }
-  function analysisGraphKey(data) {
-    if (!data || !data.files) return "";
-    var files = data.files.map(fileGraphIdentity).join("\n");
-    var connections = (data.connections || []).map(connectionIdentity).sort().join("\n");
-    return files + "\n" + connections;
-  }
-  function graphStructureKey(data, folderFilter) {
-    var graph = analysisGraphKey(data);
-    if (!graph) return "";
-    return String(folderFilter || "") + "\n" + graph;
-  }
-  function codeViewSceneKey(data, folderFilter, vizType, source) {
-    return analysisHydrationId(source, data) + "|" + String(folderFilter || "") + "|" + String(vizType || "");
-  }
-  function analysisHydrationIdFromParts(source, graphKey) {
-    source = source || {};
-    return [source.sourceType || "", source.sourceKey || "", graphKey || ""].join("\0");
-  }
-  function analysisHydrationId(source, data) {
-    return analysisHydrationIdFromParts(source, analysisGraphKey(data));
-  }
-  function loadedAnalysisSourceIdentity(options) {
-    options = options || {};
-    if (options.localSourceKind === "folder") return { sourceType: "folder", sourceKey: options.folderKey || "local-folder" };
-    if (options.localSourceKind === "zip") return { sourceType: "zip", sourceKey: options.zipKey || "zip" };
-    if (options.localSourceKind === "cli") return { sourceType: "cli", sourceKey: options.cliRoot || "cli" };
-    if (options.githubOwner && options.githubRepo) return { sourceType: "github", sourceKey: options.githubKey || options.githubOwner + "/" + options.githubRepo };
-    if (options.cliOk) return { sourceType: "cli", sourceKey: options.cliRoot || "cli" };
-    return null;
-  }
-  function hydrationRequestIsCurrent(hydrationId, currentId) {
-    if (hydrationId == null || currentId == null) return true;
-    return hydrationId === currentId;
-  }
-  function hydratedSourceIsCurrent(update, currentId) {
-    if (!update || !update.path || typeof update.content !== "string") return false;
-    return hydrationRequestIsCurrent(update.hydrationId, currentId);
-  }
-  function functionKey(fn) {
-    if (!fn) return "";
-    return [fn.file || "", fn.line || "", String(fn.name == null ? "" : fn.name)].join("|");
-  }
-
-  // src/project/source.mjs
-  function asCodeLines(lines) {
-    if (Array.isArray(lines)) return lines.length ? lines : [""];
-    return [String(lines || "")];
-  }
-  function pathIsFlagged(map, path) {
-    if (!path || !map) return false;
-    if (typeof map.has === "function") return map.has(path);
-    return !!map[path];
-  }
-  function nextCodeSourceReads(neededPaths, inFlight, failed) {
-    inFlight = inFlight || /* @__PURE__ */ Object.create(null);
-    return (neededPaths || []).filter(function(path) {
-      return !!path && !inFlight[path] && !pathIsFlagged(failed, path);
-    });
-  }
-  function fileHasLoadedSource(file) {
-    return !!(file && Object.prototype.hasOwnProperty.call(file, "content") && typeof file.content === "string");
-  }
-  function analysisFileNeedsSource(file) {
-    return !!(file && !file.analysisSkipped && !fileHasLoadedSource(file));
-  }
-  function recordCodeSourceFailure(prev, path) {
-    var next = Object.assign(/* @__PURE__ */ Object.create(null), prev || {});
-    if (path) next[path] = true;
-    return next;
-  }
-  function clearCodeSourceFailure(prev, path) {
-    var next = Object.assign(/* @__PURE__ */ Object.create(null), prev || {});
-    if (path) delete next[path];
-    return next;
-  }
-  function recordCodeSourceFailureIfCurrent(prev, path, hydrationId, currentId) {
-    if (!hydrationRequestIsCurrent(hydrationId, currentId)) return prev || /* @__PURE__ */ Object.create(null);
-    return recordCodeSourceFailure(prev, path);
-  }
-  function clearCodeSourceFailureIfCurrent(prev, path, hydrationId, currentId) {
-    if (!hydrationRequestIsCurrent(hydrationId, currentId)) return prev || /* @__PURE__ */ Object.create(null);
-    return clearCodeSourceFailure(prev, path);
-  }
-  function fileSourceDisplayState(file, canFetch, failed) {
-    if (!file) return "empty";
-    if (file.analysisSkipped) return "skipped";
-    if (fileHasLoadedSource(file)) return "ready";
-    if (canFetch && pathIsFlagged(failed, file.path)) return "failed";
-    return canFetch ? "loading" : "unavailable";
-  }
-  function filesNeedingSource(files) {
-    return (files || []).filter(analysisFileNeedsSource);
-  }
-  function mergeHydratedFileSources(data, updates, currentId) {
-    if (!data || !data.files || !updates || !updates.length) return data;
-    var byPath = /* @__PURE__ */ Object.create(null);
-    updates.forEach(function(update) {
-      if (!hydratedSourceIsCurrent(update, currentId)) return;
-      byPath[update.path] = update.content;
-    });
-    var changed = false;
-    var files = data.files.map(function(file) {
-      if (byPath[file.path] == null || fileHasLoadedSource(file)) return file;
-      changed = true;
-      return Object.assign({}, file, { content: byPath[file.path] });
-    });
-    return changed ? Object.assign({}, data, { files }) : data;
-  }
-
-  // src/project/changes.mjs
-  var CLI_WATCH_DIFF_MS = 200;
-  var CODE_DIFF_LCS_LIMIT = 16e4;
-  function normalizeCliWatchPath(path) {
-    return String(path || "").replace(/\\/g, "/").replace(/^\/+/, "");
-  }
-  function noteCliWatchPath(prev, path) {
-    var next = normalizeCliWatchPath(path);
-    if (!next) return prev || [];
-    var list = prev || [];
-    if (list.indexOf(next) >= 0) return list;
-    return list.concat([next]);
-  }
-  function cliWatchEventRev(value) {
-    var n = Number(value);
-    return Number.isFinite(n) ? n : null;
-  }
-  function normalizeCliWatchDuringEvent(item) {
-    if (typeof item === "string") return { path: normalizeCliWatchPath(item), rev: null };
-    var path = normalizeCliWatchPath(item && item.path);
-    if (!path) return null;
-    return { path, rev: cliWatchEventRev(item.rev) };
-  }
-  function noteCliWatchDuringEvent(prev, path, rev) {
-    var ev = normalizeCliWatchDuringEvent({ path, rev });
-    if (!ev) return prev || [];
-    var list = (prev || []).slice();
-    var idx = -1;
-    for (var i = 0; i < list.length; i++) {
-      var cur = normalizeCliWatchDuringEvent(list[i]);
-      if (cur && cur.path === ev.path) {
-        idx = i;
-        break;
-      }
-    }
-    if (idx >= 0) list[idx] = ev;
-    else list.push(ev);
-    return list;
-  }
-  function cliWatchEventIsAfterSnapshot(eventRev, snapRev) {
-    if (eventRev == null || snapRev == null) return true;
-    return Number(eventRev) > Number(snapRev);
-  }
-  function cliWatchSnapRevFromResponse(res) {
-    if (!res || !res.headers || typeof res.headers.get !== "function") return null;
-    return cliWatchEventRev(res.headers.get("x-codeflow-rev"));
-  }
-  function forgetCliWatchPath(prev, path) {
-    var next = normalizeCliWatchPath(path);
-    if (!next) return prev || [];
-    return (prev || []).filter(function(item) {
-      return item !== next;
-    });
-  }
-  function analyzedFileForCliWatchPath(files, path) {
-    var next = normalizeCliWatchPath(path);
-    if (!next || !files) return null;
-    for (var i = 0; i < files.length; i++) {
-      var file = files[i];
-      if (file && normalizeCliWatchPath(file.path) === next) return file;
-    }
-    return null;
-  }
-  function cliWatchLiveMatchesBaseline(file, liveContent) {
-    return !!(fileHasAnalyzedSourceForDiff(file) && typeof liveContent === "string" && liveContent === file.content);
-  }
-  function cliWatchLiveClearsDirty(file, liveContent, kind) {
-    return kind === "ok" && cliWatchLiveMatchesBaseline(file, liveContent);
-  }
-  function mergeCliLiveContents(prev, updates) {
-    var next = Object.assign(/* @__PURE__ */ Object.create(null), prev || {});
-    (updates || []).forEach(function(update) {
-      if (!update || !update.path) return;
-      var path = normalizeCliWatchPath(update.path);
-      if (!path) return;
-      if (typeof update.content !== "string") {
-        delete next[path];
-        return;
-      }
-      next[path] = update.content;
-    });
-    return next;
-  }
-  function fileHasAnalyzedSourceForDiff(file) {
-    return !!(file && !file.analysisSkipped && typeof file.content === "string");
-  }
-  function cliWatchDiffPaths(files, paths) {
-    var known = /* @__PURE__ */ Object.create(null);
-    (files || []).forEach(function(file) {
-      if (file && file.path && fileHasAnalyzedSourceForDiff(file)) known[file.path] = true;
-    });
-    var out = [];
-    (paths || []).forEach(function(path) {
-      var next = normalizeCliWatchPath(path);
-      if (next && known[next] && out.indexOf(next) < 0) out.push(next);
-    });
-    return out;
-  }
-  function splitCodeLines(text) {
-    return String(text == null ? "" : text).split("\n");
-  }
-  function codeCardDiffClass(row) {
-    if (!row || row.type === "same") return "";
-    if (row.type === "add") return " diff-add";
-    if (row.type === "del") return " diff-del";
-    return "";
-  }
-  function codeCardDiffLineNo(row) {
-    if (!row) return "";
-    if (row.type === "del") return row.oldLine || "";
-    return row.newLine || row.oldLine || "";
-  }
-  function codeCardHasDiff(rows) {
-    if (!rows || !rows.length) return false;
-    for (var i = 0; i < rows.length; i++) {
-      if (rows[i] && rows[i].type && rows[i].type !== "same") return true;
-    }
-    return false;
-  }
-  function lcsDiffRows(oldLines, newLines, oldOff, newOff) {
-    var a = oldLines || [];
-    var b = newLines || [];
-    var n = a.length, m = b.length;
-    var dp = new Array(n + 1);
-    var i, j;
-    for (i = 0; i <= n; i++) {
-      dp[i] = new Array(m + 1);
-      dp[i][0] = 0;
-    }
-    for (j = 1; j <= m; j++) dp[0][j] = 0;
-    for (i = 1; i <= n; i++) {
-      for (j = 1; j <= m; j++) {
-        dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
-      }
-    }
-    var out = [];
-    i = n;
-    j = m;
-    while (i > 0 && j > 0) {
-      if (a[i - 1] === b[j - 1]) {
-        out.push({ type: "same", text: a[i - 1], oldLine: oldOff + i, newLine: newOff + j });
-        i--;
-        j--;
-      } else if (dp[i - 1][j] >= dp[i][j - 1]) {
-        out.push({ type: "del", text: a[i - 1], oldLine: oldOff + i, newLine: null });
-        i--;
-      } else {
-        out.push({ type: "add", text: b[j - 1], oldLine: null, newLine: newOff + j });
-        j--;
-      }
-    }
-    while (i > 0) {
-      out.push({ type: "del", text: a[i - 1], oldLine: oldOff + i, newLine: null });
-      i--;
-    }
-    while (j > 0) {
-      out.push({ type: "add", text: b[j - 1], oldLine: null, newLine: newOff + j });
-      j--;
-    }
-    out.reverse();
-    return out;
-  }
-  function replaceDiffRows(oldLines, newLines, oldOff, newOff) {
-    var out = [];
-    var i;
-    for (i = 0; i < (oldLines || []).length; i++) {
-      out.push({ type: "del", text: oldLines[i], oldLine: oldOff + i + 1, newLine: null });
-    }
-    for (i = 0; i < (newLines || []).length; i++) {
-      out.push({ type: "add", text: newLines[i], oldLine: null, newLine: newOff + i + 1 });
-    }
-    return out;
-  }
-  function diffCodeLines(before, after) {
-    var a = splitCodeLines(before);
-    var b = splitCodeLines(after);
-    var rows = [];
-    var i = 0, j = 0;
-    while (i < a.length && j < b.length && a[i] === b[j]) {
-      rows.push({ type: "same", text: a[i], oldLine: i + 1, newLine: j + 1 });
-      i++;
-      j++;
-    }
-    var aEnd = a.length, bEnd = b.length;
-    while (aEnd > i && bEnd > j && a[aEnd - 1] === b[bEnd - 1]) {
-      aEnd--;
-      bEnd--;
-    }
-    var midA = a.slice(i, aEnd);
-    var midB = b.slice(j, bEnd);
-    var mid = midA.length * midB.length <= CODE_DIFF_LCS_LIMIT ? lcsDiffRows(midA, midB, i, j) : replaceDiffRows(midA, midB, i, j);
-    for (var k = 0; k < mid.length; k++) rows.push(mid[k]);
-    for (k = 0; k < a.length - aEnd; k++) {
-      rows.push({ type: "same", text: a[aEnd + k], oldLine: aEnd + k + 1, newLine: bEnd + k + 1 });
-    }
-    return rows;
-  }
-  function codeCardDiffRows(file, liveContent) {
-    if (!file || typeof file.content !== "string" || typeof liveContent !== "string") return null;
-    if (file.content === liveContent) return null;
-    if (liveContent === "") {
-      return splitCodeLines(file.content).map(function(text, i) {
-        return { type: "del", text, oldLine: i + 1, newLine: null };
-      });
-    }
-    var rows = diffCodeLines(file.content, liveContent);
-    return codeCardHasDiff(rows) ? rows : null;
-  }
-  function fileForCodeCardDiff(file, diffRows) {
-    if (!file || !diffRows || !diffRows.length) return file;
-    return Object.assign({}, file, { content: diffRows.map(function(row) {
-      return row.text;
-    }).join("\n") });
-  }
-  function codeCardDiffLineIndex(diffRows, analyzedLine) {
-    var n = Math.max(1, Number(analyzedLine) || 1);
-    if (!diffRows || !diffRows.length) return n;
-    var found = -1;
-    for (var i = 0; i < diffRows.length; i++) {
-      if (diffRows[i] && diffRows[i].oldLine === n) {
-        found = i + 1;
-        if (diffRows[i].type === "same") return found;
-      }
-    }
-    return found > 0 ? found : n;
-  }
-  function startedCliWatchDiffPaths(pending, gen) {
-    var out = [];
-    (pending || []).forEach(function(path) {
-      var next = normalizeCliWatchPath(path);
-      if (next && out.indexOf(next) < 0) out.push(next);
-    });
-    Object.keys(gen || {}).forEach(function(path) {
-      var next = normalizeCliWatchPath(path);
-      if (next && out.indexOf(next) < 0) out.push(next);
-    });
-    return out;
-  }
-  function bumpCliWatchDiffEpoch(epoch) {
-    return (Number(epoch) || 0) + 1;
-  }
-  function cliWatchDiffRequestIsCurrent(epoch, capturedEpoch, genByPath, path, capturedGen) {
-    if ((Number(epoch) || 0) !== (Number(capturedEpoch) || 0)) return false;
-    return !!(genByPath && genByPath[path] === capturedGen);
-  }
-  function retainCliWatchPathsAfterAnalysis(receivedDuring, readByPath, snapRevByPath) {
-    var read = readByPath || /* @__PURE__ */ Object.create(null);
-    var snaps = snapRevByPath || /* @__PURE__ */ Object.create(null);
-    var out = [];
-    (receivedDuring || []).forEach(function(item) {
-      var ev = normalizeCliWatchDuringEvent(item);
-      if (!ev || !read[ev.path] || out.indexOf(ev.path) >= 0) return;
-      if (!cliWatchEventIsAfterSnapshot(ev.rev, Object.prototype.hasOwnProperty.call(snaps, ev.path) ? snaps[ev.path] : null)) return;
-      out.push(ev.path);
-    });
-    return out;
-  }
-  var CLI_WATCH_MAX_BYTES = 2 * 1024 * 1024;
-  function cliWatchLiveRejectsOversized(size) {
-    var n = Number(size);
-    return Number.isFinite(n) && n > CLI_WATCH_MAX_BYTES;
-  }
-  function cliWatchLiveFromResponse(status, body, ok, contentLength) {
-    if (cliWatchLiveRejectsOversized(contentLength)) return { kind: "error" };
-    if (ok) {
-      var content = typeof body === "string" ? body : "";
-      if (cliWatchLiveRejectsOversized(content.length)) return { kind: "error" };
-      return { kind: "ok", content };
-    }
-    if (Number(status) === 404) return { kind: "missing", content: "" };
-    return { kind: "error" };
-  }
-  function shouldApplyCliWatchLive(result) {
-    return !!(result && (result.kind === "ok" || result.kind === "missing"));
-  }
-  function pendingCliWatchDiffPaths(dirty, live, inflight) {
-    var have = live || /* @__PURE__ */ Object.create(null);
-    var wait = inflight || [];
-    return (dirty || []).filter(function(path) {
-      if (!path) return false;
-      if (Object.prototype.hasOwnProperty.call(have, path)) return false;
-      if (wait.indexOf(path) >= 0) return false;
-      return true;
-    });
-  }
-  function cliWatchAppliesToAnalysis(localSourceKind, cliStatus, analysisSource) {
-    if (!cliStatus || !cliStatus.ok) return false;
-    if (localSourceKind === "folder" || localSourceKind === "zip") return false;
-    if (analysisSource && analysisSource.sourceType && analysisSource.sourceType !== "cli") return false;
-    if (localSourceKind && localSourceKind !== "cli") return false;
-    if (analysisSource && analysisSource.sourceType === "cli") return cliRecordMatchesStatus(analysisSource, cliStatus);
-    return localSourceKind === "cli";
-  }
-
   // src/views/card-size.mjs
   function codeCardSizeForDiff(file, prefs, diffRows) {
     prefs = normalizeCodeCardPrefs(prefs);
@@ -2065,8 +7165,8 @@
   }
 
   // src/views/canvas-layout.mjs
-  function nodeReplacedByCard(path, cardPaths) {
-    return !!(cardPaths && cardPaths.has(path));
+  function nodeReplacedByCard(path2, cardPaths) {
+    return !!(cardPaths && cardPaths.has(path2));
   }
   function unburyNodesFromCards(nodes, cardPaths, sizesByPath, pad, boxesByPath) {
     pad = pad == null ? 36 : pad;
@@ -2324,10 +7424,10 @@
     });
     return nodes;
   }
-  function leftoverSpatialCellKey(x, y, cell) {
+  function leftoverSpatialCellKey(x2, y2, cell) {
     var size = Number(cell);
     if (!isFinite(size) || size <= 0) size = 36;
-    return Math.floor((Number(x) || 0) / size) + "	" + Math.floor((Number(y) || 0) / size);
+    return Math.floor((Number(x2) || 0) / size) + "	" + Math.floor((Number(y2) || 0) / size);
   }
   function leftoverSeparationNeighbors(a, b, gap) {
     if (!a || !b || a === b) return false;
@@ -2513,10 +7613,10 @@
     };
     return reflowUnpinnedCodeCards(next, options.pinnedPaths, options);
   }
-  function codePathIsPinned(pinnedPaths, path) {
-    if (!path || !pinnedPaths) return false;
-    if (typeof pinnedPaths.has === "function") return pinnedPaths.has(path);
-    return !!pinnedPaths[path];
+  function codePathIsPinned(pinnedPaths, path2) {
+    if (!path2 || !pinnedPaths) return false;
+    if (typeof pinnedPaths.has === "function") return pinnedPaths.has(path2);
+    return !!pinnedPaths[path2];
   }
   function reflowUnpinnedCodeCards(placements, pinnedPaths, options) {
     options = options || {};
@@ -2524,12 +7624,12 @@
     var originY = options.originY == null ? 72 : options.originY;
     var next = placements || /* @__PURE__ */ Object.create(null);
     var byFolder = /* @__PURE__ */ Object.create(null);
-    Object.keys(next).forEach(function(path) {
-      var item = next[path];
+    Object.keys(next).forEach(function(path2) {
+      var item = next[path2];
       if (!item) return;
       var folder = item.folder || "root";
       if (!byFolder[folder]) byFolder[folder] = [];
-      byFolder[folder].push(path);
+      byFolder[folder].push(path2);
     });
     Object.keys(byFolder).forEach(function(folder) {
       var paths = byFolder[folder];
@@ -2545,10 +7645,10 @@
         startY = center.y - (firstH || CODE_CARD_MIN_HEIGHT) / 2;
       }
       var cursor = startY;
-      paths.forEach(function(path) {
-        var item = Object.assign({}, next[path]);
-        next[path] = item;
-        if (codePathIsPinned(pinnedPaths, path)) {
+      paths.forEach(function(path2) {
+        var item = Object.assign({}, next[path2]);
+        next[path2] = item;
+        if (codePathIsPinned(pinnedPaths, path2)) {
           item.x = item.left + item.width / 2;
           item.y = item.top + item.height / 2;
           cursor = Math.max(cursor, item.top + item.height + gapY);
@@ -2564,28 +7664,28 @@
   }
   function liveGraphNodeXY(node) {
     if (!node) return null;
-    var x = node.fx != null && isFinite(Number(node.fx)) ? Number(node.fx) : Number(node.x);
-    var y = node.fy != null && isFinite(Number(node.fy)) ? Number(node.fy) : Number(node.y);
-    if (!isFinite(x) || !isFinite(y)) return null;
-    return { x, y };
+    var x2 = node.fx != null && isFinite(Number(node.fx)) ? Number(node.fx) : Number(node.x);
+    var y2 = node.fy != null && isFinite(Number(node.fy)) ? Number(node.fy) : Number(node.y);
+    if (!isFinite(x2) || !isFinite(y2)) return null;
+    return { x: x2, y: y2 };
   }
   function readCodeCardWorldBox(card) {
     if (!card || !card.style) return null;
-    var x = parseFloat(card.style.left);
-    var y = parseFloat(card.style.top);
+    var x2 = parseFloat(card.style.left);
+    var y2 = parseFloat(card.style.top);
     var width = parseFloat(card.style.width);
     var height = parseFloat(card.style.height);
-    if (!isFinite(x) || !isFinite(y) || !isFinite(width) || !isFinite(height) || width <= 0 || height <= 0) return null;
-    return { x, y, width, height };
+    if (!isFinite(x2) || !isFinite(y2) || !isFinite(width) || !isFinite(height) || width <= 0 || height <= 0) return null;
+    return { x: x2, y: y2, width, height };
   }
   function readCodeCardWorldBoxes(layer) {
     var out = /* @__PURE__ */ Object.create(null);
     if (!layer || !layer.querySelectorAll) return out;
     var cards = layer.querySelectorAll("[data-code-card]");
     Array.prototype.forEach.call(cards, function(card) {
-      var path = card.getAttribute("data-code-card");
+      var path2 = card.getAttribute("data-code-card");
       var box = readCodeCardWorldBox(card);
-      if (path && box) out[path] = box;
+      if (path2 && box) out[path2] = box;
     });
     return out;
   }
@@ -2649,8 +7749,8 @@
 
   // src/investigation/navigation.mjs
   function searchProject(data, query) {
-    var normalize = function(value) {
-      return String(value || "").toLowerCase().replace(/[._/\\-]+/g, " ");
+    var normalize = function(value2) {
+      return String(value2 || "").toLowerCase().replace(/[._/\\-]+/g, " ");
     };
     var terms = normalize(query).trim().split(/\s+/).filter(Boolean);
     if (!terms.length) return [];
@@ -2730,16 +7830,16 @@
     if (!file) return false;
     return file.folder === folderFilter || !!file.folder && file.folder.startsWith(folderFilter + "/");
   }
-  function pathMatchesFolderFilter(path, data, folderFilter) {
+  function pathMatchesFolderFilter(path2, data, folderFilter) {
     if (!folderFilter) return true;
-    if (!data || !data.files || !path) return false;
+    if (!data || !data.files || !path2) return false;
     for (var i = 0; i < data.files.length; i++) {
-      if (data.files[i].path === path) return fileMatchesFolderFilter(data.files[i], folderFilter);
+      if (data.files[i].path === path2) return fileMatchesFolderFilter(data.files[i], folderFilter);
     }
     return false;
   }
-  function folderFilterAfterCodeNav(path, data, folderFilter) {
-    if (pathMatchesFolderFilter(path, data, folderFilter)) return folderFilter || null;
+  function folderFilterAfterCodeNav(path2, data, folderFilter) {
+    if (pathMatchesFolderFilter(path2, data, folderFilter)) return folderFilter || null;
     return null;
   }
   function codeViewSeedPath(selectedPath, data, folderFilter) {
@@ -2763,15 +7863,15 @@
     filesForOpenedCodePaths(paths, data, folderFilter).forEach(function(file) {
       if (file && file.path) visible[file.path] = true;
     });
-    (paths || []).forEach(function(path) {
-      if (path && !visible[path]) hidden[path] = true;
+    (paths || []).forEach(function(path2) {
+      if (path2 && !visible[path2]) hidden[path2] = true;
     });
     return hidden;
   }
   function codeCardPlacementKeepSet(openedPaths, visibleFiles) {
     var keep = /* @__PURE__ */ Object.create(null);
-    (openedPaths || []).forEach(function(path) {
-      if (path) keep[path] = true;
+    (openedPaths || []).forEach(function(path2) {
+      if (path2) keep[path2] = true;
     });
     (visibleFiles || []).forEach(function(file) {
       if (file && file.path) keep[file.path] = true;
@@ -2780,10 +7880,10 @@
   }
   function pruneCodeCardPlacements(placements, keep) {
     var departed = /* @__PURE__ */ Object.create(null);
-    Object.keys(placements || {}).forEach(function(path) {
-      if (keep && keep[path]) return;
-      departed[path] = true;
-      delete placements[path];
+    Object.keys(placements || {}).forEach(function(path2) {
+      if (keep && keep[path2]) return;
+      departed[path2] = true;
+      delete placements[path2];
     });
     return departed;
   }
@@ -2791,19 +7891,19 @@
     var need = Number(count);
     if (!isFinite(need) || need <= 0) return (list || []).slice();
     var removed = 0;
-    return (list || []).filter(function(path) {
+    return (list || []).filter(function(path2) {
       if (removed >= need) return true;
-      if (pathIsFlagged(hidden, path)) {
+      if (pathIsFlagged(hidden, path2)) {
         removed++;
         return false;
       }
       return true;
     });
   }
-  function openCodeCardPaths(prev, path, limit, replace, hidden) {
+  function openCodeCardPaths(prev, path2, limit, replace, hidden) {
     var list = (prev || []).slice();
-    if (!path) return list;
-    if (list.indexOf(path) >= 0) return list;
+    if (!path2) return list;
+    if (list.indexOf(path2) >= 0) return list;
     var max = limit == null ? CODE_CARD_MAX : Number(limit);
     if (isFinite(max) && list.length >= max) {
       var need = list.length - max + 1;
@@ -2813,14 +7913,14 @@
         list = list.slice(Math.max(0, list.length - max + 1));
       }
     }
-    list.push(path);
+    list.push(path2);
     return list;
   }
-  function resolveOpenCodeCard(prev, path, limit, replace, hidden) {
+  function resolveOpenCodeCard(prev, path2, limit, replace, hidden) {
     var before = prev || [];
-    var next = openCodeCardPaths(before, path, limit, replace, hidden);
-    var already = !!(path && before.indexOf(path) >= 0);
-    var inserted = !!(path && !already && next.indexOf(path) >= 0);
+    var next = openCodeCardPaths(before, path2, limit, replace, hidden);
+    var already = !!(path2 && before.indexOf(path2) >= 0);
+    var inserted = !!(path2 && !already && next.indexOf(path2) >= 0);
     return { paths: next, already, inserted, opened: already || inserted };
   }
   function ensureCodeViewOpenedPaths(openedPaths, selectedPath, data, folderFilter) {
@@ -2838,8 +7938,8 @@
     filtered.forEach(function(file) {
       byPath[file.path] = file;
     });
-    return (paths || []).map(function(path) {
-      return byPath[path];
+    return (paths || []).map(function(path2) {
+      return byPath[path2];
     }).filter(Boolean);
   }
 
@@ -2850,10 +7950,10 @@
   function consumeCodeCardClick(ignoreNextClick) {
     return { ignore: !!ignoreNextClick, ignoreNextClick: false };
   }
-  function codeCardDragDelta(clientX, clientY, startX, startY, scale, threshold) {
+  function codeCardDragDelta(clientX, clientY, startX, startY, scale2, threshold) {
     var screenX = (Number(clientX) || 0) - (Number(startX) || 0);
     var screenY = (Number(clientY) || 0) - (Number(startY) || 0);
-    var k = Number(scale);
+    var k = Number(scale2);
     if (!isFinite(k) || k <= 0) k = 1;
     var limit = threshold == null ? 3 : Number(threshold);
     if (!isFinite(limit)) limit = 3;
@@ -2865,8 +7965,8 @@
       moved: Math.abs(screenX) + Math.abs(screenY) > limit
     };
   }
-  function codeCardResizeDelta(clientX, clientY, startX, startY, startW, startH, scale, edge) {
-    var k = Number(scale);
+  function codeCardResizeDelta(clientX, clientY, startX, startY, startW, startH, scale2, edge) {
+    var k = Number(scale2);
     if (!isFinite(k) || k <= 0) k = 1;
     var dx = ((Number(clientX) || 0) - (Number(startX) || 0)) / k;
     var dy = ((Number(clientY) || 0) - (Number(startY) || 0)) / k;
@@ -2879,16 +7979,16 @@
   function codeViewDragRefresh(phase) {
     return phase === "release";
   }
-  function raiseCodeCardStack(order, path) {
+  function raiseCodeCardStack(order, path2) {
     var next = [];
     (order || []).forEach(function(id) {
-      if (id && id !== path) next.push(id);
+      if (id && id !== path2) next.push(id);
     });
-    if (path) next.push(path);
+    if (path2) next.push(path2);
     return next;
   }
-  function codeCardZIndex(order, path) {
-    var i = (order || []).indexOf(path);
+  function codeCardZIndex(order, path2) {
+    var i = (order || []).indexOf(path2);
     return i < 0 ? 1 : i + 2;
   }
   function applyCodeCardStackOrder(layer, order) {
@@ -2896,23 +7996,23 @@
     var cards = layer.querySelectorAll("[data-code-card]");
     var n = 0;
     Array.prototype.forEach.call(cards, function(card) {
-      var path = card.getAttribute("data-code-card");
-      card.style.zIndex = String(codeCardZIndex(order, path));
+      var path2 = card.getAttribute("data-code-card");
+      card.style.zIndex = String(codeCardZIndex(order, path2));
       n++;
     });
     return n;
   }
-  function findCodeCardElement(layer, path) {
-    if (!layer || !layer.querySelectorAll || !path) return null;
+  function findCodeCardElement(layer, path2) {
+    if (!layer || !layer.querySelectorAll || !path2) return null;
     var cards = layer.querySelectorAll("[data-code-card]");
     var i;
     for (i = 0; i < cards.length; i++) {
-      if (cards[i].getAttribute("data-code-card") === path) return cards[i];
+      if (cards[i].getAttribute("data-code-card") === path2) return cards[i];
     }
     return null;
   }
-  function applyCodeCardDragFrame(layer, path, node, size) {
-    var card = findCodeCardElement(layer, path);
+  function applyCodeCardDragFrame(layer, path2, node, size) {
+    var card = findCodeCardElement(layer, path2);
     if (!card) return false;
     var style = codeCardAnchorStyle(node, size);
     card.style.visibility = style.visibility;
@@ -2934,8 +8034,8 @@
     if (event && (event.ctrlKey || event.metaKey)) return "zoom";
     return "pan";
   }
-  function codeViewWheelPanDelta(deltaX, deltaY, scale) {
-    var k = Number(scale);
+  function codeViewWheelPanDelta(deltaX, deltaY, scale2) {
+    var k = Number(scale2);
     if (!isFinite(k) || k <= 0) k = 1;
     return { x: -(Number(deltaX) || 0) / k, y: -(Number(deltaY) || 0) / k };
   }
@@ -2943,11 +8043,11 @@
     var t = transform || {};
     var k = Number(t.k);
     if (!isFinite(k) || k <= 0) k = 1;
-    var x = Number(t.x);
-    if (!isFinite(x)) x = 0;
-    var y = Number(t.y);
-    if (!isFinite(y)) y = 0;
-    return "translate(" + x + "px," + y + "px) scale(" + k + ")";
+    var x2 = Number(t.x);
+    if (!isFinite(x2)) x2 = 0;
+    var y2 = Number(t.y);
+    if (!isFinite(y2)) y2 = 0;
+    return "translate(" + x2 + "px," + y2 + "px) scale(" + k + ")";
   }
   function codeCardAnchorStyle(node, size) {
     size = size || codeCardSize(null);
@@ -2967,15 +8067,15 @@
     var cards = layer.querySelectorAll ? layer.querySelectorAll("[data-code-card]") : [];
     var placed = 0;
     Array.prototype.forEach.call(cards, function(card) {
-      var path = card.getAttribute("data-code-card");
-      var size = sizesByPath && sizesByPath[path] || codeCardSize(null);
-      var style = codeCardAnchorStyle(nodesById && nodesById[path], size);
+      var path2 = card.getAttribute("data-code-card");
+      var size = sizesByPath && sizesByPath[path2] || codeCardSize(null);
+      var style = codeCardAnchorStyle(nodesById && nodesById[path2], size);
       card.style.visibility = style.visibility;
       card.style.left = style.left;
       card.style.top = style.top;
       card.style.width = size.width + "px";
       card.style.height = size.height + "px";
-      if (stackOrder) card.style.zIndex = String(codeCardZIndex(stackOrder, path));
+      if (stackOrder) card.style.zIndex = String(codeCardZIndex(stackOrder, path2));
       if (card.classList) {
         if (size.clipped && card.classList.add) card.classList.add("clipped");
         else if (card.classList.remove) card.classList.remove("clipped");
@@ -2996,11 +8096,11 @@
     });
     return { placed, titleScale, colorBlocks: zoomShowsColorBlocks(k), codeFar: zoomHidesCodeText(k) };
   }
-  function readCodeCardBodyScroll(layer, path) {
-    if (!layer || !path) return 0;
+  function readCodeCardBodyScroll(layer, path2) {
+    if (!layer || !path2) return 0;
     var cards = layer.querySelectorAll ? layer.querySelectorAll("[data-code-card]") : [];
     for (var i = 0; i < cards.length; i++) {
-      if (cards[i].getAttribute("data-code-card") !== path) continue;
+      if (cards[i].getAttribute("data-code-card") !== path2) continue;
       var body = cards[i].querySelector ? cards[i].querySelector(".code-card-body") : null;
       var top = body ? Number(body.scrollTop) : 0;
       return isFinite(top) ? top : 0;
@@ -3065,10 +8165,10 @@
   }
   function codeCardAnchorY(node, size, line) {
     size = size || codeCardSize(null);
-    var y = line ? codeCardLineY(size, line) : CODE_CARD_HEAD_HEIGHT + (size.height - CODE_CARD_HEAD_HEIGHT) / 2;
-    if (!isFinite(y)) y = size.height / 2;
-    y = Math.max(CODE_CARD_HEAD_HEIGHT + 6, Math.min(size.height - 8, y));
-    return (node && isFinite(node.y) ? node.y : 0) - size.height / 2 + y;
+    var y2 = line ? codeCardLineY(size, line) : CODE_CARD_HEAD_HEIGHT + (size.height - CODE_CARD_HEAD_HEIGHT) / 2;
+    if (!isFinite(y2)) y2 = size.height / 2;
+    y2 = Math.max(CODE_CARD_HEAD_HEIGHT + 6, Math.min(size.height - 8, y2));
+    return (node && isFinite(node.y) ? node.y : 0) - size.height / 2 + y2;
   }
   function codeCardLinkEndpoint(node, size, file, other, fn, isCard, vertical) {
     if (!isCard) return { x: node.x, y: node.y };
@@ -3080,15 +8180,15 @@
       return { x: node.x, y: towardY < node.y ? top : bottom };
     }
     var line = fn ? codeCardSymbolLine(file, fn) : null;
-    var y = codeCardAnchorY(node, size, line);
+    var y2 = codeCardAnchorY(node, size, line);
     var left = node.x - size.width / 2;
     var right = node.x + size.width / 2;
     var toward = other && isFinite(other.x) ? other.x : right + 1;
-    return { x: toward < node.x ? left : right, y };
+    return { x: toward < node.x ? left : right, y: y2 };
   }
-  function codeCardLinkPath(link, sizesByPath, filesByPath, cardPaths) {
-    var src = link && link.source;
-    var tgt = link && link.target;
+  function codeCardLinkPath(link2, sizesByPath, filesByPath, cardPaths) {
+    var src = link2 && link2.source;
+    var tgt = link2 && link2.target;
     if (!src || !tgt || typeof src !== "object" || typeof tgt !== "object") return null;
     var srcIsCard = !!(cardPaths && cardPaths.has(src.id));
     var tgtIsCard = !!(cardPaths && cardPaths.has(tgt.id));
@@ -3098,7 +8198,7 @@
     var tgtFile = filesByPath && filesByPath[tgt.id];
     var srcSize = sizesByPath && sizesByPath[src.id] || codeCardSize(srcFile);
     var tgtSize = sizesByPath && sizesByPath[tgt.id] || codeCardSize(tgtFile);
-    var fn = link.fn;
+    var fn = link2.fn;
     var vertical = codeLinkPrefersVertical(src, tgt);
     var p1 = codeCardLinkEndpoint(src, srcSize, srcFile, tgt, fn, srcIsCard, vertical);
     var p2 = codeCardLinkEndpoint(tgt, tgtSize, tgtFile, src, fn, tgtIsCard, vertical);
@@ -3112,21 +8212,21 @@
     var t = transform || {};
     var k = Number(t.k);
     if (!isFinite(k) || k <= 0) k = 1;
-    var x = Number(t.x);
-    if (!isFinite(x)) x = 0;
-    var y = Number(t.y);
-    if (!isFinite(y)) y = 0;
-    return { k, x, y };
+    var x2 = Number(t.x);
+    if (!isFinite(x2)) x2 = 0;
+    var y2 = Number(t.y);
+    if (!isFinite(y2)) y2 = 0;
+    return { k, x: x2, y: y2 };
   }
   function shouldFitCodeCamera(cameraReady, vizType) {
     return vizType === "code" && !cameraReady;
   }
-  function clampCodeViewFitScale(scale) {
-    var value = Number(scale);
-    if (!isFinite(value) || value <= 0) return CODE_VIEW_MIN_FIT_SCALE;
-    if (value < CODE_VIEW_MIN_FIT_SCALE) return CODE_VIEW_MIN_FIT_SCALE;
-    if (value > CODE_VIEW_MAX_FIT_SCALE) return CODE_VIEW_MAX_FIT_SCALE;
-    return value;
+  function clampCodeViewFitScale(scale2) {
+    var value2 = Number(scale2);
+    if (!isFinite(value2) || value2 <= 0) return CODE_VIEW_MIN_FIT_SCALE;
+    if (value2 < CODE_VIEW_MIN_FIT_SCALE) return CODE_VIEW_MIN_FIT_SCALE;
+    if (value2 > CODE_VIEW_MAX_FIT_SCALE) return CODE_VIEW_MAX_FIT_SCALE;
+    return value2;
   }
   function codeCardFitBounds(nodes, sizesByPath, cardPaths) {
     var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -3207,15 +8307,15 @@
     if (!isFinite(pad) || pad < 0) pad = 0;
     var innerW = Math.max(1, mapW - pad * 2);
     var innerH = Math.max(1, mapH - pad * 2);
-    var scale = Math.min(innerW / world.width, innerH / world.height);
-    if (!isFinite(scale) || scale <= 0) scale = 1;
-    var usedW = world.width * scale;
-    var usedH = world.height * scale;
-    return { scale, ox: pad + (innerW - usedW) / 2, oy: pad + (innerH - usedH) / 2 };
+    var scale2 = Math.min(innerW / world.width, innerH / world.height);
+    if (!isFinite(scale2) || scale2 <= 0) scale2 = 1;
+    var usedW = world.width * scale2;
+    var usedH = world.height * scale2;
+    return { scale: scale2, ox: pad + (innerW - usedW) / 2, oy: pad + (innerH - usedH) / 2 };
   }
-  function worldToMinimap(x, y, world, fit) {
+  function worldToMinimap(x2, y2, world, fit) {
     if (!world || !fit) return { x: 0, y: 0 };
-    return { x: (Number(x) - world.minX) * fit.scale + fit.ox, y: (Number(y) - world.minY) * fit.scale + fit.oy };
+    return { x: (Number(x2) - world.minX) * fit.scale + fit.ox, y: (Number(y2) - world.minY) * fit.scale + fit.oy };
   }
   function clampMinimapPoint(mx, my, world, fit) {
     mx = Number(mx);
@@ -3242,8 +8342,8 @@
     var p = clampMinimapPoint(mx, my, world, fit);
     return { x: (p.x - fit.ox) / fit.scale + world.minX, y: (p.y - fit.oy) / fit.scale + world.minY };
   }
-  function zoomTransformToCenterWorld(worldX, worldY, scale, viewW, viewH) {
-    var k = Number(scale);
+  function zoomTransformToCenterWorld(worldX, worldY, scale2, viewW, viewH) {
+    var k = Number(scale2);
     if (!isFinite(k) || k <= 0) k = 1;
     var w = Number(viewW);
     var h = Number(viewH);
@@ -3389,14 +8489,14 @@
   }
 
   // src/views/source-symbols.mjs
-  function escapeRegExp(value) {
-    return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  function escapeRegExp(value2) {
+    return String(value2 || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
   function isValidSymbolName(name) {
     return /^[A-Za-z_$][\w$]*$/.test(String(name || ""));
   }
-  function escapeHtmlAttr(value) {
-    return String(value || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  function escapeHtmlAttr(value2) {
+    return String(value2 || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
   function safeSymbolKind(kind) {
     return kind === "fn" || kind === "import" || kind === "export" || kind === "var" ? kind : "var";
@@ -3523,12 +8623,12 @@
     }).filter(Boolean);
   }
   function codeCardPillViewTop(lineTop, scrollTop, cardHeight, headHeight) {
-    var y = Number(lineTop) - (Number(scrollTop) || 0);
+    var y2 = Number(lineTop) - (Number(scrollTop) || 0);
     var min = headHeight == null ? CODE_CARD_HEAD_HEIGHT : Number(headHeight);
     var max = Number(cardHeight);
-    if (!isFinite(y) || !isFinite(min) || !isFinite(max)) return null;
-    if (y < min || y > max) return null;
-    return y;
+    if (!isFinite(y2) || !isFinite(min) || !isFinite(max)) return null;
+    if (y2 < min || y2 > max) return null;
+    return y2;
   }
   function collectCrossFileSymbols(files, connections) {
     var byName = /* @__PURE__ */ Object.create(null);
@@ -3680,7 +8780,7 @@
 
   // src/views/native-canvas.mjs
   function copyRecords(records) {
-    return Object.fromEntries(Object.entries(records).map(([path, value]) => [path, { ...value }]));
+    return Object.fromEntries(Object.entries(records).map(([path2, value2]) => [path2, { ...value2 }]));
   }
   function createNativeCanvas({ React: React2, d3, Icon: Icon2, COLORS: COLORS2, LAYER_COLORS: LAYER_COLORS2 }) {
     const { useState: useState2, useEffect: useEffect2, useLayoutEffect: useLayoutEffect2, useMemo: useMemo2, useRef: useRef2, useImperativeHandle } = React2;
@@ -3777,9 +8877,9 @@
       useEffect2(() => endCardGesture, []);
       const previousOpened = useRef2(openedCodePaths);
       useLayoutEffect2(() => {
-        for (const path of previousOpened.current) if (!openedCodePaths.includes(path)) {
-          delete codeCardPlacementRef.current[path];
-          codeCardUserPinnedRef.current.delete(path);
+        for (const path2 of previousOpened.current) if (!openedCodePaths.includes(path2)) {
+          delete codeCardPlacementRef.current[path2];
+          codeCardUserPinnedRef.current.delete(path2);
         }
         previousOpened.current = openedCodePaths;
       }, [openedCodePaths]);
@@ -3800,27 +8900,27 @@
       openCodeFileRef.current = onOpen;
       const nodeColorRef = useRef2(getNodeColor);
       nodeColorRef.current = getNodeColor;
-      function updateGraphHighlight(path, blast) {
+      function updateGraphHighlight(path2, blast) {
         if (!nodesRef.current || !linksRef.current) return;
         var affectedSet = new Set(blast ? blast.affected : []);
         var dependencySet = new Set(blast ? blast.dependencies : []);
         nodesRef.current.selectAll(".nc,.nb").transition().duration(200).attr("opacity", function(n) {
-          if (n.id === path) return 1;
+          if (n.id === path2) return 1;
           if (affectedSet.has(n.id) || dependencySet.has(n.id)) return 1;
-          return path ? 0.15 : 1;
+          return path2 ? 0.15 : 1;
         }).attr("fill", function(n) {
-          var fill = colorMode === "findings" ? getNodeColor(n) : n.id === path ? "#ff5f5f" : affectedSet.has(n.id) ? "#ff9f43" : dependencySet.has(n.id) ? "#4d9fff" : getNodeColor(n);
+          var fill = colorMode === "findings" ? getNodeColor(n) : n.id === path2 ? "#ff5f5f" : affectedSet.has(n.id) ? "#ff9f43" : dependencySet.has(n.id) ? "#4d9fff" : getNodeColor(n);
           return d3.select(this).classed("nb") ? graphColorBlockFill(fill) : fill;
         });
         linksRef.current.transition().duration(200).attr("stroke-opacity", function(l) {
           var src = l.source.id || l.source;
           var tgt = l.target.id || l.target;
-          if (src === path || tgt === path) return 0.8;
-          return path ? 0.05 : 0.4;
+          if (src === path2 || tgt === path2) return 0.8;
+          return path2 ? 0.05 : 0.4;
         }).attr("stroke", function(l) {
           var src = l.source.id || l.source;
           var tgt = l.target.id || l.target;
-          if (src === path || tgt === path) return "var(--acc)";
+          if (src === path2 || tgt === path2) return "var(--acc)";
           return theme === "light" ? "#ccc" : "#333";
         });
       }
@@ -4433,7 +9533,7 @@
             if (!roots.length) roots = [nodes[0]];
             var lineY = 80, lineSpacing = Math.min(120, (h - 160) / Math.max(1, roots.length));
             roots.forEach(function(root, li) {
-              var visited = /* @__PURE__ */ new Set(), queue = [root.id], line = [], x = 80;
+              var visited = /* @__PURE__ */ new Set(), queue = [root.id], line = [], x2 = 80;
               while (queue.length) {
                 var id = queue.shift();
                 if (visited.has(id)) continue;
@@ -4442,11 +9542,11 @@
                   return n.id === id;
                 });
                 if (node2) {
-                  node2.targetX = x;
+                  node2.targetX = x2;
                   node2.targetY = lineY + li * lineSpacing;
                   node2.metroLine = li;
                   line.push(node2);
-                  x += graphConfig.spacing * 0.8;
+                  x2 += graphConfig.spacing * 0.8;
                 }
                 links.forEach(function(l) {
                   var s = l.source.id || l.source, t = l.target.id || l.target;
@@ -4475,10 +9575,10 @@
           var velDecay = isLargeGraph ? 0.7 : 0.6;
           sim.velocityDecay(velDecay).alphaDecay(alphaDecay);
           simRef.current = sim;
-          var link = linkLayer.selectAll("path").data(links).join("path").attr("fill", "none").attr("stroke", theme === "light" ? "#ccc" : "#333").attr("stroke-width", function(d) {
+          var link2 = linkLayer.selectAll("path").data(links).join("path").attr("fill", "none").attr("stroke", theme === "light" ? "#ccc" : "#333").attr("stroke-width", function(d) {
             return graphLinkStrokeWidth(d.count, lineThicknessRef.current);
           }).attr("stroke-opacity", 0.4).attr("marker-end", "url(#arr)");
-          linksRef.current = link;
+          linksRef.current = link2;
           if (keepReadable && particleLayer) {
             var particles = particleLayer.selectAll("path").data(links).join("path").attr("fill", "none").attr("class", "force-link-particle").attr("stroke-linecap", "round");
             linkParticlesRef.current = particles;
@@ -4563,7 +9663,7 @@
               applyForceLinkVisuals();
               return;
             }
-            link.attr("stroke", theme === "light" ? "#ccc" : "#333").attr("stroke-opacity", 0.4);
+            link2.attr("stroke", theme === "light" ? "#ccc" : "#333").attr("stroke-opacity", 0.4);
             node.selectAll(".nc").attr("opacity", 1).attr("fill", getC);
             node.selectAll(".nb").attr("opacity", 1).attr("fill", function(d) {
               return graphColorBlockFill(getC(d));
@@ -4596,7 +9696,7 @@
           var hullInterval = isLargeGraph ? 5 : 1;
           var tickCount = 0;
           sim.on("tick", function() {
-            link.attr("d", graphLinkPath);
+            link2.attr("d", graphLinkPath);
             redrawActiveForceLinkParticles();
             node.attr("transform", function(d) {
               return "translate(" + d.x + "," + d.y + ")";
@@ -4709,8 +9809,8 @@
           return n.y;
         });
         var minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs), minY = Math.min.apply(null, ys), maxY = Math.max.apply(null, ys);
-        var scale = 0.8 / Math.max((maxX - minX + paddingSlack) / w, (maxY - minY + paddingSlack) / h);
-        return d3.zoomIdentity.translate(w / 2 - scale * (minX + maxX) / 2, h / 2 - scale * (minY + maxY) / 2).scale(Math.min(scale, 2));
+        var scale2 = 0.8 / Math.max((maxX - minX + paddingSlack) / w, (maxY - minY + paddingSlack) / h);
+        return d3.zoomIdentity.translate(w / 2 - scale2 * (minX + maxX) / 2, h / 2 - scale2 * (minY + maxY) / 2).scale(Math.min(scale2, 2));
       }
       useEffect2(function() {
         var focus = pendingSourceFocusRef.current, layer = codeCardsLayerRef.current;
@@ -4721,10 +9821,10 @@
         var line = card && card.querySelector('[data-line="' + focus.line + '"]'), body = card && card.querySelector(".code-card-body");
         if (!line || !body) return;
         var bodyBounds = body.getBoundingClientRect(), lineBounds = line.getBoundingClientRect();
-        var scale = bodyBounds.height / body.offsetHeight;
-        if (!Number.isFinite(scale) || scale <= 0) return;
+        var scale2 = bodyBounds.height / body.offsetHeight;
+        if (!Number.isFinite(scale2) || scale2 <= 0) return;
         pendingSourceFocusRef.current = null;
-        body.scrollTop += (lineBounds.top - bodyBounds.top) / scale - body.clientTop - body.clientHeight / 2 + line.offsetHeight / 2;
+        body.scrollTop += (lineBounds.top - bodyBounds.top) / scale2 - body.clientTop - body.clientHeight / 2 + line.offsetHeight / 2;
       }, [sourceFocus, codeViewFiles, cliLiveByPath, graphConfig.vizType]);
       function beginCodeCardDrag(e, file) {
         if (e.pointerType === "mouse" && e.button !== 0) return;
@@ -5067,18 +10167,18 @@
         else if (graphConfig.vizType === "code") applyForceLinkVisuals();
         else updateGraphHighlight(selected.path, calcBlast(selected.path, data.connections, data.files));
       }, [selected?.path, data, graphConfig.vizType, colorMode, colorMap, active]);
-      function reveal(path, camera) {
+      function reveal(path2, camera) {
         pendingFlyToRef.current = null;
         requestAnimationFrame(() => requestAnimationFrame(() => {
-          const node = graphNodesByIdRef.current[path], svg = svgRef.current;
+          const node = graphNodesByIdRef.current[path2], svg = svgRef.current;
           if (!node || !zoomRef.current || !svg) return;
           const t = camera ? d3.zoomIdentity.translate(camera.x, camera.y).scale(camera.k) : d3.zoomIdentity.translate(svg.clientWidth / 2 - node.x, svg.clientHeight / 2 - node.y);
           d3.select(svg).transition().duration(250).call(zoomRef.current.transform, t);
         }));
       }
       useImperativeHandle(ref, () => ({
-        focus(path) {
-          pendingFlyToRef.current = path;
+        focus(path2) {
+          pendingFlyToRef.current = path2;
         },
         reveal,
         prepareSource(location) {
@@ -5164,7 +10264,7 @@
   // src/views/inspection.mjs
   function createInspectionPanels(React2) {
     const { useRef: useRef2, useEffect: useEffect2 } = React2;
-    function Symbols({ items, path, onOpen, onReferences }) {
+    function Symbols({ items, path: path2, onOpen, onReferences }) {
       return items.map(function(symbol, i) {
         return React2.createElement(
           "div",
@@ -5173,22 +10273,22 @@
             "div",
             { style: { display: "flex", gap: 6, marginBottom: 4 } },
             React2.createElement("button", { className: "top-btn", style: { flex: 1, textAlign: "left", overflowWrap: "anywhere" }, onClick: function() {
-              onOpen({ path, range: symbol.selectionRange || symbol.range });
+              onOpen({ path: path2, range: symbol.selectionRange || symbol.range });
             } }, symbol.name),
             React2.createElement("button", { className: "top-btn", title: "Find references", onClick: function() {
-              onReferences(path, (symbol.selectionRange || symbol.range).start);
+              onReferences(path2, (symbol.selectionRange || symbol.range).start);
             } }, "Refs")
           ),
-          symbol.children && React2.createElement(Symbols, { items: symbol.children, path, onOpen, onReferences })
+          symbol.children && React2.createElement(Symbols, { items: symbol.children, path: path2, onOpen, onReferences })
         );
       });
     }
-    function SourceNavigation2({ path, symbols, locations, error, onOpen, onReferences }) {
+    function SourceNavigation2({ path: path2, symbols, locations, error, onOpen, onReferences }) {
       return React2.createElement(
         React2.Fragment,
         null,
         error && React2.createElement("p", { role: "status" }, error),
-        symbols.length > 0 && React2.createElement("div", { className: "card" }, React2.createElement("div", { className: "card-header" }, "Outline"), React2.createElement("div", { className: "card-body" }, React2.createElement(Symbols, { items: symbols, path, onOpen, onReferences }))),
+        symbols.length > 0 && React2.createElement("div", { className: "card" }, React2.createElement("div", { className: "card-header" }, "Outline"), React2.createElement("div", { className: "card-body" }, React2.createElement(Symbols, { items: symbols, path: path2, onOpen, onReferences }))),
         locations && React2.createElement("div", { className: "card" }, React2.createElement("div", { className: "card-header" }, locations.title), React2.createElement(
           "div",
           { className: "card-body" },
@@ -5242,8 +10342,8 @@
         }))
       );
     }
-    function SourceProcesses2({ index, path, onSelect }) {
-      const processes = index.processesBySource.get(path) || [];
+    function SourceProcesses2({ index, path: path2, onSelect }) {
+      const processes = index.processesBySource.get(path2) || [];
       return processes.length > 0 && React2.createElement(
         "div",
         { className: "card" },
@@ -5544,46 +10644,46 @@
         const graph = graph3dInstanceRef.current;
         graph.backgroundColor(theme === "light" ? "#ffffff" : "#0a0a0c").showNavInfo(false).nodeResolution(24).nodeVal(getR).nodeColor(getC).nodeLabel(function(node) {
           return '<div style="font-family:JetBrains Mono,monospace;font-size:10px;padding:6px;background:rgba(15,15,18,0.95);border:1px solid var(--border);border-radius:6px;color:#fff;"><strong style="color:var(--acc);">' + node.name + "</strong><br/>" + node.folder + "<br/>" + node.fnCount + " functions \u2022 " + node.layer + " layer \u2022 " + node.churn + " commits</div>";
-        }).linkColor(function(link) {
-          var s = link.source.id || link.source;
-          var t = link.target.id || link.target;
+        }).linkColor(function(link2) {
+          var s = link2.source.id || link2.source;
+          var t = link2.target.id || link2.target;
           if (selectedPath) {
             if (s === selectedPath) return hexToRgba("var(--orange)", 0.85);
             if (t === selectedPath) return hexToRgba("var(--purple)", 0.85);
             return theme === "light" ? "rgba(220,220,220,0.08)" : "rgba(40,40,48,0.08)";
           }
           return theme === "light" ? "rgba(200,200,200,0.4)" : "rgba(60,60,70,0.4)";
-        }).linkWidth(function(link) {
-          return graph3dLinkWidth(link, selectedPath, lineThickness);
-        }).linkDirectionalArrowLength(function(link) {
+        }).linkWidth(function(link2) {
+          return graph3dLinkWidth(link2, selectedPath, lineThickness);
+        }).linkDirectionalArrowLength(function(link2) {
           if (selectedPath) {
-            var s = link.source.id || link.source;
-            var t = link.target.id || link.target;
+            var s = link2.source.id || link2.source;
+            var t = link2.target.id || link2.target;
             if (s === selectedPath || t === selectedPath) return 5;
             return 0;
           }
           return 3.5;
-        }).linkDirectionalArrowRelPos(1).linkDirectionalParticles(function(link) {
+        }).linkDirectionalArrowRelPos(1).linkDirectionalParticles(function(link2) {
           if (selectedPath) {
-            var s = link.source.id || link.source;
-            var t = link.target.id || link.target;
+            var s = link2.source.id || link2.source;
+            var t = link2.target.id || link2.target;
             if (s === selectedPath || t === selectedPath) return 4;
             return 0;
           }
           return 1;
-        }).linkDirectionalParticleWidth(function(link) {
+        }).linkDirectionalParticleWidth(function(link2) {
           if (selectedPath) {
             return 2.5;
           }
           return 1.2;
-        }).linkDirectionalParticleSpeed(function(link) {
+        }).linkDirectionalParticleSpeed(function(link2) {
           if (selectedPath) {
             return 0.015;
           }
           return 4e-3;
-        }).linkDirectionalParticleColor(function(link) {
-          var s = link.source.id || link.source;
-          var t = link.target.id || link.target;
+        }).linkDirectionalParticleColor(function(link2) {
+          var s = link2.source.id || link2.source;
+          var t = link2.target.id || link2.target;
           if (selectedPath) {
             if (s === selectedPath) return resolveHex("var(--orange)");
             if (t === selectedPath) return resolveHex("var(--purple)");
@@ -5613,16 +10713,16 @@
             var labelText = node.name;
             var canvas = document.createElement("canvas");
             var ctx = canvas.getContext("2d");
-            var scale = 4;
-            ctx.font = 10 * scale + 'px "JetBrains Mono", monospace';
+            var scale2 = 4;
+            ctx.font = 10 * scale2 + 'px "JetBrains Mono", monospace';
             var textWidth = ctx.measureText(labelText).width;
-            canvas.width = textWidth + 16 * scale;
-            canvas.height = 24 * scale;
-            ctx.font = 10 * scale + 'px "JetBrains Mono", monospace';
+            canvas.width = textWidth + 16 * scale2;
+            canvas.height = 24 * scale2;
+            ctx.font = 10 * scale2 + 'px "JetBrains Mono", monospace';
             ctx.fillStyle = theme === "light" ? "rgba(255,255,255,0.9)" : "rgba(10,10,12,0.9)";
             var w_rect = canvas.width;
             var h_rect = canvas.height;
-            var r_rect = 4 * scale;
+            var r_rect = 4 * scale2;
             ctx.beginPath();
             ctx.moveTo(r_rect, 0);
             ctx.lineTo(w_rect - r_rect, 0);
@@ -5636,7 +10736,7 @@
             ctx.closePath();
             ctx.fill();
             ctx.strokeStyle = theme === "light" ? "rgba(0,0,0,0.15)" : "rgba(255,255,255,0.15)";
-            ctx.lineWidth = 1 * scale;
+            ctx.lineWidth = 1 * scale2;
             ctx.stroke();
             ctx.fillStyle = color;
             ctx.textAlign = "center";
@@ -5645,8 +10745,8 @@
             var texture = new THREE.CanvasTexture(canvas);
             var labelMaterial = new THREE.SpriteMaterial({ map: texture, depthWrite: false });
             var labelSprite = new THREE.Sprite(labelMaterial);
-            var spriteWidth = canvas.width / scale * 0.15;
-            var spriteHeight = canvas.height / scale * 0.15;
+            var spriteWidth = canvas.width / scale2 * 0.15;
+            var spriteHeight = canvas.height / scale2 * 0.15;
             labelSprite.scale.set(spriteWidth, spriteHeight, 1);
             labelSprite.position.set(0, r + spriteHeight / 2 + 2, 0);
             group.add(labelSprite);
@@ -5688,1632 +10788,6 @@
       }, []);
       return React2.createElement("div", { ref: graph3dRef, className: "graph3d-container", style: { width: "100%", height: "100%" } });
     });
-  }
-
-  // src/analysis/file-types.mjs
-  var codeExts = [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".py", ".pyw", ".pyi", ".java", ".go", ".rb", ".php", ".rs", ".c", ".cpp", ".cc", ".h", ".hpp", ".cs", ".swift", ".kt", ".kts", ".scala", ".clj", ".ex", ".exs", ".erl", ".hs", ".lua", ".r", ".R", ".jl", ".dart", ".elm", ".fs", ".fsx", ".ml", ".pl", ".pm", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".psm1", ".groovy", ".gradle", ".vba", ".bas", ".cls", ".xlsm", ".xlam", ".xlsb", ".xla", ".xlw", ".pas", ".pp", ".dpr", ".dpk", ".lpr", ".inc"];
-  var scriptContainerExts = [".html", ".htm", ".xhtml", ".vue", ".svelte"];
-  var textExts = [".md", ".markdown", ".txt", ".json", ".jsonl", ".yaml", ".yml", ".toml", ".xml", ".html", ".htm", ".css", ".scss", ".sass", ".less", ".svg", ".graphql", ".gql", ".sql", ".prisma", ".proto", ".tf", ".tfvars", ".env", ".env.example", ".gitignore", ".gitattributes", ".gitmodules", ".eslintrc", ".prettierrc", ".babelrc", ".editorconfig", ".ini", ".cfg", ".conf", ".properties", ".lock", ".csv", ".tsv", ".rst", ".tex", ".cmake", ".rake", ".vba", ".bas", ".cls", ".xlsm", ".xlam", ".xlsb", ".xla", ".xlw", ".mod", ".sum"];
-  var textNames = ["dockerfile", "containerfile", "makefile", "rakefile", "gemfile", "podfile", "pipfile", "procfile", "brewfile", "justfile", "taskfile", "cmakelists.txt", "license", "copying", "notice", "readme", "changelog", "authors", "contributors", "owners", "codeowners", "go.mod", "go.sum"];
-  var binExts = [".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp", ".bmp", ".svg", ".woff", ".woff2", ".ttf", ".eot", ".otf", ".pdf", ".zip", ".tar", ".gz", ".rar", ".7z", ".exe", ".dll", ".so", ".dylib", ".bin", ".dat", ".db", ".sqlite", ".mp3", ".mp4", ".wav", ".avi", ".mov", ".webm"];
-  function isCode(n) {
-    var lower = n.toLowerCase();
-    return codeExts.some(function(e) {
-      return lower.endsWith(e);
-    }) || scriptContainerExts.some(function(e) {
-      return lower.endsWith(e);
-    });
-  }
-  function isText(n) {
-    var lower = n.toLowerCase();
-    return textExts.some(function(e) {
-      return lower.endsWith(e);
-    }) || textNames.indexOf(lower) >= 0;
-  }
-  function isBinary(n) {
-    return binExts.some(function(e) {
-      return n.toLowerCase().endsWith(e);
-    });
-  }
-  function isIncluded(n) {
-    return !isBinary(n) && (isCode(n) || isText(n));
-  }
-  function isScriptContainer(n) {
-    return scriptContainerExts.some(function(e) {
-      return n.toLowerCase().endsWith(e);
-    });
-  }
-  function isVBA(n) {
-    return [".vba", ".bas", ".cls", ".xlsm", ".xlam", ".xlsb", ".xla", ".xlw"].some(function(e) {
-      return n.toLowerCase().endsWith(e);
-    });
-  }
-  function isPascal(n) {
-    return [".pas", ".pp", ".dpr", ".dpk", ".lpr", ".inc"].some(function(e) {
-      return n.toLowerCase().endsWith(e);
-    });
-  }
-  function isHTML(n) {
-    return [".html", ".htm", ".xhtml"].some(function(e) {
-      return n.toLowerCase().endsWith(e);
-    });
-  }
-  function isCSS(n) {
-    return [".css", ".scss", ".sass", ".less"].some(function(e) {
-      return n.toLowerCase().endsWith(e);
-    });
-  }
-  function isJSON(n) {
-    return [".json"].some(function(e) {
-      return n.toLowerCase().endsWith(e);
-    });
-  }
-  function isElixir(filename) {
-    return /\.exs?$/.test(filename || "");
-  }
-  function isMarkdown(n) {
-    return [".md", ".markdown"].some(function(e) {
-      return n.toLowerCase().endsWith(e);
-    });
-  }
-  function isTestFile(path) {
-    var p = String(path || "").replace(/\\/g, "/");
-    var lower = p.toLowerCase();
-    if (/(^|\/)(tests?|spec|specs|__tests__)\//.test(lower)) return true;
-    if (/\.(test|spec)\.[a-z]+$/.test(lower)) return true;
-    if (/_(test|spec)\.(rb|go|py|exs|ex|cr|php|rs)$/.test(lower)) return true;
-    if (/(^|\/)test_[^\/]*\.py$/.test(lower)) return true;
-    if (/(^|\/)conftest\.py$/.test(lower)) return true;
-    if (/(Test|Tests|Spec)\.(java|kt|kts|scala|cs|groovy|swift)$/.test(p)) return true;
-    return false;
-  }
-  function detectLayer(p) {
-    var l = "/" + p.toLowerCase().replace(/^\/+/, "");
-    if (l.includes("/test") || l.match(/test_\w+\.py$/) || l.match(/\w+_test\.py$/) || l.includes("conftest")) return "test";
-    if (l.includes("/ui/") || l.includes("/views/") || l.includes("/pages/") || l.includes("/templates/") || l.includes("/static/")) return "ui";
-    if (l.includes("/component")) return "components";
-    if (l.includes("/service") || l.includes("/api/") || l.includes("/controller") || l.includes("/endpoint") || l.includes("/router")) return "services";
-    if (l.includes("/middleware") || l.includes("/handler") || l.includes("/signal")) return "services";
-    if (l.includes("/util") || l.includes("/helper") || l.includes("/lib/") || l.includes("/common/")) return "utils";
-    if (l.includes("/data") || l.includes("/model") || l.includes("/store") || l.includes("/schema") || l.includes("/serializer")) return "data";
-    if (l.includes("/migration")) return "data";
-    if (l.includes("/fixtures/")) return "data";
-    if (l.includes("/task") || l.includes("/worker") || l.includes("/celery") || l.includes("/job")) return "services";
-    if (l.includes("/config") || l.includes("/settings") || l.match(/settings\.py$/)) return "config";
-    if (l.includes("/modules/") || l.includes("/bas/")) return "modules";
-    if (l.includes("/forms/") || l.includes("/userforms/")) return "ui";
-    if (l.includes("/classes/")) return "data";
-    if (l.includes("/standard/")) return "utils";
-    return "utils";
-  }
-  function normalizeArchitecturePath(value) {
-    return (value || "").replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/{2,}/g, "/");
-  }
-  function isArchitectureBuildOutput(path, name) {
-    var p = String(path || "").toLowerCase().replace(/\\/g, "/");
-    var base = String(name || p.split("/").pop() || "").toLowerCase();
-    if (/(^|\/)out(\/|$)/.test(p) || /(^|\/)dist(\/|$)/.test(p) || /(^|\/)build(\/|$)/.test(p) || /(^|\/)coverage(\/|$)/.test(p)) return true;
-    if (/(^|\/)\.next(\/|$)/.test(p) || /(^|\/)\.nuxt(\/|$)/.test(p) || /(^|\/)\.output(\/|$)/.test(p)) return true;
-    if (/^page-[a-f0-9]{6,}/i.test(base) || /^layout-[a-f0-9]{6,}/i.test(base)) return true;
-    if (/\/page-[a-f0-9]{6,}\//i.test(p) || /\/layout-[a-f0-9]{6,}\//i.test(p)) return true;
-    if (/(^|\/)404\/index\.html?$/i.test(p) && /(^|\/)out\//i.test(p)) return true;
-    return false;
-  }
-  function isArchitectureTestFile(path) {
-    var p = String(path || "").toLowerCase().replace(/\\/g, "/");
-    return isTestFile(p) || /\.smoke\.(js|mjs|cjs)$/.test(p);
-  }
-  function isArchitectureFixtureFile(path) {
-    var p = String(path || "").toLowerCase().replace(/\\/g, "/");
-    return /(^|\/)fixtures(\/|$)/.test(p) || /(^|\/)__fixtures__(\/|$)/.test(p);
-  }
-  function isDocumentationPath(path) {
-    var p = String(path || "").toLowerCase().replace(/\\/g, "/");
-    if (/(^|\/)docs?(\/|$)/.test(p)) return true;
-    if (/\.(md|markdown|mdx)$/.test(p)) return true;
-    return false;
-  }
-  function isDevToolingPath(path) {
-    var p = String(path || "").toLowerCase().replace(/\\/g, "/");
-    if (/(^|\/)\.github(\/|$)/.test(p)) return true;
-    if (/(^|\/)\.claude(\/|$)/.test(p)) return true;
-    if (/(^|\/)(scripts|tools|tooling)(\/|$)/.test(p)) return true;
-    return false;
-  }
-  function isSecretScanExemptPath(path) {
-    var p = String(path || "").toLowerCase().replace(/\\/g, "/");
-    if (isArchitectureTestFile(p)) return true;
-    if (isArchitectureFixtureFile(p)) return true;
-    if (isDocumentationPath(p)) return true;
-    return false;
-  }
-  function isNonProductionPath(path) {
-    var p = String(path || "").toLowerCase().replace(/\\/g, "/");
-    if (isSecretScanExemptPath(p)) return true;
-    if (isDevToolingPath(p)) return true;
-    return false;
-  }
-  function isArchitectureBackendPath(path) {
-    var p = normalizeArchitecturePath(path).toLowerCase();
-    if (/(^|\/)(a-)?backend(\/|$)/.test(p)) return true;
-    if (/(^|\/)server(\/|$)/.test(p)) return true;
-    if (/(^|\/)workers?(\/|$)/.test(p)) return true;
-    if (/(^|\/)functions(\/|$)/.test(p)) return true;
-    if (/(^|\/)lambda(\/|$)/.test(p)) return true;
-    if (/^src\/app\/api\//.test(p)) return false;
-    var segments = p.split("/").filter(Boolean);
-    for (var i = 0; i < segments.length; i++) {
-      var seg = segments[i];
-      if (seg === "middleware" || seg === "controllers" || seg === "handlers") return true;
-      if (seg === "routes" || seg === "services") {
-        if (i === 0) return true;
-        var prev = segments[i - 1];
-        if (prev === "backend" || prev === "a-backend" || prev === "server" || prev === "api") return true;
-      }
-    }
-    return false;
-  }
-
-  // src/analysis/architecture.mjs
-  var ARCHITECTURE_MAX_BLOCKS = 64;
-  var ARCHITECTURE_GROUP_ORDER_CODEFLOW = ["Browser App", "GitHub Action", "Analysis Core", "Repository Collection", "Rendering / Reports", "Testing", "Fixtures / Examples", "Application", "Storage"];
-  var ARCHITECTURE_GROUP_ORDER_WEBAPP = ["App Entry / Shell", "Frontend Routes / Views", "Frontend Components", "Backend / API Layer", "Services / Business Logic", "Data / Storage", "Shared / Utilities", "Configuration", "Content / Data", "External Integrations", "Build Output", "Testing", "Fixtures / Examples"];
-  var ARCHITECTURE_GROUP_ORDER_GENERIC = ["Application", "Shared Services / Utils", "Configuration", "Content / Data", "Build Output", "Testing", "Fixtures / Examples", "Storage"];
-  function getArchitectureGroupOrder(profile) {
-    if (profile === "codeflow") return ARCHITECTURE_GROUP_ORDER_CODEFLOW;
-    if (profile === "web-app") return ARCHITECTURE_GROUP_ORDER_WEBAPP;
-    return ARCHITECTURE_GROUP_ORDER_GENERIC;
-  }
-  function detectArchitectureProfile(files, framework) {
-    var paths = (files || []).map(function(f) {
-      return normalizeArchitecturePath(f.path || f.name).toLowerCase();
-    });
-    if (paths.some(function(p) {
-      return /(^|\/)index\.html?$/i.test(p);
-    }) && paths.some(function(p) {
-      return /(^|\/)card\/(lib|render)\//i.test(p);
-    })) return "codeflow";
-    if (framework === "Next.js") return "web-app";
-    if (paths.some(function(p) {
-      return /(^|\/)src\/app\//i.test(p) || /(^|\/)pages\//i.test(p) || /(^|\/)(backend|server|api|services?|middleware|routes?|platforms?)\b/i.test(p);
-    })) return "web-app";
-    if (framework === "Browser App") return "web-app";
-    return "generic";
-  }
-  function isArchitectureBarrelIndex(path) {
-    var p = normalizeArchitecturePath(path).toLowerCase();
-    return /\/index\.(js|mjs|cjs|ts)$/i.test(p) && !/\/index\.(tsx|jsx)$/i.test(p);
-  }
-  function isNonRouteFolderSegment(segment) {
-    return ["hooks", "components", "ui", "views", "schemas", "schema", "controllers", "middleware", "services", "routes", "utils", "lib", "common", "analytics", "types", "constants", "validators", "models", "repositories", "config", "core", "api", "server", "backend", "workers", "functions", "platforms", "tabs", "charts", "widgets", "providers", "layouts", "shared", "domain", "usecases", "processors", "jobs", "db", "database", "content", "posts", "blog", "docs", "tests", "fixtures", "node_modules", "public", "static", "assets", "styles", "themes"].indexOf(segment) >= 0;
-  }
-  function canBeFrontendRoute(path) {
-    var p = normalizeArchitecturePath(path).toLowerCase();
-    if (isArchitectureBuildOutput(path) || isArchitectureBackendPath(path) || isArchitectureBarrelIndex(path)) return false;
-    if (/(^|\/)src\/app\/.*\/page\.(jsx|tsx)$/i.test(p)) return true;
-    if (/^src\/app\/page\.(jsx|tsx)$/i.test(p)) return true;
-    if (/^src\/site-pages\/.+\/index\.(tsx|jsx)$/i.test(p)) return true;
-    if (/(^|\/)pages\/.*\.(jsx|tsx)$/i.test(p) && !/(^|\/)pages\/api\//i.test(p)) return true;
-    var flat = p.match(/^([a-z0-9][a-z0-9_-]*(?:\/[a-z0-9][a-z0-9_-]*){0,4})\/index\.(tsx|jsx)$/);
-    if (flat) {
-      var segments = flat[1].split("/").filter(Boolean);
-      if (!segments.some(isNonRouteFolderSegment)) return true;
-    }
-    return false;
-  }
-  function inferNextSpecialFile(path) {
-    var p = normalizeArchitecturePath(path).toLowerCase();
-    if (/\/global-error\.(tsx|jsx)$/.test(p)) return { role: "frontend-component", title: "Global Error Boundary", route: null, kind: "component" };
-    if (/\/not-found\.(tsx|jsx)$/.test(p)) return { role: "frontend-route", title: "404 Not Found", route: "/404", kind: "page" };
-    if (/\/error\.(tsx|jsx)$/.test(p)) return { role: "frontend-component", title: "Error Boundary", route: null, kind: "component" };
-    if (/\/loading\.(tsx|jsx)$/.test(p)) return { role: "frontend-component", title: "Loading UI", route: null, kind: "component" };
-    if (/\/template\.(tsx|jsx)$/.test(p)) return { role: "app-shell", title: "App Template", route: null, kind: "shell" };
-    if (/\/layout\.(tsx|jsx)$/.test(p)) return { role: "app-shell", title: "App Layout", route: null, kind: "shell" };
-    if (/\/providers\.(tsx|jsx)$/.test(p)) return { role: "app-shell", title: "App Providers", route: null, kind: "shell" };
-    return null;
-  }
-  function isArchitectureConfigPath(path, name) {
-    var p = normalizeArchitecturePath(path).toLowerCase();
-    var base = String(name || "").toLowerCase();
-    return /(^|\/)config(\/|$)/i.test(p) || /\.config\.(js|ts|mjs|cjs)$/.test(p) || base === "package.json" || base === "wrangler.toml" || base === "tsconfig.json";
-  }
-  function isArchitectureContentPath(path, name) {
-    var p = normalizeArchitecturePath(path).toLowerCase();
-    return /(^|\/)(blog|posts|content|data|static\/content)\b/i.test(p) || /\.(md|mdx)$/i.test(name || "");
-  }
-  function isLikelyUiComponentSource(content) {
-    return /(from\s+['"`]react['"`]|React\.)/.test(content || "") && (/export\s+(?:default\s+)?function\s+[A-Z]/.test(content || "") || /export\s+(?:default\s+)?(?:const|class)\s+[A-Z]/.test(content || "") || /<[A-Z][A-Za-z0-9_]*\b/.test(content || ""));
-  }
-  function inferWebAppRoute(path) {
-    if (!canBeFrontendRoute(path)) return null;
-    var p = normalizeArchitecturePath(path);
-    var nextRoute = inferArchitectureRoute(p);
-    if (nextRoute && !isArchitectureBackendPath(path)) return nextRoute;
-    var match = p.match(/^(?:src\/)?site-pages\/(.+)\/index\.(tsx|jsx)$/i);
-    if (match) return normalizeArchitectureRoute("/" + match[1].split("/").filter(Boolean).join("/"));
-    match = p.match(/^([a-z0-9][a-z0-9_-]*(?:\/[a-z0-9][a-z0-9_-]*){0,4})\/index\.(tsx|jsx)$/i);
-    if (match && !isNonRouteFolderSegment(match[1].split("/")[0])) {
-      var segments = match[1].split("/").filter(Boolean);
-      if (!segments.some(isNonRouteFolderSegment)) return normalizeArchitectureRoute("/" + segments.join("/"));
-    }
-    return null;
-  }
-  function inferCodeflowArchitectureRole(path) {
-    var p = normalizeArchitecturePath(path).toLowerCase();
-    if (isArchitectureTestFile(path)) return "test";
-    if (isArchitectureFixtureFile(path)) return "fixture";
-    if (/(^|\/)index\.html?$/i.test(p)) return "browser-shell";
-    if (/(^|\/)card\/index\.(js|mjs|cjs)$/i.test(p)) return "action-entry";
-    if (/\/analyzer\.(js|mjs|cjs)$/i.test(p)) return "analyzer-loader";
-    if (/\/collect\.(js|mjs|cjs)$/i.test(p)) return "collector";
-    if (/\/git\.(js|mjs|cjs)$/i.test(p)) return "git";
-    if (/\/inputs\.(js|mjs|cjs)$/i.test(p)) return "inputs";
-    if (/\/pr\.(js|mjs|cjs)$/i.test(p)) return "pr";
-    if (/\/state\.(js|mjs|cjs)$/i.test(p)) return "state";
-    if (/\/card\/render\/card\.(js|mjs|cjs)$/i.test(p)) return "renderer";
-    if (/(^|\/)card\/render\//i.test(p)) return "render-support";
-    if (/(^|\/)card\/lib\//i.test(p)) return "module";
-    return "module";
-  }
-  function inferWebAppArchitectureRole(path, classified, content) {
-    var p = normalizeArchitecturePath(path).toLowerCase();
-    var base = architectureFileBaseName(path);
-    var special = inferNextSpecialFile(path);
-    if (special) return special.role;
-    if (isArchitectureTestFile(path)) return "test";
-    if (isArchitectureFixtureFile(path)) return "fixture";
-    if (isArchitectureBuildOutput(path)) return "build-output";
-    if (isArchitectureBackendPath(path)) {
-      if (/\/middleware(\/|$)/.test(p) || base.toLowerCase() === "middleware") return "backend-middleware";
-      if (/\/routes(\/|$)/.test(p) || base.toLowerCase() === "routes") return "backend-routes";
-      if (/\/services(\/|$)/.test(p) || base.toLowerCase() === "services" || base.toLowerCase() === "service") return "backend-services";
-      if (/\/config(\/|$)/.test(p) || base.toLowerCase() === "config") return "config";
-      if (/\/core(\/|$)/.test(p) || base.toLowerCase() === "core") return "config";
-      if (/\/platforms\/[^/]+\//.test(p) && (/analyzer|controller|api/.test(p) || /analyzer|controller/i.test(base))) return "platform-analyzer";
-      if (/\/analyzer/.test(p) || /analyzer/i.test(base)) return "platform-analyzer";
-      if (/api[-_]?client/i.test(p) || /api[-_]?client/i.test(base)) return "api-client";
-      return "backend-module";
-    }
-    if (isArchitectureConfigPath(path, base)) return "config";
-    if (isArchitectureContentPath(path, base)) return "content";
-    if (/(^|\/)src\/app\/(layout|template|providers|page)\./i.test(p)) return "app-shell";
-    if (classified.kind === "api" || /^src\/app\/api\//.test(p)) return "backend-routes";
-    if (classified.kind === "page" && classified.route && canBeFrontendRoute(path)) return "frontend-route";
-    if (/\/hooks(\/|$)/.test(p) || /\/schemas?(\/|$)/.test(p) || /\/validators?(\/|$)/.test(p)) return "shared-module";
-    if (/\/components(\/|$)/.test(p) || /\/ui\/components(\/|$)/.test(p) || /\/views(\/|$)/.test(p)) {
-      if (/\.(tsx|jsx)$/i.test(p) && isLikelyUiComponentSource(content)) return "frontend-component";
-      return "shared-module";
-    }
-    if ((classified.kind === "component" || classified.kind === "hook") && /\.(tsx|jsx)$/i.test(p) && isLikelyUiComponentSource(content)) return "frontend-component";
-    if (/(^|\/)utils?\b/i.test(p) || /(^|\/)lib\//i.test(p) || /(^|\/)common\//i.test(p) || /(^|\/)constants?\b/i.test(p)) return "shared-module";
-    return "shared-module";
-  }
-  function inferArchitectureRole(path, profile, classified, content) {
-    if (profile === "codeflow") return inferCodeflowArchitectureRole(path);
-    return inferWebAppArchitectureRole(path, classified || { kind: "utility", route: null }, content || "");
-  }
-  function inferArchitectureGroup(role, fact, profile) {
-    if (profile === "codeflow") {
-      if (role === "browser-shell") return "Browser App";
-      if (role === "action-entry") return "GitHub Action";
-      if (role === "analyzer-loader" || role === "state") return "Analysis Core";
-      if (role === "collector" || role === "git" || role === "inputs" || role === "pr") return "Repository Collection";
-      if (role === "renderer" || role === "render-support") return "Rendering / Reports";
-      if (role === "test") return "Testing";
-      if (role === "fixture") return "Fixtures / Examples";
-      if (fact && fact.kind === "page") return "Browser App";
-      if (fact && fact.kind === "api") return "Application";
-      if (fact && (fact.kind === "database-adapter" || fact.kind === "database")) return "Storage";
-      return "Application";
-    }
-    if (role === "app-shell") return "App Entry / Shell";
-    if (role === "frontend-route") return "Frontend Routes / Views";
-    if (role === "frontend-component") return "Frontend Components";
-    if (role === "platform-analyzer") return "Services / Business Logic";
-    if (role === "backend-routes" || role === "backend-middleware" || role === "api-client") return "Backend / API Layer";
-    if (role === "backend-services" || role === "backend-module") return "Services / Business Logic";
-    if (role === "config") return "Configuration";
-    if (role === "content") return "Content / Data";
-    if (role === "build-output") return "Build Output";
-    if (role === "test") return "Testing";
-    if (role === "fixture") return "Fixtures / Examples";
-    if (role === "shared-module") return "Shared / Utilities";
-    if (fact && (fact.kind === "database-adapter" || fact.kind === "database")) return "Data / Storage";
-    return "Shared / Utilities";
-  }
-  function isArchitectureSignificantFile(path, role, fact, framework, profile, importedByCore) {
-    if (isArchitectureTestFile(path) || isArchitectureFixtureFile(path) || isArchitectureBuildOutput(path)) return false;
-    if (profile === "codeflow") {
-      if (role === "browser-shell" || role === "action-entry") return true;
-      if (role === "analyzer-loader" || role === "collector" || role === "git" || role === "inputs" || role === "pr" || role === "state" || role === "renderer" || role === "render-support") return true;
-      if (/(^|\/)card\/(lib|render)\//i.test(path)) return true;
-      if (fact.kind === "page" || fact.kind === "api") return true;
-      if (fact.kind === "database-adapter" && fact.dbUsage) return true;
-      return false;
-    }
-    if (role === "app-shell") return true;
-    if (role === "frontend-route" && fact.route && canBeFrontendRoute(path)) return true;
-    if (role === "frontend-component" && /\.(tsx|jsx)$/i.test(path)) return true;
-    if (role === "backend-routes" || role === "backend-middleware" || role === "backend-services" || role === "platform-analyzer" || role === "api-client") return true;
-    if (role === "config" || role === "content") return true;
-    if (role === "backend-module" && /(middleware|routes?|services?|analyzer|platform)/i.test(path)) return true;
-    if (fact.kind === "page" && fact.route && canBeFrontendRoute(path)) return true;
-    if (fact.kind === "api") return true;
-    if (fact.kind === "database-adapter" && fact.dbUsage) return true;
-    if (importedByCore) return true;
-    return false;
-  }
-  function extractExportedComponentName(content) {
-    var match = (content || "").match(/export\s+default\s+function\s+([A-Z][A-Za-z0-9_]*)/);
-    if (match) return match[1];
-    match = (content || "").match(/export\s+default\s+(?:const|class)\s+([A-Z][A-Za-z0-9_]*)/);
-    if (match) return match[1];
-    match = (content || "").match(/export\s+function\s+([A-Z][A-Za-z0-9_]*)/);
-    if (match) return match[1];
-    return null;
-  }
-  function inferPageComponentTitle(path, route, content) {
-    var special = inferNextSpecialFile(path);
-    if (special && special.title) return special.title;
-    var exported = extractExportedComponentName(content);
-    if (exported) return exported;
-    var base = architectureFileBaseName(path);
-    if (/^[A-Z]/.test(base) && base !== "Index" && base !== "Page") return base;
-    if (route && route !== "/") {
-      var segment = route.split("/").filter(Boolean).pop() || "";
-      if (segment) return segment.charAt(0).toUpperCase() + segment.slice(1).replace(/[-_](\w)/g, function(m, c) {
-        return c.toUpperCase();
-      }) + " Page";
-    }
-    if (/layout/i.test(base)) return "App Layout";
-    if (/page/i.test(base)) return "Page Module";
-    return "UI Module";
-  }
-  function testFileReferencesCore(content) {
-    return /CODEFLOW_ANALYZER|buildAnalysisData|loadAnalyzer|locateIndexHtml|const Parser=\{/.test(content || "");
-  }
-  function inferTestTargetPaths(testPath) {
-    var base = architectureFileBaseName(testPath).toLowerCase();
-    var targets = [];
-    if (/golden/.test(base)) targets.push("card/lib/analyzer.js");
-    if (/repo-smoke|smoke/.test(base)) targets.push("card/lib/collect.js");
-    if (/md-extractor|sync-with-html|html-inline/.test(base)) targets.push("index.html");
-    return targets;
-  }
-  function architectureDependencyLabel(sourceRole, targetRole, importPath) {
-    if (sourceRole === "test") return "tests";
-    if (sourceRole === "browser-shell" && targetRole === "analyzer-loader") return "runs analysis";
-    if (sourceRole === "browser-shell" && targetRole === "collector") return "loads repo data";
-    if (sourceRole === "action-entry" && targetRole === "browser-shell") return "loads analyzer from";
-    if (sourceRole === "action-entry" && targetRole === "collector") return "collects repo";
-    if (sourceRole === "action-entry" && targetRole === "analyzer-loader") return "runs analysis";
-    if (sourceRole === "action-entry" && targetRole === "state") return "stores derived state";
-    if (sourceRole === "action-entry" && targetRole === "renderer") return "renders report";
-    if (sourceRole === "collector" && targetRole === "git") return "uses GitHub API";
-    if (sourceRole === "collector" && targetRole === "inputs") return "normalizes input";
-    if (sourceRole === "pr" && targetRole === "git") return "analyzes pull requests";
-    if (sourceRole === "analyzer-loader" && targetRole === "state") return "stores derived state";
-    if (sourceRole === "renderer" && targetRole === "render-support") return "uses visual helpers";
-    if (sourceRole === "render-support" && targetRole === "render-support") {
-      if (/receipt-md/.test(importPath || "")) return "exports markdown";
-      if (/theme/.test(importPath || "")) return "uses";
-      return "uses";
-    }
-    if (targetRole === "database") return "queries";
-    if (sourceRole === "browser-shell" && targetRole === "api") return "calls";
-    if (sourceRole === "app-shell" && targetRole === "frontend-route") return "bootstraps";
-    if (sourceRole === "frontend-route" && targetRole === "frontend-component") return "renders";
-    if (sourceRole === "frontend-component" && targetRole === "platform-analyzer") return "calls";
-    if (sourceRole === "frontend-component" && targetRole === "backend-services") return "calls";
-    if (sourceRole === "backend-routes" && targetRole === "backend-middleware") return "passes through";
-    if (sourceRole === "backend-routes" && targetRole === "backend-services") return "dispatches";
-    if (sourceRole === "backend-services" && targetRole === "platform-analyzer") return "uses";
-    if (sourceRole === "platform-analyzer" && targetRole === "api-client") return "uses API";
-    if (sourceRole === "frontend-component" && targetRole === "content") return "reads content";
-    if ((sourceRole === "app-shell" || sourceRole === "backend-module") && targetRole === "config") return "depends on";
-    return "depends on";
-  }
-  function architectureDirname(path) {
-    path = normalizeArchitecturePath(path);
-    return path.includes("/") ? path.split("/").slice(0, -1).join("/") : "";
-  }
-  function stripArchitectureExt(path) {
-    return normalizeArchitecturePath(path).replace(/\.(jsx?|tsx?|mjs|cjs|html?|css|scss|sass|less|py|pyw|pyi|rb|go|java|php|rs|cs|swift|kt|kts)$/i, "");
-  }
-  function architectureFileBaseName(path) {
-    var base = stripArchitectureExt(path).split("/").pop() || "Block";
-    return base === "index" ? stripArchitectureExt(path).split("/").slice(-2, -1)[0] || base : base;
-  }
-  function normalizeArchitectureRoute(route) {
-    route = String(route || "").split("#")[0].split("?")[0].trim();
-    if (!route) return "";
-    if (route[0] !== "/") route = "/" + route;
-    route = route.replace(/\/{2,}/g, "/");
-    if (route.length > 1) route = route.replace(/\/$/, "");
-    return route || "/";
-  }
-  function routeSegmentsMatch(patternRoute, targetRoute) {
-    patternRoute = normalizeArchitectureRoute(patternRoute);
-    targetRoute = normalizeArchitectureRoute(targetRoute);
-    if (patternRoute === targetRoute) return true;
-    var pattern = patternRoute.split("/").filter(Boolean);
-    var target = targetRoute.split("/").filter(Boolean);
-    for (var i = 0; i < pattern.length; i++) {
-      var segment = pattern[i];
-      if (segment.charAt(0) === ":" && segment.endsWith("*")) return true;
-      if (i >= target.length) return false;
-      if (segment.charAt(0) === ":") continue;
-      if (segment !== target[i]) return false;
-    }
-    return pattern.length === target.length;
-  }
-  function getArchitectureScanFiles(files) {
-    return (files || []).filter(function(file) {
-      var path = normalizeArchitecturePath(file.path || file.name);
-      return !isArchitectureTestFile(path) && !isArchitectureFixtureFile(path);
-    });
-  }
-  function detectArchitectureFramework(files) {
-    var paths = getArchitectureScanFiles(files).map(function(f) {
-      return normalizeArchitecturePath(f.path || f.name).toLowerCase();
-    });
-    if (paths.indexOf("mix.exs") >= 0) {
-      var phoenix = (files || []).some(function(file) {
-        return /^lib\//.test(file.path || "") && (file.elixir && file.elixir.modules || []).some(function(m) {
-          return (m.uses || []).concat(m.quotedUses || []).some(function(d) {
-            return /^Phoenix\./.test(d.module);
-          });
-        });
-      });
-      return phoenix ? "Phoenix" : "Elixir / OTP";
-    }
-    var hasNextConfig = paths.some(function(p) {
-      return /(^|\/)next\.config\.(js|mjs|ts|cjs)$/.test(p);
-    });
-    var hasAppRouter = paths.some(function(p) {
-      return /(^|\/)(src\/)?app\/.*(page|route)\.(js|jsx|ts|tsx)$/.test(p);
-    });
-    var hasPagesRouter = paths.some(function(p) {
-      return /(^|\/)(src\/)?pages\/.*\.(js|jsx|ts|tsx)$/.test(p);
-    });
-    if (hasNextConfig || hasAppRouter || hasPagesRouter) return "Next.js";
-    if (paths.some(function(p) {
-      return /\.(html?|xhtml)$/.test(p);
-    })) return "Browser App";
-    if (paths.some(function(p) {
-      return /\.(jsx?|tsx?|mjs|cjs)$/.test(p);
-    })) return "JavaScript/TypeScript";
-    if (paths.some(function(p) {
-      return /\.(py|pyw|pyi)$/.test(p);
-    })) return "Python";
-    if (paths.some(function(p) {
-      return /\.exs?$/.test(p);
-    })) return "Elixir / OTP";
-    return "Generic";
-  }
-  function convertNextRouteSegment(segment) {
-    if (!segment || /^\(.*\)$/.test(segment)) return null;
-    var optionalCatchAll = segment.match(/^\[\[\.\.\.(.+)\]\]$/);
-    if (optionalCatchAll) return ":" + optionalCatchAll[1] + "*";
-    var catchAll = segment.match(/^\[\.\.\.(.+)\]$/);
-    if (catchAll) return ":" + catchAll[1] + "*";
-    var dynamic = segment.match(/^\[(.+)\]$/);
-    if (dynamic) return ":" + dynamic[1];
-    return segment;
-  }
-  function nextRouteFromSegments(segments) {
-    var clean = [];
-    (segments || []).forEach(function(segment) {
-      var converted = convertNextRouteSegment(segment);
-      if (converted) clean.push(converted);
-    });
-    return normalizeArchitectureRoute("/" + clean.join("/"));
-  }
-  function inferArchitectureRoute(path) {
-    var p = normalizeArchitecturePath(path);
-    var match;
-    match = p.match(/^(?:src\/)?app\/api\/(.+)\/route\.(js|jsx|ts|tsx)$/i);
-    if (match) return nextRouteFromSegments(["api"].concat(match[1].split("/")));
-    match = p.match(/^(?:src\/)?app\/api\/route\.(js|jsx|ts|tsx)$/i);
-    if (match) return "/api";
-    match = p.match(/^(?:src\/)?app\/(.+)\/page\.(js|jsx|ts|tsx)$/i);
-    if (match) return nextRouteFromSegments(match[1].split("/"));
-    match = p.match(/^(?:src\/)?app\/page\.(js|jsx|ts|tsx)$/i);
-    if (match) return "/";
-    match = p.match(/^(?:src\/)?pages\/api\/(.+)\.(js|jsx|ts|tsx)$/i);
-    if (match) {
-      var apiParts = stripArchitectureExt(match[1]).split("/").filter(Boolean);
-      if (apiParts[apiParts.length - 1] === "index") apiParts.pop();
-      return nextRouteFromSegments(["api"].concat(apiParts));
-    }
-    match = p.match(/^(?:src\/)?pages\/(.+)\.(js|jsx|ts|tsx)$/i);
-    if (match) {
-      var routePath = stripArchitectureExt(match[1]);
-      var parts = routePath.split("/").filter(Boolean);
-      var first = parts[0] || "";
-      if (first.charAt(0) === "_") return null;
-      if (parts[parts.length - 1] === "index") parts.pop();
-      return nextRouteFromSegments(parts);
-    }
-    return null;
-  }
-  function extractArchitectureImports(content) {
-    var imports = [];
-    var regexes = [
-      /import\s+[\s\S]*?\s+from\s+['"`]([^'"`]+)['"`]/g,
-      /import\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g,
-      /require\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g
-    ];
-    regexes.forEach(function(regex) {
-      var match;
-      while (match = regex.exec(content || "")) imports.push(match[1]);
-    });
-    return Array.from(new Set(imports));
-  }
-  function extractJsxComponents(content) {
-    var components = [];
-    var ignored = /* @__PURE__ */ new Set(["Fragment", "React", "Suspense", "StrictMode"]);
-    var regex = /<([A-Z][A-Za-z0-9_]*)\b/g;
-    var match;
-    while (match = regex.exec(content || "")) {
-      if (!ignored.has(match[1])) components.push(match[1]);
-    }
-    return Array.from(new Set(components));
-  }
-  function extractNavigationLinks(content) {
-    var links = [];
-    var regexes = [
-      /<Link[^>]+href=["'`]([^"'`]+)["'`]/g,
-      /<a[^>]+href=["'`]([^"'`]+)["'`]/g,
-      /router\.(?:push|replace)\s*\(\s*["'`]([^"'`]+)["'`]\s*\)/g,
-      /navigate\s*\(\s*["'`]([^"'`]+)["'`]\s*\)/g
-    ];
-    regexes.forEach(function(regex) {
-      var match;
-      while (match = regex.exec(content || "")) {
-        var route = normalizeArchitectureRoute(match[1]);
-        if (route && route.charAt(0) === "/" && !route.startsWith("/api")) links.push(route);
-      }
-    });
-    return Array.from(new Set(links));
-  }
-  function extractApiCalls(content) {
-    var calls = [];
-    var match;
-    var fetchRegex = /fetch\s*\(\s*["'`]([^"'`]+)["'`](?:\s*,\s*\{([\s\S]{0,180}?)\})?/g;
-    while (match = fetchRegex.exec(content || "")) {
-      var method = "GET";
-      var methodMatch = (match[2] || "").match(/method\s*:\s*["'`]([A-Za-z]+)["'`]/);
-      if (methodMatch) method = methodMatch[1].toUpperCase();
-      calls.push({ method, url: normalizeArchitectureRoute(match[1]) });
-    }
-    var axiosRegex = /axios\.(get|post|put|patch|delete)\s*\(\s*["'`]([^"'`]+)["'`]/g;
-    while (match = axiosRegex.exec(content || "")) {
-      calls.push({ method: match[1].toUpperCase(), url: normalizeArchitectureRoute(match[2]) });
-    }
-    return calls.filter(function(call) {
-      return call.url && call.url.startsWith("/api");
-    });
-  }
-  function detectDatabaseUsage(content) {
-    return [
-      /\bnew\s+PrismaClient\s*\(/,
-      /\bprisma\.\w+\.(findMany|findUnique|findFirst|create|update|delete|upsert|count|aggregate)\s*\(/,
-      /\bsupabase\.from\s*\(/,
-      /\bmongoose\.model\b/,
-      /\bpool\.query\s*\(/,
-      /\bdb\.(select|insert|update|delete|query)\s*\(/,
-      /\bcollection\s*\(/
-    ].some(function(pattern) {
-      return pattern.test(content || "");
-    });
-  }
-  function isLikelyReactComponentFile(path, content) {
-    var p = normalizeArchitecturePath(path);
-    var base = architectureFileBaseName(p);
-    return /(^|\/)(components|ui)\//i.test(p) || /^[A-Z]/.test(base) || /\.(jsx|tsx)$/i.test(p) || /(from\s+['"`]react['"`]|React\.)/.test(content || "") && /<[A-Z][A-Za-z0-9_]*\b/.test(content || "");
-  }
-  function classifyArchitectureFile(path, content) {
-    var p = normalizeArchitecturePath(path);
-    var route = inferArchitectureRoute(p);
-    if (route) {
-      return route.startsWith("/api") ? { kind: "api", route } : { kind: "page", route };
-    }
-    var base = architectureFileBaseName(p);
-    var dbUsage = detectDatabaseUsage(content);
-    if (/^use[A-Z0-9_]/.test(base) || /(^|\/)hooks?\//i.test(p)) return { kind: "hook", route: null };
-    if (dbUsage && /(^|\/)(db|database|prisma|models?|schema|repositories?|data)\b/i.test(p)) return { kind: "database-adapter", route: null };
-    if (/(^|\/)(services?|controllers?|server|actions)\//i.test(p)) return { kind: "service", route: null };
-    if (isLikelyReactComponentFile(p, content)) return { kind: "component", route: null };
-    if (dbUsage) return { kind: "database-adapter", route: null };
-    return { kind: "utility", route: null };
-  }
-  function inferGenericArchitectureRoute(path) {
-    var p = normalizeArchitecturePath(path);
-    if (/(^|\/)index\.html?$/i.test(p)) return "/";
-    if (/\.(html?|xhtml)$/i.test(p)) {
-      return normalizeArchitectureRoute("/" + stripArchitectureExt(p).replace(/\/index$/i, ""));
-    }
-    return null;
-  }
-  function classifyGenericArchitectureFile(file, content) {
-    var p = normalizeArchitecturePath(file.path || file.name);
-    var name = file.name || p.split("/").pop() || "";
-    var layer = (file.layer || detectLayer(p) || "utils").toLowerCase();
-    var dbUsage = detectDatabaseUsage(content);
-    var route = inferGenericArchitectureRoute(p);
-    if (route || isHTML(name)) return { kind: "page", route: route || "/" + stripArchitectureExt(name) };
-    if (dbUsage || layer === "data" || layer === "classes") return { kind: "database-adapter", route: null };
-    if (layer === "ui" || layer === "forms" || layer === "components") return { kind: "component", route: null };
-    if (layer === "services") return { kind: "service", route: null };
-    if (layer === "config") return { kind: "utility", route: null };
-    if (file.functions && file.functions.length > 0) return { kind: "module", route: null };
-    return { kind: "utility", route: null };
-  }
-  function architectureModuleFacts(file, phoenixWrappers) {
-    var metadata = file.elixir;
-    if (!metadata || !Array.isArray(metadata.modules) || !metadata.modules.length) return null;
-    var modules = metadata.modules.filter(function(m) {
-      return m && typeof m.name === "string";
-    });
-    if (!modules.length) return null;
-    var names = modules.map(function(m) {
-      return m.name;
-    }).sort(function(a, b) {
-      return a.length - b.length || a.localeCompare(b);
-    });
-    var declarations = [];
-    modules.forEach(function(m) {
-      declarations.push({ kind: "module", module: m.name, line: m.line, path: file.path, evidence: metadata.provenance });
-      ["uses", "behaviours"].forEach(function(key) {
-        (m[key] || []).forEach(function(d) {
-          declarations.push({ kind: key === "uses" ? "use" : "behaviour", module: d.module, line: d.line, path: file.path, arguments: d.arguments || [], evidence: metadata.provenance });
-        });
-      });
-    });
-    var declared = declarations.map(function(d) {
-      return d.module;
-    });
-    var phoenixRole = { ":live_view": "Phoenix.LiveView", ":live_component": "Phoenix.LiveComponent", ":controller": "Phoenix.Controller", ":router": "Phoenix.Router" };
-    declarations.forEach(function(d) {
-      if (d.kind === "use" && phoenixWrappers && phoenixWrappers.has(d.module)) {
-        var argument = (d.arguments || [])[0], via = phoenixRole[argument];
-        if (via && phoenixWrappers.get(d.module).some(function(q) {
-          return q.module === via && q.viaFunction === argument.slice(1);
-        })) declared.push(via);
-      }
-    });
-    var role = "module", kind = "module", group = "Shared / Utilities";
-    if (declared.indexOf("Application") >= 0) {
-      role = "otp-application";
-      group = "Application";
-    } else if (declared.some(function(m) {
-      return m === "Supervisor" || m === "DynamicSupervisor" || m === "supervisor";
-    })) {
-      role = "otp-supervisor";
-      group = "Application";
-    } else if (declared.some(function(m) {
-      return m === "GenServer" || m === "GenStateMachine" || m === "gen_server" || m === "gen_statem";
-    })) {
-      role = "otp-process";
-      kind = "service";
-      group = "Services / Business Logic";
-    } else if (declared.indexOf("Phoenix.Endpoint") >= 0 || declared.indexOf("Phoenix.Router") >= 0) {
-      role = "phoenix-endpoint";
-      kind = "api";
-      group = "Backend / API Layer";
-    } else if (declared.indexOf("Phoenix.LiveView") >= 0 || declared.indexOf("Phoenix.LiveComponent") >= 0) {
-      role = "phoenix-live-view";
-      kind = "component";
-      group = "Frontend Routes / Views";
-    } else if (declared.indexOf("Phoenix.Controller") >= 0) {
-      role = "phoenix-controller";
-      kind = "api";
-      group = "Backend / API Layer";
-    } else if (declared.indexOf("Ecto.Repo") >= 0) {
-      role = "ecto-repo";
-      kind = "database-adapter";
-      group = "Data / Storage";
-    } else if (declared.indexOf("Mix.Task") >= 0) {
-      role = "mix-task";
-      group = "Application";
-    }
-    return { names, title: names[0], role, kind, group, declarations, calls: metadata.calls || [] };
-  }
-  function extractArchitectureFacts(files, framework) {
-    var profile = detectArchitectureProfile(files, framework);
-    var phoenixWrappers = /* @__PURE__ */ new Map();
-    (files || []).forEach(function(file) {
-      (file.elixir && file.elixir.modules || []).forEach(function(m) {
-        var quoted = (m.quotedUses || []).filter(function(d) {
-          return /^Phoenix\./.test(d.module);
-        });
-        if (quoted.length) phoenixWrappers.set(m.name, quoted);
-      });
-    });
-    var rawFacts = (files || []).filter(function(file) {
-      return file && file.content && isCode(file.name || file.path || "");
-    }).map(function(file) {
-      var path = normalizeArchitecturePath(file.path || file.name);
-      var content = file.content || "";
-      if (isArchitectureBuildOutput(path, file.name)) {
-        return {
-          path,
-          name: file.name || path.split("/").pop(),
-          kind: "build-output",
-          route: null,
-          role: "build-output",
-          group: "Build Output",
-          profile,
-          isTest: false,
-          isFixture: false,
-          isBuildOutput: true,
-          isCore: false,
-          imports: [],
-          jsxComponents: [],
-          links: [],
-          apiCalls: [],
-          dbUsage: false,
-          content,
-          loc: file.lines || 0
-        };
-      }
-      var special = inferNextSpecialFile(path);
-      var webRoute = canBeFrontendRoute(path) ? inferWebAppRoute(path) : null;
-      var classified = framework === "Next.js" ? classifyArchitectureFile(path, content) : classifyGenericArchitectureFile(file, content);
-      if (special) {
-        classified = { kind: special.kind, route: special.route };
-      } else if (webRoute && profile !== "codeflow" && !isArchitectureBackendPath(path)) {
-        classified = classified.kind === "api" ? classified : { kind: "page", route: webRoute };
-      } else if (isArchitectureBackendPath(path) || isArchitectureBarrelIndex(path)) {
-        if (classified.kind === "page") classified = { kind: "module", route: null };
-      }
-      var role = inferArchitectureRole(path, profile, classified, content);
-      if (special) {
-        role = special.role;
-        if (special.route) classified.route = special.route;
-      }
-      if (role === "fixture") classified = { kind: "fixture", route: null };
-      else if (role === "browser-shell") classified = { kind: "shell", route: inferGenericArchitectureRoute(path) || "/" };
-      else if (role === "action-entry") classified = { kind: "action-entry", route: null };
-      else if (role === "test") classified = { kind: "test", route: null };
-      else if (role === "build-output") classified = { kind: "build-output", route: null };
-      else if (role === "app-shell") classified = { kind: "shell", route: null };
-      else if (role === "frontend-route") classified = { kind: "page", route: classified.route || webRoute };
-      else if (role === "frontend-component") classified = { kind: "component", route: classified.route || null };
-      else if (role === "backend-routes" || role === "backend-middleware" || role === "backend-services" || role === "backend-module" || role === "platform-analyzer" || role === "api-client") {
-        classified = { kind: role === "platform-analyzer" ? "service" : "module", route: null };
-      }
-      var moduleFacts = architectureModuleFacts(file, phoenixWrappers);
-      if (moduleFacts && !isArchitectureTestFile(path) && !isArchitectureFixtureFile(path)) {
-        role = moduleFacts.role;
-        classified = { kind: moduleFacts.kind, route: null };
-      }
-      var exampleKind = /^examples?\//.test(path) ? "example" : /^(bench|benchmarks)\//.test(path) ? "benchmark" : null;
-      if (exampleKind) {
-        role = exampleKind;
-        classified = { kind: "module", route: null };
-      }
-      var displayTitle = moduleFacts ? moduleFacts.title : special ? special.title : null;
-      if (!displayTitle && role === "frontend-component") displayTitle = inferPageComponentTitle(path, classified.route, content);
-      return {
-        path,
-        name: file.name || path.split("/").pop(),
-        kind: classified.kind,
-        route: classified.route,
-        displayTitle,
-        role,
-        group: exampleKind ? "Fixtures / Examples" : moduleFacts && !isArchitectureTestFile(path) && !isArchitectureFixtureFile(path) ? moduleFacts.group : inferArchitectureGroup(role, { kind: classified.kind }, profile),
-        modules: moduleFacts ? moduleFacts.names : [],
-        declarations: moduleFacts ? moduleFacts.declarations : [],
-        sourceCalls: moduleFacts ? moduleFacts.calls : [],
-        profile,
-        isTest: isArchitectureTestFile(path),
-        isFixture: isArchitectureFixtureFile(path),
-        isBuildOutput: isArchitectureBuildOutput(path, file.name),
-        isCore: false,
-        imports: extractArchitectureImports(content),
-        jsxComponents: extractJsxComponents(content),
-        links: extractNavigationLinks(content),
-        apiCalls: extractApiCalls(content),
-        dbUsage: detectDatabaseUsage(content),
-        content,
-        loc: file.lines || 0
-      };
-    });
-    var corePaths = /* @__PURE__ */ new Set();
-    rawFacts.forEach(function(fact) {
-      if (fact.isBuildOutput || fact.isTest || fact.isFixture) return;
-      fact.isCore = !!(fact.modules && fact.modules.length) || isArchitectureSignificantFile(fact.path, fact.role, fact, framework, fact.profile, false);
-      if (fact.isCore) corePaths.add(fact.path);
-    });
-    var factsByPath = new Map(rawFacts.map(function(fact) {
-      return [fact.path, fact];
-    }));
-    var pending = rawFacts.filter(function(fact) {
-      return fact.isCore;
-    });
-    for (var cursor = 0; cursor < pending.length; cursor++) {
-      var importer = pending[cursor];
-      importer.imports.forEach(function(importPath) {
-        var resolved = resolveArchitectureImport(importPath, importer.path, files);
-        var dependency = resolved && factsByPath.get(resolved);
-        if (!dependency || dependency.isCore || dependency.isBuildOutput || dependency.isTest || dependency.isFixture) return;
-        dependency.isCore = true;
-        corePaths.add(dependency.path);
-        pending.push(dependency);
-      });
-    }
-    var namespaceBranches = /* @__PURE__ */ new Set();
-    rawFacts.forEach(function(fact) {
-      (fact.modules || []).forEach(function(name) {
-        var parts = name.split(".");
-        if (parts.length > 2) namespaceBranches.add(parts.slice(0, 2).join("."));
-      });
-    });
-    rawFacts.forEach(function(fact) {
-      if (!fact.modules || !fact.modules.length || fact.isTest || fact.isFixture) return;
-      var name = fact.modules[0], parts = name.split("."), branch = parts.slice(0, 2).join(".");
-      fact.namespaceRoot = parts[0];
-      if (fact.role === "module" || fact.role === "mix-task") fact.namespace = namespaceBranches.has(branch) ? branch : null;
-    });
-    return rawFacts;
-  }
-  function shouldShowArchitectureBlock(fact) {
-    return ["page", "api", "component", "hook", "service", "database-adapter", "module", "utility", "shell", "fixture", "action-entry", "test", "build-output"].includes(fact.kind);
-  }
-  function architectureLayer(fact) {
-    if (fact.kind === "page" || fact.kind === "component" || fact.kind === "hook") return "Frontend";
-    if (fact.kind === "api" || fact.kind === "service") return "Backend";
-    if (fact.kind === "database-adapter") return "Data Layer";
-    if (fact.kind === "database") return "Storage";
-    if (fact.kind === "module" || fact.kind === "utility") return "Shared";
-    return "Shared";
-  }
-  function architectureTitle(fact) {
-    if (fact.displayTitle) return fact.displayTitle;
-    if (fact.role === "app-shell") return "App Entry / Shell";
-    if (fact.kind === "shell" || fact.role === "browser-shell") return "Browser App Shell";
-    if (fact.kind === "action-entry") return "GitHub Action";
-    if (fact.role === "frontend-route") return fact.route === "/" ? "/" : fact.route;
-    if (fact.role === "frontend-component") return inferPageComponentTitle(fact.path, fact.route, fact.content);
-    if (fact.role === "platform-analyzer") {
-      var seg = (fact.path.match(/\/(youtube|reddit|twitter|github|tiktok|instagram)\b/i) || [])[1];
-      if (seg) return seg.charAt(0).toUpperCase() + seg.slice(1) + " Analyzer";
-      return architectureFileBaseName(fact.path) + " Analyzer";
-    }
-    if (fact.role === "backend-middleware") return "Middleware";
-    if (fact.role === "backend-routes") return "API Routes";
-    if (fact.role === "backend-services") return "Services";
-    if (fact.role === "backend-module") {
-      var seg = normalizeArchitecturePath(fact.path).split("/").filter(Boolean);
-      var name = architectureFileBaseName(fact.path);
-      if (name && name !== "index") return name.charAt(0).toUpperCase() + name.slice(1);
-      return seg.length ? seg[seg.length - 1].charAt(0).toUpperCase() + seg[seg.length - 1].slice(1) : "Backend Module";
-    }
-    if (fact.role === "api-client") return "API Clients";
-    if (fact.role === "config") return "Config";
-    if (fact.role === "content") return "Content";
-    if (fact.kind === "page") return fact.route === "/" ? "Home Page" : "Page " + fact.route;
-    if (fact.kind === "api") return "API " + fact.route;
-    if (fact.kind === "database") return "Database";
-    return architectureFileBaseName(fact.path);
-  }
-  function aggregateFrontendComponentKey(block) {
-    var files = (block.files || []).map(function(f) {
-      return normalizeArchitecturePath(f).toLowerCase();
-    });
-    var sample = files[0] || "";
-    var platform = sample.match(/\/platforms\/([^/]+)\//);
-    if (platform) {
-      var name = platform[1];
-      if (/\/tabs\/[^/]+\/insights\//.test(sample)) return "agg:fe:" + name + "-insight-tabs";
-      if (/\/tabs\//.test(sample)) return "agg:fe:" + name + "-tabs";
-      if (/\/components\/charts\//.test(sample) || /\/charts\//.test(sample)) return "agg:fe:" + name + "-chart-components";
-      if (/\/views\//.test(sample) || /\/pages\//.test(sample)) return "agg:fe:" + name + "-dashboard";
-      if (/\/components\//.test(sample)) return "agg:fe:" + name + "-components";
-      return "agg:fe:" + name + "-feature-ui";
-    }
-    if (/\/components\/charts\//.test(sample) || /\/charts\//.test(sample)) return "agg:fe:chart-components";
-    if (/\/components\//.test(sample) || /\/ui\/components\//.test(sample)) return "agg:fe:shared-ui-components";
-    if (/\/hooks\//.test(sample)) return "agg:fe:hooks";
-    if (/\/views\//.test(sample)) return "agg:fe:views";
-    return "agg:fe:feature-components";
-  }
-  function getArchitectureAggregateKey(block, profile) {
-    if (profile === "codeflow") return null;
-    if (block.role === "example" || block.role === "benchmark") return "agg:" + block.role;
-    if (block.modules && block.modules.length && !block.isTest && !block.isFixture && !block.isBuildOutput) return block.namespace ? "agg:namespace:" + block.namespace : null;
-    if (block.isBuildOutput) return null;
-    if (block.role === "app-shell" || block.role === "browser-shell") return "agg:app-shell";
-    if (block.role === "frontend-route" && block.route) return "agg:route:" + block.route;
-    if (block.role === "frontend-component") return aggregateFrontendComponentKey(block);
-    if (block.role === "platform-analyzer") {
-      var sample = String(block.files && block.files[0] || "").toLowerCase();
-      var seg = sample.match(/\/platforms\/([^/]+)\//);
-      if (seg) return "agg:analyzer:" + seg[1];
-      seg = sample.match(/\/(youtube|reddit|twitter|github|tiktok|instagram)\b/);
-      return "agg:analyzer:" + (seg ? seg[1] : block.title).toLowerCase();
-    }
-    if (block.role === "backend-middleware") return "agg:backend:middleware";
-    if (block.role === "backend-routes") return "agg:backend:routes";
-    if (block.role === "backend-services") return "agg:backend:services";
-    if (block.role === "api-client") return "agg:backend:api-client";
-    if (block.role === "backend-module") {
-      var sample = String(block.files && block.files[0] || "").toLowerCase();
-      if (/\/config\//.test(sample)) return "agg:backend:config";
-      if (/\/core\//.test(sample)) return "agg:backend:core";
-      return "agg:backend:" + architectureFileBaseName(block.files && block.files[0] || "module").toLowerCase();
-    }
-    if (block.role === "config") return "agg:config";
-    if (block.role === "content") return "agg:content";
-    if (block.group === "Shared / Utilities" || block.role === "shared-module") {
-      var sample = String(block.files && block.files[0] || "").toLowerCase();
-      if (/\/hooks\//.test(sample)) return "agg:shared:hooks";
-      if (/\/schemas?\//.test(sample)) return "agg:shared:schema";
-      if (/\/utils?\//.test(sample)) return "agg:shared:utils";
-      return "agg:shared:utilities";
-    }
-    return null;
-  }
-  function titleCaseSegment(value) {
-    return String(value || "").split(/[-_]/).filter(Boolean).map(function(part) {
-      return part.charAt(0).toUpperCase() + part.slice(1);
-    }).join(" ");
-  }
-  function resolveAggregateBlockTitle(key) {
-    if (!key || !key.startsWith("agg:")) return null;
-    var known = {
-      "agg:example": "Examples",
-      "agg:benchmark": "Benchmarks",
-      "agg:app-shell": "App Shell",
-      "agg:backend:middleware": "Middleware",
-      "agg:backend:routes": "API Routes",
-      "agg:backend:services": "Services",
-      "agg:backend:api-client": "API Clients",
-      "agg:backend:config": "Config",
-      "agg:backend:core": "Core",
-      "agg:config": "App Config",
-      "agg:content": "Content",
-      "agg:fe:chart-components": "Chart Components",
-      "agg:fe:shared-ui-components": "Shared UI Components",
-      "agg:fe:hooks": "Hooks",
-      "agg:fe:views": "Views",
-      "agg:fe:feature-components": "Feature Components",
-      "agg:shared:hooks": "Hooks",
-      "agg:shared:schema": "Schema",
-      "agg:shared:utils": "Utils",
-      "agg:shared:utilities": "Utilities"
-    };
-    if (known[key]) return known[key];
-    if (key.startsWith("agg:namespace:")) return key.slice("agg:namespace:".length);
-    var routeMatch = key.match(/^agg:route:(.+)$/);
-    if (routeMatch) {
-      var route = normalizeArchitectureRoute(routeMatch[1]);
-      return route === "/" ? "/" : route;
-    }
-    var analyzerMatch = key.match(/^agg:analyzer:(.+)$/);
-    if (analyzerMatch) return titleCaseSegment(analyzerMatch[1]) + " Analyzer";
-    var feMatch = key.match(/^agg:fe:([^-]+)-(.+)$/);
-    if (feMatch) return titleCaseSegment(feMatch[1]) + " " + titleCaseSegment(feMatch[2].replace(/-/g, " "));
-    var backendMatch = key.match(/^agg:backend:(.+)$/);
-    if (backendMatch) return titleCaseSegment(backendMatch[1]);
-    return null;
-  }
-  function aggregateArchitectureBlocks(blocks, profile, warnings) {
-    if (profile === "codeflow") return blocks;
-    var merged = /* @__PURE__ */ Object.create(null);
-    var passthrough = [];
-    blocks.forEach(function(block) {
-      var key = getArchitectureAggregateKey(block, profile);
-      if (!key) {
-        passthrough.push(block);
-        return;
-      }
-      if (!merged[key]) {
-        merged[key] = Object.assign({}, block, { files: (block.files || []).slice(), loc: block.loc || 0 });
-        merged[key].id = makeMermaidSafeId(key);
-        var aggregateTitle = resolveAggregateBlockTitle(key);
-        if (aggregateTitle) merged[key].title = aggregateTitle;
-      } else {
-        (block.files || []).forEach(function(filePath) {
-          if (merged[key].files.indexOf(filePath) < 0) merged[key].files.push(filePath);
-        });
-        merged[key].loc = (merged[key].loc || 0) + (block.loc || 0);
-        merged[key].modules = Array.from(new Set((merged[key].modules || []).concat(block.modules || [])));
-        merged[key].declarations = (merged[key].declarations || []).concat(block.declarations || []);
-      }
-    });
-    var aggregated = Object.keys(merged).map(function(key) {
-      var block = merged[key];
-      if (block.namespace && passthrough.some(function(other) {
-        return other.title === block.title;
-      })) block.title += ".*";
-      return block;
-    });
-    if (aggregated.length + passthrough.length < blocks.length) {
-      warnings.push("Aggregated " + blocks.length + " architecture files into " + (aggregated.length + passthrough.length) + " diagram blocks for readability.");
-    }
-    return aggregated.concat(passthrough);
-  }
-  function computeArchitectureHiddenSummary(facts, blocks, includeTests, includeBuildOutput) {
-    var shownPaths = /* @__PURE__ */ new Set();
-    getVisibleArchitectureBlocks(blocks, includeTests, includeBuildOutput).forEach(function(block) {
-      (block.files || []).forEach(function(filePath) {
-        shownPaths.add(normalizeArchitecturePath(filePath));
-      });
-    });
-    var hidden = { build: 0, tests: 0, fixtures: 0, lowSignal: 0, total: 0 };
-    (facts || []).forEach(function(fact) {
-      if (shownPaths.has(fact.path)) return;
-      if (fact.isBuildOutput) {
-        hidden.build++;
-      } else if (fact.isTest) {
-        hidden.tests++;
-      } else if (fact.isFixture) {
-        hidden.fixtures++;
-      } else {
-        hidden.lowSignal++;
-      }
-      hidden.total++;
-    });
-    return hidden;
-  }
-  function makeMermaidSafeId(value) {
-    var safe = String(value || "Block").replace(/[^a-zA-Z0-9_]/g, "_").replace(/^([0-9])/, "_$1").slice(0, 80);
-    return safe || "Block";
-  }
-  function escapeMermaidLabel(value) {
-    return String(value || "").replace(/"/g, "'").replace(/\|/g, "/").replace(/\n/g, " ").replace(/\r/g, " ").slice(0, 120);
-  }
-  function resolveArchitectureImport(importPath, fromFile, files) {
-    if (!importPath || /^(react|next|@?vercel|node:|https?:)/.test(importPath)) return null;
-    var candidates = [];
-    if (importPath.startsWith("@/")) candidates.push("src/" + importPath.slice(2));
-    if (importPath.startsWith("~/")) candidates.push("src/" + importPath.slice(2));
-    if (importPath.startsWith("./") || importPath.startsWith("../")) {
-      var baseParts = (architectureDirname(fromFile) ? architectureDirname(fromFile).split("/") : []).concat(importPath.split("/"));
-      var normalized = [];
-      baseParts.forEach(function(part) {
-        if (!part || part === ".") return;
-        if (part === "..") normalized.pop();
-        else normalized.push(part);
-      });
-      candidates.push(normalized.join("/"));
-    }
-    if (!candidates.length) return null;
-    var exts = ["", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", "/index.js", "/index.jsx", "/index.ts", "/index.tsx"];
-    var pathMap = /* @__PURE__ */ Object.create(null);
-    (files || []).forEach(function(file) {
-      var p = normalizeArchitecturePath(file.path || file.name);
-      pathMap[p.toLowerCase()] = file.path || file.name;
-    });
-    for (var i = 0; i < candidates.length; i++) {
-      for (var j = 0; j < exts.length; j++) {
-        var candidate = normalizeArchitecturePath(candidates[i] + exts[j]).toLowerCase();
-        if (pathMap[candidate]) return normalizeArchitecturePath(pathMap[candidate]);
-      }
-    }
-    return null;
-  }
-  function makeArchitectureBlocks(facts, files, warnings) {
-    var corePaths = /* @__PURE__ */ new Set();
-    var visiblePaths = /* @__PURE__ */ new Set();
-    facts.forEach(function(fact) {
-      if (fact.isCore) {
-        corePaths.add(fact.path);
-        visiblePaths.add(fact.path);
-      }
-    });
-    facts.forEach(function(fact) {
-      if (corePaths.has(fact.path)) {
-        fact.imports.forEach(function(importPath) {
-          var resolved = resolveArchitectureImport(importPath, fact.path, files);
-          if (resolved) visiblePaths.add(resolved);
-        });
-      } else {
-        fact.imports.forEach(function(importPath) {
-          var resolved = resolveArchitectureImport(importPath, fact.path, files);
-          if (resolved && corePaths.has(resolved)) visiblePaths.add(fact.path);
-        });
-      }
-    });
-    var candidates = facts.filter(function(fact) {
-      if (!shouldShowArchitectureBlock(fact)) return false;
-      if (fact.isTest || fact.isFixture || fact.isBuildOutput) return true;
-      return corePaths.has(fact.path) || visiblePaths.has(fact.path);
-    });
-    var priority = { shell: 0, "action-entry": 1, page: 2, api: 3, "database-adapter": 4, service: 5, component: 6, hook: 7, module: 8, utility: 9, test: 10, fixture: 11 };
-    function blockPriority(kind) {
-      return priority[kind] !== void 0 ? priority[kind] : 12;
-    }
-    candidates.sort(function(a, b) {
-      return blockPriority(a.kind) - blockPriority(b.kind) || a.path.localeCompare(b.path);
-    });
-    var usedIds = /* @__PURE__ */ Object.create(null);
-    var profile = facts[0] && facts[0].profile || "generic";
-    var blocks = candidates.map(function(fact) {
-      var baseId = makeMermaidSafeId(fact.path);
-      var id = baseId;
-      var counter = 2;
-      while (usedIds[id]) {
-        id = baseId + "_" + counter;
-        counter++;
-      }
-      usedIds[id] = true;
-      return {
-        id,
-        title: architectureTitle(fact),
-        modules: fact.modules || [],
-        declarations: fact.declarations || [],
-        namespace: fact.namespace || null,
-        namespaceRoot: fact.namespaceRoot || null,
-        kind: fact.kind,
-        role: fact.role,
-        group: fact.group,
-        layer: architectureLayer(fact),
-        route: fact.route,
-        files: [fact.path],
-        profile,
-        isTest: !!fact.isTest,
-        isFixture: !!fact.isFixture,
-        isBuildOutput: !!fact.isBuildOutput,
-        loc: fact.loc || 0
-      };
-    });
-    if (facts.some(function(fact) {
-      return fact.dbUsage;
-    })) {
-      blocks.push({ id: "Storage_Database", title: "Database", kind: "database", role: "database", group: "Storage", layer: "Storage", profile, files: [], isTest: false, isFixture: false, isBuildOutput: false, loc: 0 });
-    }
-    blocks = aggregateArchitectureBlocks(blocks, profile, warnings);
-    if (blocks.length > ARCHITECTURE_MAX_BLOCKS) {
-      var roots = {};
-      blocks.forEach(function(block) {
-        if (block.role === "module" && !block.namespace && block.namespaceRoot && !block.isTest && !block.isFixture) {
-          (roots[block.namespaceRoot] || (roots[block.namespaceRoot] = [])).push(block);
-        }
-      });
-      Object.keys(roots).sort(function(a, b) {
-        return roots[b].length - roots[a].length || a.localeCompare(b);
-      }).forEach(function(root) {
-        if (blocks.length <= ARCHITECTURE_MAX_BLOCKS || roots[root].length < 2) return;
-        roots[root].forEach(function(block) {
-          block.namespace = root;
-        });
-        blocks = aggregateArchitectureBlocks(blocks, profile, warnings);
-      });
-    }
-    return blocks;
-  }
-  function findBlockByFile(blocks, path) {
-    path = normalizeArchitecturePath(path);
-    return (blocks || []).find(function(block) {
-      return (block.files || []).indexOf(path) >= 0;
-    }) || null;
-  }
-  function findBlockByRoute(blocks, route) {
-    route = normalizeArchitectureRoute(route);
-    var exact = (blocks || []).find(function(block) {
-      return block.route && normalizeArchitectureRoute(block.route) === route;
-    });
-    if (exact) return exact;
-    return (blocks || []).find(function(block) {
-      return block.route && routeSegmentsMatch(block.route, route);
-    }) || null;
-  }
-  function findBlockByComponentName(blocks, name) {
-    return (blocks || []).find(function(block) {
-      if (block.kind !== "component") return false;
-      if (block.title === name) return true;
-      var file = block.files && block.files[0] || "";
-      return architectureFileBaseName(file) === name;
-    }) || null;
-  }
-  function findBlockByRole(blocks, role) {
-    return (blocks || []).find(function(block) {
-      return block.role === role;
-    }) || null;
-  }
-  function findBlockByPathEnds(blocks, suffix) {
-    suffix = normalizeArchitecturePath(suffix).toLowerCase();
-    return (blocks || []).find(function(block) {
-      var file = normalizeArchitecturePath(block.files && block.files[0] || "").toLowerCase();
-      return file === suffix || file.endsWith("/" + suffix);
-    }) || null;
-  }
-  function inferDependencyKind(sourceKind, targetKind) {
-    if (targetKind === "database") return "database";
-    if (sourceKind === "page" && targetKind === "api") return "api-call";
-    if (targetKind === "component") return "renders";
-    if (targetKind === "hook") return "uses-hook";
-    return "depends-on";
-  }
-  function buildImportBasedDependencies(facts, blocks, files) {
-    var deps = [];
-    facts.forEach(function(fact) {
-      var source = findBlockByFile(blocks, fact.path);
-      if (!source) return;
-      fact.imports.forEach(function(importPath) {
-        var resolved = resolveArchitectureImport(importPath, fact.path, files);
-        if (!resolved) return;
-        var target = findBlockByFile(blocks, resolved);
-        if (!target || target.id === source.id) return;
-        deps.push({
-          from: source.id,
-          to: target.id,
-          kind: inferDependencyKind(source.kind, target.kind),
-          label: architectureDependencyLabel(source.role, target.role, importPath),
-          confidence: "high"
-        });
-      });
-      fact.jsxComponents.forEach(function(componentName) {
-        var target = findBlockByComponentName(blocks, componentName);
-        if (!target || target.id === source.id) return;
-        deps.push({ from: source.id, to: target.id, kind: "renders", label: "renders " + componentName, confidence: "medium" });
-      });
-    });
-    return deps;
-  }
-  function buildSyntheticArchitectureDependencies(blocks, facts) {
-    var deps = [];
-    var shell = findBlockByRole(blocks, "browser-shell");
-    var analyzer = findBlockByRole(blocks, "analyzer-loader") || findBlockByPathEnds(blocks, "card/lib/analyzer.js");
-    var collector = findBlockByRole(blocks, "collector") || findBlockByPathEnds(blocks, "card/lib/collect.js");
-    var action = findBlockByRole(blocks, "action-entry") || findBlockByPathEnds(blocks, "card/index.js");
-    if (shell && analyzer) {
-      deps.push({ from: shell.id, to: analyzer.id, kind: "runtime", label: architectureDependencyLabel(shell.role, analyzer.role), confidence: "high" });
-    }
-    if (shell && collector) {
-      deps.push({ from: shell.id, to: collector.id, kind: "runtime", label: architectureDependencyLabel(shell.role, collector.role), confidence: "high" });
-    }
-    if (action && shell) {
-      deps.push({ from: action.id, to: shell.id, kind: "runtime", label: architectureDependencyLabel(action.role, shell.role), confidence: "high" });
-    }
-    var state = findBlockByRole(blocks, "state") || findBlockByPathEnds(blocks, "card/lib/state.js");
-    var pr = findBlockByRole(blocks, "pr") || findBlockByPathEnds(blocks, "card/lib/pr.js");
-    var git = findBlockByRole(blocks, "git") || findBlockByPathEnds(blocks, "card/lib/git.js");
-    var inputs = findBlockByRole(blocks, "inputs") || findBlockByPathEnds(blocks, "card/lib/inputs.js");
-    if (analyzer && state) {
-      deps.push({ from: analyzer.id, to: state.id, kind: "runtime", label: architectureDependencyLabel("analyzer-loader", "state"), confidence: "medium" });
-    }
-    if (pr && git) {
-      deps.push({ from: pr.id, to: git.id, kind: "runtime", label: architectureDependencyLabel("pr", "git"), confidence: "high" });
-    }
-    if (action && collector && inputs) {
-      deps.push({ from: collector.id, to: inputs.id, kind: "runtime", label: architectureDependencyLabel("collector", "inputs"), confidence: "medium" });
-    }
-    if (action && collector && git) {
-      deps.push({ from: collector.id, to: git.id, kind: "runtime", label: architectureDependencyLabel("collector", "git"), confidence: "medium" });
-    }
-    var appShell = findBlockByRole(blocks, "app-shell");
-    if (appShell) {
-      blocks.forEach(function(block) {
-        if (block.role !== "frontend-route" || block.id === appShell.id) return;
-        deps.push({ from: appShell.id, to: block.id, kind: "runtime", label: architectureDependencyLabel("app-shell", "frontend-route"), confidence: "high" });
-      });
-    }
-    blocks.forEach(function(block) {
-      if (block.role !== "frontend-route") return;
-      var component = blocks.find(function(candidate) {
-        return candidate.role === "frontend-component" && candidate.route && block.route && normalizeArchitectureRoute(candidate.route) === normalizeArchitectureRoute(block.route);
-      });
-      if (component && component.id !== block.id) {
-        deps.push({ from: block.id, to: component.id, kind: "runtime", label: architectureDependencyLabel("frontend-route", "frontend-component"), confidence: "high" });
-      }
-    });
-    blocks.forEach(function(block) {
-      if (block.role !== "frontend-component") return;
-      var analyzer2 = blocks.find(function(candidate) {
-        return candidate.role === "platform-analyzer";
-      });
-      if (analyzer2 && analyzer2.id !== block.id) {
-        deps.push({ from: block.id, to: analyzer2.id, kind: "runtime", label: architectureDependencyLabel("frontend-component", "platform-analyzer"), confidence: "medium" });
-      }
-    });
-    var routesBlock = findBlockByRole(blocks, "backend-routes");
-    var middlewareBlock = findBlockByRole(blocks, "backend-middleware");
-    var servicesBlock = findBlockByRole(blocks, "backend-services");
-    if (routesBlock && middlewareBlock) {
-      deps.push({ from: routesBlock.id, to: middlewareBlock.id, kind: "runtime", label: architectureDependencyLabel("backend-routes", "backend-middleware"), confidence: "medium" });
-    }
-    if (routesBlock && servicesBlock) {
-      deps.push({ from: routesBlock.id, to: servicesBlock.id, kind: "runtime", label: architectureDependencyLabel("backend-routes", "backend-services"), confidence: "medium" });
-    }
-    facts.forEach(function(fact) {
-      if (!fact.isTest) return;
-      var source = findBlockByFile(blocks, fact.path);
-      if (!source) return;
-      var targets = [];
-      if (testFileReferencesCore(fact.content)) {
-        if (shell) targets.push(shell);
-        if (analyzer) targets.push(analyzer);
-        if (collector) targets.push(collector);
-      }
-      inferTestTargetPaths(fact.path).forEach(function(suffix) {
-        var target = findBlockByPathEnds(blocks, suffix);
-        if (target) targets.push(target);
-      });
-      var seen = /* @__PURE__ */ new Set();
-      targets.forEach(function(target) {
-        if (!target || target.id === source.id || seen.has(target.id)) return;
-        seen.add(target.id);
-        deps.push({ from: source.id, to: target.id, kind: "tests", label: "tests", confidence: "high" });
-      });
-    });
-    return deps;
-  }
-  function dedupeArchitectureDependencies(deps) {
-    var seen = /* @__PURE__ */ new Set();
-    return (deps || []).filter(function(dep) {
-      var key = [dep.from, dep.to, dep.kind, dep.label].join("|");
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }
-  function buildArchitectureDependencies(facts, blocks, files) {
-    var deps = [];
-    var modulePaths = {};
-    facts.forEach(function(fact) {
-      (fact.modules || []).forEach(function(name) {
-        if (!Object.prototype.hasOwnProperty.call(modulePaths, name)) modulePaths[name] = fact.path;
-        else if (modulePaths[name] !== fact.path) modulePaths[name] = null;
-      });
-    });
-    facts.forEach(function(fact) {
-      var source = findBlockByFile(blocks, fact.path);
-      if (!source) return;
-      (fact.sourceCalls || []).forEach(function(call) {
-        var target = findBlockByFile(blocks, modulePaths[call.module]);
-        if (target && target.id !== source.id) deps.push({ from: source.id, to: target.id, kind: "source-reference", label: "references", confidence: "high", evidence: "tree-sitter:elixir" });
-      });
-      (fact.declarations || []).filter(function(d) {
-        return d.kind !== "module";
-      }).forEach(function(d) {
-        var target = findBlockByFile(blocks, modulePaths[d.module]);
-        if (target && target.id !== source.id) deps.push({ from: source.id, to: target.id, kind: d.kind, label: d.kind, confidence: "high", evidence: d.evidence });
-      });
-      fact.links.forEach(function(link) {
-        var target = findBlockByRoute(blocks, link);
-        if (target && target.id !== source.id) {
-          deps.push({ from: source.id, to: target.id, kind: "navigation", label: "links " + link, confidence: "high" });
-        }
-      });
-      fact.apiCalls.forEach(function(call) {
-        var target = findBlockByRoute(blocks, call.url);
-        if (target && target.id !== source.id) {
-          deps.push({ from: source.id, to: target.id, kind: "api-call", label: call.method + " " + call.url, confidence: "high" });
-        }
-      });
-      if (fact.dbUsage) {
-        deps.push({ from: source.id, to: "Storage_Database", kind: "database", label: "queries", confidence: "medium" });
-      }
-    });
-    deps = deps.concat(buildImportBasedDependencies(facts, blocks, files));
-    deps = deps.concat(buildSyntheticArchitectureDependencies(blocks, facts));
-    return dedupeArchitectureDependencies(deps).filter(function(dep) {
-      if (!dep.label || /^uses \d+ calls?$/i.test(dep.label)) return false;
-      return !!findBlockById(blocks, dep.from) && !!findBlockById(blocks, dep.to);
-    });
-  }
-  function groupArchitectureRelationships(dependencies) {
-    var pairs = /* @__PURE__ */ new Map();
-    (dependencies || []).forEach(function(observation) {
-      var key = JSON.stringify([observation.from, observation.to]);
-      if (!pairs.has(key)) pairs.set(key, { from: observation.from, to: observation.to, kinds: [], labels: [], evidence: [], observations: [] });
-      var relationship = pairs.get(key);
-      [["kinds", "kind"], ["labels", "label"], ["evidence", "evidence"]].forEach(function(fields) {
-        var value = observation[fields[1]];
-        if (value != null && relationship[fields[0]].indexOf(value) < 0) relationship[fields[0]].push(value);
-      });
-      relationship.observations.push(observation);
-    });
-    return Array.from(pairs.values());
-  }
-  function getRenderedArchitectureDependencies(dependencies, visibleBlockIds) {
-    var visible = visibleBlockIds || null;
-    var priority = { high: 0, medium: 1, low: 2 };
-    return (dependencies || []).filter(function(dep) {
-      if (!visible) return true;
-      return visible.has(dep.from) && visible.has(dep.to);
-    }).sort(function(a, b) {
-      return (priority[a.confidence] === void 0 ? 9 : priority[a.confidence]) - (priority[b.confidence] === void 0 ? 9 : priority[b.confidence]) || String(a.from).localeCompare(String(b.from)) || String(a.to).localeCompare(String(b.to));
-    });
-  }
-  function findBlockById(blocks, id) {
-    return (blocks || []).find(function(block) {
-      return block.id === id;
-    }) || null;
-  }
-  function buildArchitectureGroups(blocks) {
-    var groups = {};
-    (blocks || []).forEach(function(block) {
-      var key = block.group || block.layer || "Application";
-      if (!groups[key]) groups[key] = [];
-      groups[key].push(block.id);
-    });
-    return groups;
-  }
-  function formatMermaidBlock(block) {
-    var label = escapeMermaidLabel(block.title);
-    var filePath = block.files && block.files[0] || "";
-    if (block.modules && block.modules.length) {
-      if ((block.files || []).length > 1) label += "<br/>" + block.files.length + " files";
-    } else if (block.kind === "shell" || block.group === "App Entry / Shell") {
-      if (filePath) label += "<br/>" + escapeMermaidLabel(filePath);
-      if ((block.files || []).length > 1) label += "<br/>" + (block.files || []).length + " shell files";
-      else if (block.role === "browser-shell" || block.group === "Browser App") label += "<br/>React UI + Worker + Visualization";
-    } else if (filePath) {
-      label += "<br/>" + escapeMermaidLabel(filePath);
-    } else if (block.route) {
-      label += "<br/>" + escapeMermaidLabel(block.route);
-    }
-    if (block.kind === "database") return '[("' + label + '")]';
-    if (block.kind === "api") return '{{"' + label + '"}}';
-    return '["' + label + '"]';
-  }
-  function architectureGroupStyleClass(group) {
-    if (group === "Browser App" || group === "App Entry / Shell") return group === "App Entry / Shell" ? "appentry" : "browser";
-    if (group === "GitHub Action") return "action";
-    if (group === "Analysis Core") return "analysis";
-    if (group === "Repository Collection") return "collection";
-    if (group === "Rendering / Reports") return "rendering";
-    if (group === "Frontend Routes / Views" || group === "Frontend Routes") return "frontend";
-    if (group === "Frontend Components" || group === "Frontend Page Components") return "fecomponents";
-    if (group === "Backend / API Layer" || group === "Backend API / Platform Logic") return "backend";
-    if (group === "Services / Business Logic") return "services";
-    if (group === "Data / Storage") return "storage";
-    if (group === "Shared / Utilities" || group === "Shared Services / Utils") return "shared";
-    if (group === "Configuration") return "config";
-    if (group === "Content / Data") return "content";
-    if (group === "Build Output") return "buildoutput";
-    if (group === "Testing") return "testing";
-    if (group === "Fixtures / Examples") return "fixtures";
-    if (group === "Storage") return "storage";
-    return "application";
-  }
-  function getVisibleArchitectureBlocks(blocks, includeTests, includeBuildOutput) {
-    return (blocks || []).filter(function(block) {
-      if (block.isBuildOutput || block.group === "Build Output" || block.role === "build-output") return !!includeBuildOutput;
-      if (block.isTest || block.isFixture) return !!includeTests;
-      return true;
-    });
-  }
-  function computeArchitectureStats(blocks, dependencies) {
-    var observations = getRenderedArchitectureDependencies(dependencies, new Set(blocks.map(function(block) {
-      return block.id;
-    })));
-    var relationships = groupArchitectureRelationships(observations);
-    return {
-      blocks: blocks.length,
-      dependencies: relationships.length,
-      dependencyObservations: observations.length,
-      routes: blocks.filter(function(block) {
-        return block.kind === "page" || block.kind === "shell";
-      }).length,
-      apiRoutes: blocks.filter(function(block) {
-        return block.kind === "api";
-      }).length,
-      databaseTouchpoints: relationships.filter(function(relationship) {
-        return relationship.kinds.indexOf("database") >= 0;
-      }).length
-    };
-  }
-  function groupBlocksByArchitectureGroup(blocks, profile) {
-    var order = getArchitectureGroupOrder(profile || "generic").slice();
-    var grouped = {};
-    order.forEach(function(group) {
-      grouped[group] = [];
-    });
-    (blocks || []).forEach(function(block) {
-      var group = block.group || "Application";
-      if (!grouped[group]) {
-        grouped[group] = [];
-        order.push(group);
-      }
-      grouped[group].push(block);
-    });
-    return { order, grouped };
-  }
-  function generateMermaidBlockDiagram(diagram, includeTests, includeBuildOutput, compact) {
-    var allBlocks = diagram.blocks || [];
-    var blocks = getVisibleArchitectureBlocks(allBlocks, !!includeTests, !!includeBuildOutput);
-    var profile = diagram.profile || "generic";
-    if (!blocks.length) {
-      return [
-        "flowchart TD",
-        "  classDef application fill:#252529,stroke:#8b8b95,color:#f0f0f2;",
-        '  NoArchitecture["No architecture blocks detected"]',
-        "  class NoArchitecture application;"
-      ].join("\n");
-    }
-    var visibleIds = new Set(blocks.map(function(block) {
-      return block.id;
-    }));
-    var lines = [];
-    lines.push('%%{init: {"flowchart": {"defaultRenderer": "elk", "nodeSpacing": 45, "rankSpacing": 80}} }%%');
-    lines.push("flowchart TB");
-    lines.push("  classDef browser fill:#102033,stroke:#4d9fff,color:#f0f0f2;");
-    lines.push("  classDef action fill:#1f2433,stroke:#7c8cff,color:#f0f0f2;");
-    lines.push("  classDef analysis fill:#102033,stroke:#4d9fff,color:#f0f0f2;");
-    lines.push("  classDef collection fill:#251b33,stroke:#a78bfa,color:#f0f0f2;");
-    lines.push("  classDef rendering fill:#2b2414,stroke:#ff9f43,color:#f0f0f2;");
-    lines.push("  classDef testing fill:#252529,stroke:#8b8b95,color:#f0f0f2;");
-    lines.push("  classDef fixtures fill:#1f2b1f,stroke:#22c55e,color:#f0f0f2;");
-    lines.push("  classDef storage fill:#2b2414,stroke:#ff9f43,color:#f0f0f2;");
-    lines.push("  classDef application fill:#252529,stroke:#8b8b95,color:#f0f0f2;");
-    lines.push("  classDef appentry fill:#102033,stroke:#4d9fff,color:#f0f0f2;");
-    lines.push("  classDef frontend fill:#102033,stroke:#4d9fff,color:#f0f0f2;");
-    lines.push("  classDef fecomponents fill:#152238,stroke:#6eb6ff,color:#f0f0f2;");
-    lines.push("  classDef backend fill:#251b33,stroke:#a78bfa,color:#f0f0f2;");
-    lines.push("  classDef config fill:#2b2414,stroke:#ff9f43,color:#f0f0f2;");
-    lines.push("  classDef content fill:#1f2b1f,stroke:#22c55e,color:#f0f0f2;");
-    lines.push("  classDef buildoutput fill:#252529,stroke:#666,color:#aaa;");
-    var layout = groupBlocksByArchitectureGroup(blocks, profile);
-    layout.order.forEach(function(group) {
-      if (!layout.grouped[group] || !layout.grouped[group].length) return;
-      var subgraphLabel = group;
-      if (group === "Testing" && !includeTests) return;
-      if (group === "Testing" && includeTests) subgraphLabel = "Testing - optional";
-      if (group === "Build Output" && !includeBuildOutput) return;
-      if (group === "Build Output" && includeBuildOutput) subgraphLabel = "Build Output - optional";
-      lines.push("  subgraph " + makeMermaidSafeId(group) + '_Group["' + escapeMermaidLabel(subgraphLabel) + '"]');
-      lines.push("    direction TB");
-      layout.grouped[group].forEach(function(block) {
-        lines.push("    " + block.id + formatMermaidBlock(block));
-      });
-      lines.push("  end");
-    });
-    var visibleDependencies = getRenderedArchitectureDependencies(diagram.dependencies || [], visibleIds);
-    var edges = compact ? groupArchitectureRelationships(visibleDependencies) : visibleDependencies;
-    edges.forEach(function(dep) {
-      var label = dep.label || dep.kind || "";
-      if (!compact && dep.kind && label.indexOf(dep.kind) < 0) label += " (" + dep.kind + ")";
-      lines.push("  " + dep.from + (compact ? " --> " : ' -->|"' + escapeMermaidLabel(label) + '"| ') + dep.to);
-    });
-    blocks.forEach(function(block) {
-      lines.push("  class " + block.id + " " + architectureGroupStyleClass(block.group) + ";");
-    });
-    return lines.join("\n");
-  }
-  function buildArchitectureDiagram(files) {
-    var warnings = [];
-    var framework = detectArchitectureFramework(files);
-    var facts = extractArchitectureFacts(files, framework);
-    var profile = facts[0] && facts[0].profile || detectArchitectureProfile(files, framework);
-    var blocks = makeArchitectureBlocks(facts, files, warnings);
-    var dependencies = buildArchitectureDependencies(facts, blocks, files);
-    if (framework === "Next.js" && !blocks.length) {
-      warnings.push("Next.js was detected, but no page or API route blocks were visible in the analyzed files.");
-    } else if (framework !== "Next.js" && !blocks.length) {
-      warnings.push("No code files with architecture-significant blocks were visible in the analyzed files.");
-    }
-    var visibleBlocks = getVisibleArchitectureBlocks(blocks, false, false);
-    var visibleIds = new Set(visibleBlocks.map(function(block) {
-      return block.id;
-    }));
-    var visibleDependencies = (dependencies || []).filter(function(dep) {
-      return visibleIds.has(dep.from) && visibleIds.has(dep.to);
-    });
-    var stats = computeArchitectureStats(visibleBlocks, visibleDependencies);
-    stats.warnings = warnings.length;
-    var hiddenSummary = computeArchitectureHiddenSummary(facts, blocks, false, false);
-    var diagram = {
-      framework,
-      profile,
-      type: "block-diagram",
-      options: { includeTests: false, includeBuildOutput: false },
-      mermaid: "",
-      blocks,
-      dependencies,
-      groups: buildArchitectureGroups(visibleBlocks),
-      stats,
-      hiddenSummary,
-      warnings
-    };
-    diagram.mermaid = generateMermaidBlockDiagram(diagram, false, false);
-    return diagram;
   }
 
   // src/views/architecture.mjs
@@ -7384,8 +10858,8 @@
                 }
               });
             });
-            svg.querySelectorAll("path.flowchart-link").forEach(function(path) {
-              var classes = Array.from(path.classList), from = (classes.find(function(c) {
+            svg.querySelectorAll("path.flowchart-link").forEach(function(path2) {
+              var classes = Array.from(path2.classList), from = (classes.find(function(c) {
                 return c.startsWith("LS-");
               }) || "").slice(3), to = (classes.find(function(c) {
                 return c.startsWith("LE-");
@@ -7397,7 +10871,7 @@
               title.textContent = evidence.map(function(d) {
                 return d.label + (d.evidence ? " \xB7 " + d.evidence : "");
               }).join("\n");
-              path.appendChild(title);
+              path2.appendChild(title);
             });
             updateArchitectureHighlight(selectionRef.current);
             requestAnimationFrame(function() {
@@ -7443,8 +10917,8 @@
         var viewBoxParts = viewBox.trim().split(/\s+/).map(function(part) {
           return Number(part);
         });
-        if (viewBoxParts.length === 4 && viewBoxParts.every(function(value) {
-          return isFinite(value);
+        if (viewBoxParts.length === 4 && viewBoxParts.every(function(value2) {
+          return isFinite(value2);
         })) {
           width = viewBoxParts[2];
           height = viewBoxParts[3];
@@ -7484,14 +10958,14 @@
         var dims = normalizeArchitectureSvg(svg);
         var availableWidth = Math.max(240, rect.width - 64);
         var availableHeight = Math.max(180, rect.height - 64);
-        var scale = Math.min(1, availableWidth / dims.width, availableHeight / dims.height);
-        scale = clampArchitectureScale(scale);
-        var x = Math.max(24, Math.round((rect.width - dims.width * scale) / 2));
-        var y = Math.max(24, Math.round((rect.height - dims.height * scale) / 2));
-        setArchitectureViewport({ scale, x, y });
+        var scale2 = Math.min(1, availableWidth / dims.width, availableHeight / dims.height);
+        scale2 = clampArchitectureScale(scale2);
+        var x2 = Math.max(24, Math.round((rect.width - dims.width * scale2) / 2));
+        var y2 = Math.max(24, Math.round((rect.height - dims.height * scale2) / 2));
+        setArchitectureViewport({ scale: scale2, x: x2, y: y2 });
       }
-      function clampArchitectureScale(value) {
-        return Math.max(5e-3, Math.min(3, value));
+      function clampArchitectureScale(value2) {
+        return Math.max(5e-3, Math.min(3, value2));
       }
       function zoomArchitecture(multiplier, clientX, clientY) {
         var container = architectureRenderRef.current;
@@ -7569,8 +11043,8 @@
         var svg = architectureRenderRef.current && architectureRenderRef.current.querySelector("svg");
         if (!svg) return;
         var connected = /* @__PURE__ */ new Set([id]);
-        svg.querySelectorAll("path.flowchart-link").forEach(function(path) {
-          var classes = Array.from(path.classList), from = (classes.find(function(c) {
+        svg.querySelectorAll("path.flowchart-link").forEach(function(path2) {
+          var classes = Array.from(path2.classList), from = (classes.find(function(c) {
             return c.startsWith("LS-");
           }) || "").slice(3), to = (classes.find(function(c) {
             return c.startsWith("LE-");
@@ -7580,7 +11054,7 @@
             connected.add(from);
             connected.add(to);
           }
-          path.style.opacity = id ? incident ? "1" : "0.08" : "0.4";
+          path2.style.opacity = id ? incident ? "1" : "0.08" : "0.4";
         });
         svg.querySelectorAll("[data-architecture-id]").forEach(function(node) {
           node.style.opacity = !id || connected.has(node.dataset.architectureId) ? "1" : "0.25";
@@ -7619,202 +11093,6 @@
         )
       );
     });
-  }
-
-  // src/project/loading.mjs
-  function createProjectLoading() {
-    let active;
-    return {
-      begin() {
-        active?.abort();
-        active = new AbortController();
-        return active.signal;
-      },
-      get signal() {
-        return active?.signal;
-      },
-      dispose() {
-        active?.abort();
-      }
-    };
-  }
-
-  // src/project/local-tools.mjs
-  function createLocalTools({ identity, status, fetch: request = globalThis.fetch }) {
-    if (identity?.sourceType !== "cli" || !cliRecordMatchesStatus(identity, status)) return null;
-    const requests = /* @__PURE__ */ new Map();
-    let disposed = false;
-    async function read(channel, path) {
-      if (disposed) throw new DOMException("Project connection closed", "AbortError");
-      requests.get(channel)?.abort();
-      const controller = new AbortController();
-      requests.set(channel, controller);
-      try {
-        const response = await request(path, { signal: controller.signal });
-        const result = await response.json();
-        controller.signal.throwIfAborted();
-        if (!response.ok) throw new Error(result.error || `Local tool request failed (${response.status})`);
-        return result;
-      } finally {
-        if (requests.get(channel) === controller) requests.delete(channel);
-      }
-    }
-    return {
-      language(method, path, position) {
-        const query = new URLSearchParams({ method, path });
-        if (position) {
-          query.set("line", position.line);
-          query.set("character", position.character);
-        }
-        return read(method === "symbols" ? "outline" : "navigation", "/__codeflow/language?" + query);
-      },
-      runtime(node) {
-        return read("runtime", "/__codeflow/runtime?" + new URLSearchParams({ node }));
-      },
-      dispose() {
-        disposed = true;
-        for (const controller of requests.values()) controller.abort();
-        requests.clear();
-      }
-    };
-  }
-
-  // src/project/access.mjs
-  async function readFolder(root, path) {
-    const parts = path.split("/");
-    const name = parts.pop();
-    let directory = root;
-    for (const part of parts) directory = await directory.getDirectoryHandle(part);
-    const handle = await directory.getFileHandle(name);
-    return (await handle.getFile()).text();
-  }
-  function createProjectSource({ identity, cli, folder, archive, github, fetch: request = globalThis.fetch }) {
-    if (!identity) return null;
-    let read;
-    switch (identity.sourceType) {
-      case "cli":
-        if (!cliRecordMatchesStatus(identity, cli)) return null;
-        read = async (path, signal) => {
-          const response = await request("/__codeflow/file?path=" + encodeURIComponent(path), { signal });
-          if (response.status === 404) return null;
-          if (!response.ok) throw new Error(`Source request failed (${response.status})`);
-          return response.text();
-        };
-        break;
-      case "folder":
-        if (!folder?.handle || !retainedFolderMatchesRecord(identity, folder)) return null;
-        read = (path) => readFolder(folder.handle, path);
-        break;
-      case "zip":
-        if (!archive?.entriesByPath || !retainedZipMatchesRecord(identity, {
-          sourceKey: archive.sourceKey,
-          identity: zipFileIdentity(archive.file)
-        })) return null;
-        read = (path) => archive.entriesByPath[path]?.async("string") ?? null;
-        break;
-      case "github":
-        if (!github?.owner || !github.repo || !github.client) return null;
-        if (identity.sourceKey.split("|excl:")[0] !== github.owner + "/" + github.repo) return null;
-        read = (path) => github.client.getFile(github.owner, github.repo, path);
-        break;
-      default:
-        return null;
-    }
-    return {
-      identity: { ...identity },
-      async read(path, { signal } = {}) {
-        if (!path || path.startsWith("/") || path.split("/").some((part) => !part || part === ".." || part === ".")) {
-          return { status: "unavailable", reason: "Expected a project-relative file path" };
-        }
-        try {
-          signal?.throwIfAborted();
-          const content = await read(path, signal);
-          signal?.throwIfAborted();
-          if (typeof content === "string") return { status: "ready", content };
-          return identity.sourceType === "github" ? { status: "unavailable", reason: "GitHub did not return file contents" } : { status: "missing" };
-        } catch (error) {
-          if (signal?.aborted) throw error;
-          if (error.name === "NotFoundError") return { status: "missing" };
-          return { status: "unavailable", reason: error.message };
-        }
-      }
-    };
-  }
-
-  // src/project/cli-analysis.mjs
-  function subscribeCliAnalysis({ onUpdate, fetch: request = globalThis.fetch, interval = 2500 }) {
-    const controller = new AbortController();
-    let timer, graphRevision, diagnosticsRevision, lastAnalysis;
-    async function read(path) {
-      const response = await request(path, { signal: controller.signal });
-      if (!response.ok) throw new Error(`Local project service returned ${response.status}`);
-      return response.json();
-    }
-    function diagnosticsFor(analysis) {
-      return [
-        {
-          id: "elixir-ls",
-          name: "ElixirLS",
-          status: analysis.language.state,
-          reason: analysis.language.reason,
-          findings: analysis.language.diagnostics
-        },
-        {
-          id: "credo",
-          name: "Credo",
-          status: analysis.assessment.status,
-          reason: analysis.assessment.reason,
-          findings: analysis.assessment.findings
-        }
-      ];
-    }
-    async function poll() {
-      try {
-        const analysis = await read("/__codeflow/analysis");
-        if (controller.signal.aborted) return;
-        lastAnalysis = analysis;
-        const diagnostics = diagnosticsFor(analysis);
-        const revision = JSON.stringify(diagnostics);
-        onUpdate({ analysis, diagnostics: revision === diagnosticsRevision ? null : diagnostics });
-        diagnosticsRevision = revision;
-        if (analysis.graphRevision && analysis.graphRevision !== graphRevision) {
-          try {
-            const graph = await read("/__codeflow/beam");
-            if (controller.signal.aborted) return;
-            onUpdate({ graph, diagnostics: [{
-              id: "mix",
-              name: "Mix compiler graph",
-              status: graph.status,
-              reason: (graph.warnings || []).join("\n") || null
-            }] });
-            graphRevision = analysis.graphRevision;
-          } catch (error) {
-            if (controller.signal.aborted) return;
-            onUpdate({ diagnostics: [{
-              id: "mix",
-              name: "Mix compiler graph",
-              status: "unavailable",
-              reason: error.message
-            }] });
-          }
-        }
-      } catch (error) {
-        if (controller.signal.aborted) return;
-        const analysis = {
-          language: { ...lastAnalysis?.language, state: "unavailable", reason: error.message },
-          assessment: { ...lastAnalysis?.assessment, status: "unavailable", reason: error.message }
-        };
-        onUpdate({ analysis, diagnostics: diagnosticsFor(analysis) });
-        diagnosticsRevision = null;
-      } finally {
-        if (!controller.signal.aborted) timer = setTimeout(poll, interval);
-      }
-    }
-    void poll();
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
   }
 
   // src/project/export.mjs
@@ -7911,8 +11189,8 @@
         };
       }),
       architectureIssues: data.issues.map(function(i) {
-        return { type: i.type, title: i.title, description: i.desc, provider: i.provider, evidence: i.evidence, certainty: i.certainty, sourceLocation: i.sourceLocation, affectedFiles: i.items ? i.items.map(function(x) {
-          return x.path || x.file || x.name;
+        return { type: i.type, title: i.title, description: i.desc, provider: i.provider, evidence: i.evidence, certainty: i.certainty, sourceLocation: i.sourceLocation, affectedFiles: i.items ? i.items.map(function(x2) {
+          return x2.path || x2.file || x2.name;
         }) : [], affectedItems: i.items || [] };
       }),
       patterns: data.patterns.map(function(p) {
@@ -7954,10 +11232,10 @@
   }
   function affectedLabel(item) {
     if (typeof item === "string") return item;
-    const path = item.path || item.file || item.sourceLocation?.path;
+    const path2 = item.path || item.file || item.sourceLocation?.path;
     const label = item.name || item.title;
     const line = item.line || (item.sourceLocation?.range?.start.line ?? -1) + 1;
-    const primary = (path || label || "Unknown source") + (line ? ":" + line : "") + (path && label && label !== path ? " \xB7 " + label : "");
+    const primary = (path2 || label || "Unknown source") + (line ? ":" + line : "") + (path2 && label && label !== path2 ? " \xB7 " + label : "");
     const related = Array.isArray(item.files) ? item.files.map(affectedLabel) : [];
     return primary + (item.toFile ? " \u2192 " + affectedLabel(item.toFile) : "") + (related.length ? " [" + related.join(", ") + "]" : "");
   }
@@ -8034,8 +11312,8 @@
         data.issues.forEach(function(i) {
           md += "### " + i.title + "\n";
           md += i.desc + "\n\n";
-          if (i.items) md += "**Affected:** " + i.items.map(function(x) {
-            return "`" + affectedLabel(x) + "`";
+          if (i.items) md += "**Affected:** " + i.items.map(function(x2) {
+            return "`" + affectedLabel(x2) + "`";
           }).join(", ") + "\n\n";
         });
       }
@@ -8105,8 +11383,8 @@
         data.issues.forEach(function(i) {
           txt += "[" + i.type.toUpperCase() + "] " + i.title + "\n";
           txt += "  " + i.desc + "\n";
-          if (i.items) txt += "  Affected: " + i.items.map(function(x) {
-            return affectedLabel(x);
+          if (i.items) txt += "  Affected: " + i.items.map(function(x2) {
+            return affectedLabel(x2);
           }).join(", ") + "\n";
           txt += "\n";
         });
@@ -8128,8 +11406,8 @@
   function createInvestigationState() {
     return { selectedPath: null, scope: null, view: "graph", openedPaths: [], range: null, navigation: { entries: [], index: -1 } };
   }
-  function hasPath(data, path) {
-    return !!path && (data?.files || []).some((file) => file.path === path);
+  function hasPath(data, path2) {
+    return !!path2 && (data?.files || []).some((file) => file.path === path2);
   }
   function select(state, action, data) {
     if (action.path === null) return { ...state, selectedPath: null, range: null };
@@ -8161,12 +11439,12 @@
       }
       case "close": {
         if (!state.openedPaths.includes(action.path)) return state;
-        const openedPaths = state.openedPaths.filter((path2) => path2 !== action.path);
+        const openedPaths = state.openedPaths.filter((path3) => path3 !== action.path);
         const next = { ...state, openedPaths };
         if (state.selectedPath !== action.path) return next;
-        const path = openedPaths.filter((path2) => hasPath(data, path2)).at(-1);
-        if (!path) return select(next, { path: null }, data);
-        return select(next, { path, scope: folderFilterAfterCodeNav(path, data, state.scope), camera: action.camera }, data);
+        const path2 = openedPaths.filter((path3) => hasPath(data, path3)).at(-1);
+        if (!path2) return select(next, { path: null }, data);
+        return select(next, { path: path2, scope: folderFilterAfterCodeNav(path2, data, state.scope), camera: action.camera }, data);
       }
       case "view": {
         const next = { ...state, view: action.view };
@@ -8206,213 +11484,6 @@
     }
   }
 
-  // src/project/tree.mjs
-  function buildTree(files) {
-    var root = { name: "root", path: "", children: {}, files: [] };
-    files.forEach(function(f) {
-      var parts = f.folder && f.folder !== "root" ? f.folder.split("/") : [];
-      var cur = root;
-      parts.forEach(function(p, i) {
-        var path = parts.slice(0, i + 1).join("/");
-        if (!cur.children[p]) cur.children[p] = { name: p, path, children: {}, files: [] };
-        cur = cur.children[p];
-      });
-      cur.files.push(f);
-    });
-    return root;
-  }
-  function countFiles(n) {
-    return n.files.length + Object.values(n.children).reduce(function(s, c) {
-      return s + countFiles(c);
-    }, 0);
-  }
-
-  // src/investigation/recent-analyses.mjs
-  var ANALYSIS_CACHE_DB = "codeflow-recents";
-  var ANALYSIS_CACHE_STORE = "analyses";
-  var ANALYSIS_CACHE_VERSION = 2;
-  var ANALYSIS_CACHE_MAX = 12;
-  var ANALYSIS_CACHE_MAX_BYTES = 18 * 1024 * 1024;
-  function formatRecentTime(ts) {
-    var value = Number(ts);
-    if (!isFinite(value) || value <= 0) return "";
-    var delta = Date.now() - value;
-    if (delta < 6e4) return "just now";
-    if (delta < 36e5) return Math.floor(delta / 6e4) + "m ago";
-    if (delta < 864e5) return Math.floor(delta / 36e5) + "h ago";
-    return new Date(value).toLocaleDateString();
-  }
-  function armRecentDelete(armedId, clickedId) {
-    clickedId = clickedId || null;
-    if (clickedId && armedId === clickedId) return { confirm: true, armedId: null };
-    return { confirm: false, armedId: clickedId };
-  }
-  function buildRecentAnalysisRecord(options) {
-    options = options || {};
-    var sourceType = options.sourceType || "unknown";
-    var sourceKey = options.sourceKey || "untitled";
-    return {
-      id: analysisCacheKey(sourceType, sourceKey),
-      title: options.title || sourceKey,
-      sourceType,
-      sourceKey,
-      repoUrl: options.repoUrl || "",
-      fileCount: options.data && options.data.files ? options.data.files.length : 0,
-      savedAt: options.savedAt || Date.now(),
-      data: options.data || null,
-      repoInfo: options.repoInfo || null,
-      localSourceKind: options.localSourceKind || null
-    };
-  }
-  function estimateAnalysisRecordBytes(record) {
-    try {
-      return JSON.stringify(record).length;
-    } catch (e) {
-      return ANALYSIS_CACHE_MAX_BYTES + 1;
-    }
-  }
-  function omitSnippetCode(item) {
-    if (!item || typeof item !== "object" || Array.isArray(item)) return item;
-    if (!Object.prototype.hasOwnProperty.call(item, "code")) return item;
-    var copy = Object.assign({}, item);
-    delete copy.code;
-    return copy;
-  }
-  function compactAnalysisForCache(data) {
-    if (!data || typeof data !== "object") return data;
-    var copy = Object.assign({}, data);
-    if (Array.isArray(copy.files)) {
-      copy.files = copy.files.map(function(file) {
-        var next = Object.assign({}, file);
-        delete next.content;
-        if (next.elixir) next.elixir = { ...next.elixir, functions: (next.elixir.functions || []).map(omitSnippetCode) };
-        if (Array.isArray(next.functions)) next.functions = next.functions.map(omitSnippetCode);
-        if (Array.isArray(next.deadFunctions)) next.deadFunctions = next.deadFunctions.map(omitSnippetCode);
-        if (Array.isArray(next.securityIssues)) next.securityIssues = next.securityIssues.map(omitSnippetCode);
-        return next;
-      });
-    }
-    if (Array.isArray(copy.files)) {
-      const byPath = new Map(copy.files.map((file) => [file.path, file]));
-      if (copy.tree) copy.tree = buildTree(copy.files);
-      if (copy.patterns) copy.patterns = copy.patterns.map((pattern) => ({
-        ...pattern,
-        files: (pattern.files || []).map((file) => byPath.get(file.path) || file)
-      }));
-    }
-    if (Array.isArray(copy.functions)) copy.functions = copy.functions.map(omitSnippetCode);
-    if (Array.isArray(copy.deadFunctions)) copy.deadFunctions = copy.deadFunctions.map(omitSnippetCode);
-    if (Array.isArray(copy.securityIssues)) copy.securityIssues = copy.securityIssues.map(omitSnippetCode);
-    if (Array.isArray(copy.issues)) {
-      copy.issues = copy.issues.map(function(issue) {
-        var next = Object.assign({}, issue);
-        if (Array.isArray(next.items)) next.items = next.items.map(omitSnippetCode);
-        return next;
-      });
-    }
-    if (copy.fnStats && typeof copy.fnStats === "object") {
-      var stats = /* @__PURE__ */ Object.create(null);
-      Object.keys(copy.fnStats).forEach(function(key) {
-        stats[key] = omitSnippetCode(copy.fnStats[key]);
-      });
-      copy.fnStats = stats;
-    }
-    return copy;
-  }
-  function openAnalysisCacheDb() {
-    if (typeof indexedDB === "undefined") return Promise.reject(new Error("IndexedDB is not available"));
-    return new Promise(function(resolve, reject) {
-      var req = indexedDB.open(ANALYSIS_CACHE_DB, ANALYSIS_CACHE_VERSION);
-      req.onupgradeneeded = function() {
-        var db = req.result;
-        if (db.objectStoreNames.contains(ANALYSIS_CACHE_STORE)) db.deleteObjectStore(ANALYSIS_CACHE_STORE);
-        var store = db.createObjectStore(ANALYSIS_CACHE_STORE, { keyPath: "id" });
-        store.createIndex("savedAt", "savedAt");
-      };
-      req.onsuccess = function() {
-        resolve(req.result);
-      };
-      req.onerror = function() {
-        reject(req.error || new Error("Failed to open analysis cache"));
-      };
-    });
-  }
-  function listRecentAnalyses() {
-    return openAnalysisCacheDb().then(function(db) {
-      return new Promise(function(resolve, reject) {
-        var tx = db.transaction(ANALYSIS_CACHE_STORE, "readonly");
-        var req = tx.objectStore(ANALYSIS_CACHE_STORE).getAll();
-        req.onsuccess = function() {
-          var rows = (req.result || []).slice().sort(function(a, b) {
-            return (b.savedAt || 0) - (a.savedAt || 0);
-          });
-          resolve(rows);
-        };
-        req.onerror = function() {
-          reject(req.error);
-        };
-      });
-    }).catch(function() {
-      return [];
-    });
-  }
-  function getRecentAnalysis(id) {
-    return openAnalysisCacheDb().then(function(db) {
-      return new Promise(function(resolve, reject) {
-        var tx = db.transaction(ANALYSIS_CACHE_STORE, "readonly");
-        var req = tx.objectStore(ANALYSIS_CACHE_STORE).get(id);
-        req.onsuccess = function() {
-          resolve(req.result || null);
-        };
-        req.onerror = function() {
-          reject(req.error);
-        };
-      });
-    });
-  }
-  function deleteRecentAnalysis(id) {
-    return openAnalysisCacheDb().then(function(db) {
-      return new Promise(function(resolve, reject) {
-        var tx = db.transaction(ANALYSIS_CACHE_STORE, "readwrite");
-        tx.objectStore(ANALYSIS_CACHE_STORE).delete(id);
-        tx.oncomplete = function() {
-          resolve(true);
-        };
-        tx.onerror = function() {
-          reject(tx.error);
-        };
-      });
-    });
-  }
-  function saveRecentAnalysis(record) {
-    if (!record || !record.id || !record.data) return Promise.resolve(false);
-    if (estimateAnalysisRecordBytes(record) > ANALYSIS_CACHE_MAX_BYTES) return Promise.resolve(false);
-    return openAnalysisCacheDb().then(function(db) {
-      return new Promise(function(resolve, reject) {
-        var tx = db.transaction(ANALYSIS_CACHE_STORE, "readwrite");
-        var store = tx.objectStore(ANALYSIS_CACHE_STORE);
-        store.put(record);
-        var allReq = store.getAll();
-        allReq.onsuccess = function() {
-          var rows = (allReq.result || []).slice().sort(function(a, b) {
-            return (b.savedAt || 0) - (a.savedAt || 0);
-          });
-          rows.slice(ANALYSIS_CACHE_MAX).forEach(function(old) {
-            store.delete(old.id);
-          });
-        };
-        tx.oncomplete = function() {
-          resolve(true);
-        };
-        tx.onerror = function() {
-          reject(tx.error);
-        };
-      });
-    }).catch(function() {
-      return false;
-    });
-  }
-
   // src/investigation/workspace.mjs
   function restoreWorkspace(saved, data) {
     if (!saved || saved.version !== 1) return null;
@@ -8437,16 +11508,16 @@
       pinned: [],
       camera: snapshotZoomTransform(saved.camera)
     };
-    Object.keys(saved.placements || {}).forEach(function(path) {
-      var p = saved.placements[path];
-      if (paths.has(path) && p && Number.isFinite(p.x) && Number.isFinite(p.y)) result.placements[path] = p;
+    Object.keys(saved.placements || {}).forEach(function(path2) {
+      var p = saved.placements[path2];
+      if (paths.has(path2) && p && Number.isFinite(p.x) && Number.isFinite(p.y)) result.placements[path2] = p;
     });
-    Object.keys(saved.sizes || {}).forEach(function(path) {
-      var size = saved.sizes[path];
-      if (paths.has(path) && size && typeof size === "object") result.sizes[path] = size;
+    Object.keys(saved.sizes || {}).forEach(function(path2) {
+      var size = saved.sizes[path2];
+      if (paths.has(path2) && size && typeof size === "object") result.sizes[path2] = size;
     });
-    result.pinned = (Array.isArray(saved.pinned) ? saved.pinned : []).filter(function(path) {
-      return paths.has(path);
+    result.pinned = (Array.isArray(saved.pinned) ? saved.pinned : []).filter(function(path2) {
+      return paths.has(path2);
     });
     if (saved.navigation && Array.isArray(saved.navigation.entries)) {
       var before = saved.navigation.entries.slice(0, saved.navigation.index + 1).filter(function(entry) {
@@ -8458,276 +11529,6 @@
       result.navigation = { entries: before.concat(after), index: before.length - 1 };
     }
     return result;
-  }
-
-  // src/analysis/evidence.mjs
-  function buildBeamAnalysisData(options) {
-    var data = options.data;
-    var snapshot = options.snapshot || { schemaVersion: 1, status: "unavailable", nodes: [], edges: [], warnings: ["Compiler evidence unavailable"] };
-    var compiled = new Set((snapshot.nodes || []).map(function(n) {
-      return n.path;
-    }));
-    var files = data.files.map(function(f) {
-      return Object.assign({}, f, { compiled: compiled.has(f.path) });
-    });
-    var included = new Set(files.map(function(f) {
-      return f.path;
-    }));
-    var connections = data.connections.filter(function(c) {
-      return c.evidence !== "mix xref";
-    }).map(function(c) {
-      return Object.assign({}, c, { evidence: c.evidence || "source analysis" });
-    });
-    var seen = /* @__PURE__ */ new Set();
-    (snapshot.status === "ready" ? snapshot.edges || [] : []).forEach(function(e) {
-      if (!included.has(e.source) || !included.has(e.target)) return;
-      var key = JSON.stringify([e.source, e.target, e.kind]);
-      if (seen.has(key)) return;
-      seen.add(key);
-      connections.push({ source: e.target, target: e.source, kind: e.kind, evidence: "mix xref", fn: null, count: 1 });
-    });
-    var architectureDiagram = data.architectureDiagram;
-    if (architectureDiagram) {
-      var dependencies = architectureDiagram.dependencies.filter(function(dep) {
-        return dep.evidence !== "mix xref";
-      });
-      connections.filter(function(c) {
-        return c.evidence === "mix xref";
-      }).forEach(function(c) {
-        var from = findBlockByFile(architectureDiagram.blocks, c.target);
-        var to = findBlockByFile(architectureDiagram.blocks, c.source);
-        if (from && to && from.id !== to.id) dependencies.push({ from: from.id, to: to.id, kind: c.kind, label: c.kind + " reference", confidence: "high", evidence: "mix xref" });
-      });
-      var dependencyKeys = /* @__PURE__ */ new Set();
-      dependencies = dependencies.filter(function(dep) {
-        var key = JSON.stringify([dep.from, dep.to, dep.kind, dep.label, dep.evidence || "source analysis"]);
-        if (dependencyKeys.has(key)) return false;
-        dependencyKeys.add(key);
-        return true;
-      });
-      architectureDiagram = Object.assign({}, architectureDiagram, { dependencies });
-      var visibleBlocks = getVisibleArchitectureBlocks(architectureDiagram.blocks, false, false);
-      var visibleIds = new Set(visibleBlocks.map(function(block) {
-        return block.id;
-      }));
-      architectureDiagram.stats = Object.assign({}, architectureDiagram.stats, computeArchitectureStats(visibleBlocks, dependencies.filter(function(dep) {
-        return visibleIds.has(dep.from) && visibleIds.has(dep.to);
-      })));
-      architectureDiagram.mermaid = generateMermaidBlockDiagram(architectureDiagram, false, false);
-    }
-    return Object.assign({}, data, {
-      files,
-      connections,
-      architectureDiagram,
-      beam: Object.assign({}, snapshot, { coverage: { compiled: (snapshot.nodes || []).length, included: files.filter(function(f) {
-        return f.compiled;
-      }).length } }),
-      stats: Object.assign({}, data.stats, { connections: connections.length })
-    });
-  }
-  function enrichAnalysisFindings(data, providers) {
-    var ids = new Set(providers.map(function(p) {
-      return p.id;
-    }));
-    var issues = data.issues.filter(function(issue) {
-      return !ids.has(issue.provider);
-    });
-    var assessments = Object.assign({}, data.assessments);
-    providers.forEach(function(provider) {
-      assessments[provider.id] = { name: provider.name, status: provider.status, reason: provider.reason || null };
-      var seen = /* @__PURE__ */ new Set();
-      (provider.findings || []).forEach(function(finding) {
-        var location = { path: finding.path || null, range: finding.range || null };
-        var key = JSON.stringify([location, finding.message, finding.check || finding.code]);
-        if (seen.has(key)) return;
-        seen.add(key);
-        issues.push({
-          provider: provider.id,
-          evidence: provider.name,
-          type: finding.severity === 1 ? "critical" : "warning",
-          title: finding.message,
-          desc: provider.name + (finding.check ? " \xB7 " + finding.check : ""),
-          sourceLocation: location,
-          finding,
-          items: [{ name: finding.message, file: location.path, line: location.range ? location.range.start.line + 1 : null }]
-        });
-      });
-    });
-    return Object.assign({}, data, { issues, assessments });
-  }
-
-  // src/project/exclusions.mjs
-  var import_exclusion_policy = __toESM(require_exclusion_policy(), 1);
-  var { IGNORE, DEFAULT_EXCLUDE_CHIPS, normalizeExcludePath, parseExcludePatterns, globMatches, compileExcludePatterns, matchesExcludePattern, shouldIgnoreDirectory } = import_exclusion_policy.default;
-  function shouldExcludeFile(path, name, compiledPatterns) {
-    return !isIncluded(name) || matchesExcludePattern(compiledPatterns, path, name);
-  }
-  function getArchiveRootPrefix(paths) {
-    var splitPaths = (paths || []).map(function(path) {
-      return normalizeExcludePath(path).split("/").filter(Boolean);
-    }).filter(function(parts) {
-      return parts.length > 0;
-    });
-    if (!splitPaths.length) return "";
-    var firstSegment = splitPaths[0][0];
-    var hasSingleRoot = splitPaths.every(function(parts) {
-      return parts.length > 1 && parts[0] === firstSegment;
-    });
-    return hasSingleRoot ? firstSegment + "/" : "";
-  }
-  function filterAnalyzableLocalFiles(files, compiledPatterns) {
-    var patterns = compiledPatterns || [];
-    var dirCache = /* @__PURE__ */ new Map();
-    return (files || []).filter(function(f) {
-      var entryPath = normalizeExcludePath(f && f.path);
-      if (!entryPath || entryPath.endsWith("/")) return false;
-      var name = f && f.name || entryPath.split("/").filter(Boolean).pop() || "";
-      if (!name || name === ".DS_Store") return false;
-      if (shouldSkipArchivePath(entryPath, patterns, dirCache)) return false;
-      if (shouldExcludeFile(entryPath, name, patterns)) return false;
-      return true;
-    });
-  }
-  function shouldSkipArchivePath(path, compiledPatterns, dirCache) {
-    var segments = normalizeExcludePath(path).split("/").filter(Boolean);
-    var current = "";
-    for (var i = 0; i < segments.length - 1; i++) {
-      current = current ? current + "/" + segments[i] : segments[i];
-      if (dirCache && dirCache.has(current)) {
-        if (dirCache.get(current)) return true;
-        continue;
-      }
-      var ignored = shouldIgnoreDirectory(current, segments[i], compiledPatterns);
-      if (dirCache) dirCache.set(current, ignored);
-      if (ignored) return true;
-    }
-    return false;
-  }
-
-  // src/project/size-policy.mjs
-  var maxAnalyzableFileBytes = 2 * 1024 * 1024;
-  function isOversized(size) {
-    return Number.isFinite(size) && size > maxAnalyzableFileBytes;
-  }
-
-  // src/project/collection.mjs
-  function descriptor(path, size, read) {
-    path = normalizeExcludePath(path);
-    return { path, name: path.split("/").pop(), folder: path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "root", size: size || 0, read };
-  }
-  function include(file, patterns) {
-    return filterAnalyzableLocalFiles([file], patterns).length > 0;
-  }
-  async function collectDirectory(handle, { patterns = [], signal, progress = () => {
-  } } = {}) {
-    const files = [];
-    async function walk(directory, prefix) {
-      signal?.throwIfAborted();
-      for await (const entry of directory.values()) {
-        signal?.throwIfAborted();
-        const path = prefix ? prefix + "/" + entry.name : entry.name;
-        if (entry.kind === "directory") {
-          if (!shouldIgnoreDirectory(path, entry.name, patterns)) await walk(entry, path);
-        } else if (entry.kind === "file") {
-          const file = descriptor(path, 0, async () => {
-            const source = await entry.getFile();
-            signal?.throwIfAborted();
-            file.size = source.size;
-            return isOversized(file.size) ? "" : source.text();
-          });
-          if (include(file, patterns)) files.push(file);
-        }
-        if (files.length && files.length % 50 === 0) progress("Scanning files... " + files.length + " found");
-      }
-    }
-    await walk(handle, "");
-    signal?.throwIfAborted();
-    return { files, rootPrefix: "" };
-  }
-  function collectEntries(entries, options, make) {
-    const { patterns = [], signal, progress = () => {
-    } } = options;
-    signal?.throwIfAborted();
-    const rootPrefix = getArchiveRootPrefix(entries.map((entry) => entry.path));
-    const files = [], entriesByPath = /* @__PURE__ */ Object.create(null);
-    for (const entry of entries) {
-      signal?.throwIfAborted();
-      const raw = normalizeExcludePath(entry.path);
-      const path = rootPrefix && raw.startsWith(rootPrefix) ? raw.slice(rootPrefix.length) : raw;
-      const file = make(entry.value, path);
-      if (!include(file, patterns)) continue;
-      files.push(file);
-      entriesByPath[file.path] = entry.value;
-      if (files.length % 50 === 0) progress("Scanning files... " + files.length + " found");
-    }
-    return { files, rootPrefix, entriesByPath };
-  }
-  async function collectSelectedFiles(fileObjs, options = {}) {
-    const { files, rootPrefix } = collectEntries(
-      Array.from(fileObjs, (file) => ({ path: file.webkitRelativePath || file.name, value: file })),
-      options,
-      (file, path) => descriptor(path, file.size, () => file.text())
-    );
-    return { files, rootPrefix };
-  }
-  async function collectArchive(zip, options = {}) {
-    const entries = Object.keys(zip.files).sort().map((key) => zip.files[key]).filter((entry) => entry && !entry.dir);
-    return collectEntries(
-      entries.map((entry) => ({ path: entry.name, value: entry })),
-      options,
-      (entry, path) => descriptor(path, entry._data?.uncompressedSize, () => entry.async("string"))
-    );
-  }
-  async function readCollectedFiles(files, { signal, progress = () => {
-  }, yieldFn = () => Promise.resolve() } = {}) {
-    const records = [];
-    for (let i = 0; i < files.length; i++) {
-      signal?.throwIfAborted();
-      if (i && i % 50 === 0) {
-        await yieldFn();
-        signal?.throwIfAborted();
-      }
-      const file = files[i];
-      progress("Reading " + (i + 1) + "/" + files.length + ": " + file.name);
-      const record = { path: file.path, name: file.name, folder: file.folder, size: file.size };
-      try {
-        const result = isOversized(file.size) ? "" : await file.read();
-        signal?.throwIfAborted();
-        const content = typeof result === "string" ? result : result?.content;
-        if (typeof content !== "string") throw new Error("Source read did not return text");
-        record.size = result && typeof result === "object" && result.size !== void 0 ? result.size : file.size;
-        if (result && typeof result === "object" && result.churn !== void 0) record.churn = result.churn;
-        if (isOversized(record.size) || isOversized(content.length)) record.analysisSkipped = "oversized";
-        else record.content = content;
-      } catch (error) {
-        if (signal?.aborted || error?.name === "AbortError") throw error;
-        record.analysisSkipped = "fetch-failed";
-      }
-      records.push(record);
-    }
-    signal?.throwIfAborted();
-    return records;
-  }
-
-  // src/browser/scheduling.mjs
-  function yieldToBrowser() {
-    if (typeof scheduler !== "undefined" && scheduler.yield) {
-      return scheduler.yield();
-    }
-    if (typeof MessageChannel !== "undefined") {
-      return new Promise(function(resolve) {
-        var channel = new MessageChannel();
-        channel.port1.onmessage = function() {
-          channel.port1.close();
-          channel.port2.close();
-          resolve();
-        };
-        channel.port2.postMessage(null);
-      });
-    }
-    return new Promise(function(resolve) {
-      setTimeout(resolve, 0);
-    });
   }
 
   // src/analysis/security-source.mjs
@@ -8789,11 +11590,11 @@
           if (!html || !staticString(html.value)) facts.xss = true;
         }
         Object.keys(node).forEach(function(key) {
-          var value = node[key];
-          if (Array.isArray(value)) value.forEach(function(child) {
+          var value2 = node[key];
+          if (Array.isArray(value2)) value2.forEach(function(child) {
             if (child && typeof child.type === "string") visit(child);
           });
-          else if (value && typeof value.type === "string") visit(value);
+          else if (value2 && typeof value2.type === "string") visit(value2);
         });
       };
       var comments = [], ast;
@@ -8857,9 +11658,9 @@
           var timer = setTimeout(function() {
             reject(new Error("tree-sitter fetch timed out"));
           }, ms);
-          Promise.resolve(promise).then(function(value) {
+          Promise.resolve(promise).then(function(value2) {
             clearTimeout(timer);
-            resolve(value);
+            resolve(value2);
           }, function(error) {
             clearTimeout(timer);
             reject(error);
@@ -8971,11 +11772,11 @@
         function keyword(node, key) {
           if (!node) return null;
           var pairs = node.type === "keywords" ? node.namedChildren : [];
-          var pair = pairs.find(function(p) {
+          var pair2 = pairs.find(function(p) {
             var k = field(p, "key");
             return k && k.text.trim() === key + ":";
           });
-          return field(pair, "value");
+          return field(pair2, "value");
         }
         function fork(env) {
           return { module: env.module, moduleRecord: env.moduleRecord, aliases: Object.assign({}, env.aliases), imports: env.imports.slice(), inFunction: env.inFunction, functionName: env.functionName, bindings: new Set(env.bindings) };
@@ -9090,9 +11891,9 @@
                 return n2.type === "keywords";
               }), as = keyword(kw, "as");
               if (aliasNode && aliasNode.type === "dot" && field(aliasNode, "right") && field(aliasNode, "right").type === "tuple") {
-                var prefix = moduleName(field(aliasNode, "left"), env);
-                if (prefix) field(aliasNode, "right").namedChildren.forEach(function(n2) {
-                  if (n2.type === "alias") env.aliases[n2.text.split(".").pop()] = prefix + "." + n2.text;
+                var prefix2 = moduleName(field(aliasNode, "left"), env);
+                if (prefix2) field(aliasNode, "right").namedChildren.forEach(function(n2) {
+                  if (n2.type === "alias") env.aliases[n2.text.split(".").pop()] = prefix2 + "." + n2.text;
                 });
               } else {
                 var full = moduleName(aliasNode, env);
@@ -9278,11 +12079,11 @@
         var attrRegex = /([^\s"'<>\/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
         var match;
         while (match = attrRegex.exec(attrs)) {
-          var value = match[2] !== void 0 ? match[2] : match[3] !== void 0 ? match[3] : match[4];
+          var value2 = match[2] !== void 0 ? match[2] : match[3] !== void 0 ? match[3] : match[4];
           parsed.push({
             name: (match[1] || "").toLowerCase(),
-            value: value === void 0 ? "" : value,
-            valueStart: value === void 0 ? -1 : match.index + match[0].indexOf(value)
+            value: value2 === void 0 ? "" : value2,
+            valueStart: value2 === void 0 ? -1 : match.index + match[0].indexOf(value2)
           });
         }
         return parsed;
@@ -9406,13 +12207,13 @@
         var exact = /* @__PURE__ */ Object.create(null);
         var byBase = /* @__PURE__ */ Object.create(null);
         var markdownByStem = /* @__PURE__ */ Object.create(null);
-        (allPaths || []).forEach(function(path) {
-          var lower = path.toLowerCase();
-          if (exact[lower] === void 0) exact[lower] = path;
+        (allPaths || []).forEach(function(path2) {
+          var lower = path2.toLowerCase();
+          if (exact[lower] === void 0) exact[lower] = path2;
           var base = lower.split("/").pop();
-          if (byBase[base] === void 0) byBase[base] = path;
+          if (byBase[base] === void 0) byBase[base] = path2;
           var markdownMatch = base.match(/^(.*)\.(?:md|markdown)$/);
-          if (markdownMatch && markdownByStem[markdownMatch[1]] === void 0) markdownByStem[markdownMatch[1]] = path;
+          if (markdownMatch && markdownByStem[markdownMatch[1]] === void 0) markdownByStem[markdownMatch[1]] = path2;
         });
         return { exact, byBase, markdownByStem };
       },
@@ -9420,13 +12221,13 @@
         if (!rawTarget) return null;
         var pathIndex = allPathsOrIndex && allPathsOrIndex.exact && allPathsOrIndex.byBase ? allPathsOrIndex : (function(allPaths) {
           var exact = /* @__PURE__ */ Object.create(null), byBase = /* @__PURE__ */ Object.create(null), markdownByStem = /* @__PURE__ */ Object.create(null);
-          allPaths.forEach(function(path) {
-            var lower = path.toLowerCase();
-            if (exact[lower] === void 0) exact[lower] = path;
+          allPaths.forEach(function(path2) {
+            var lower = path2.toLowerCase();
+            if (exact[lower] === void 0) exact[lower] = path2;
             var base = lower.split("/").pop();
-            if (byBase[base] === void 0) byBase[base] = path;
+            if (byBase[base] === void 0) byBase[base] = path2;
             var markdownMatch = base.match(/^(.*)\.(?:md|markdown)$/);
-            if (markdownMatch && markdownByStem[markdownMatch[1]] === void 0) markdownByStem[markdownMatch[1]] = path;
+            if (markdownMatch && markdownByStem[markdownMatch[1]] === void 0) markdownByStem[markdownMatch[1]] = path2;
           });
           return { exact, byBase, markdownByStem };
         })(allPathsOrIndex || []);
@@ -9453,8 +12254,8 @@
             var fromDir = fromPath.indexOf("/") >= 0 ? fromPath.split("/").slice(0, -1).join("/") : "";
             var parts = (fromDir ? fromDir.split("/") : []).concat(cleanTarget.split("/"));
             var out = [];
-            for (var pi = 0; pi < parts.length; pi++) {
-              var p = parts[pi];
+            for (var pi2 = 0; pi2 < parts.length; pi2++) {
+              var p = parts[pi2];
               if (p === "" || p === ".") continue;
               if (p === "..") {
                 out.pop();
@@ -11065,18 +13866,18 @@
         var isPascal2 = ["pas", "pp", "dpr", "dpk", "lpr", "inc"].indexOf(fromExt) >= 0;
         var isRuby = ["rb", "rake"].indexOf(fromExt) >= 0;
         var candidates = [];
-        function normalizePath(path) {
+        function normalizePath(path2) {
           var out = [];
-          String(path || "").replace(/\\/g, "/").split("/").forEach(function(part) {
+          String(path2 || "").replace(/\\/g, "/").split("/").forEach(function(part) {
             if (!part || part === ".") return;
             if (part === "..") out.pop();
             else out.push(part);
           });
           return out.join("/");
         }
-        function addCandidate(path) {
-          path = normalizePath(path);
-          if (path && candidates.indexOf(path) < 0) candidates.push(path);
+        function addCandidate(path2) {
+          path2 = normalizePath(path2);
+          if (path2 && candidates.indexOf(path2) < 0) candidates.push(path2);
         }
         if (importPath.startsWith("@/")) addCandidate("src/" + importPath.slice(2));
         else if (importPath.startsWith("~/")) addCandidate("src/" + importPath.slice(2));
@@ -11313,7 +14114,7 @@
           var nextChar = source[next] || "";
           var prevChar = prev >= 0 ? source[prev] : "";
           var lineStart = source.lastIndexOf("\n", start - 1) + 1;
-          var prefix = source.slice(lineStart, start);
+          var prefix2 = source.slice(lineStart, start);
           var pascalQualifier = opts.isPascal ? pascalQualifierBefore(start) : "";
           if (pascalQualifier) {
             var qualifiedName = pascalQualifier + "." + tokenName;
@@ -11324,10 +14125,10 @@
             matchedNames = [qualifiedName];
           }
           var isDefinition = false;
-          if (/\b(function|class|def)\s*$/.test(prefix)) isDefinition = true;
-          if (opts.isRuby && /\bdef\s+self\s*\.\s*$/.test(prefix)) isDefinition = true;
-          if (opts.isPython && /\b(async\s+def|def|class)\s*$/.test(prefix)) isDefinition = true;
-          if (opts.isVBA && /\b(Sub|Function)\s+$/i.test(prefix)) isDefinition = true;
+          if (/\b(function|class|def)\s*$/.test(prefix2)) isDefinition = true;
+          if (opts.isRuby && /\bdef\s+self\s*\.\s*$/.test(prefix2)) isDefinition = true;
+          if (opts.isPython && /\b(async\s+def|def|class)\s*$/.test(prefix2)) isDefinition = true;
+          if (opts.isVBA && /\b(Sub|Function)\s+$/i.test(prefix2)) isDefinition = true;
           if (opts.isPascal) {
             var declarationContext = source.slice(Math.max(0, start - 512), start);
             if (/\b(?:procedure|function|constructor|destructor|operator)\s+(?:[A-Za-z_][A-Za-z0-9_]*\s*\.\s*)*$/i.test(declarationContext)) isDefinition = true;
@@ -11340,7 +14141,7 @@
             matchedNames.forEach(function(name) {
               calls[name]++;
             });
-          } else if (opts.isPascal && nextChar === ";" && !isDefinition && (pascalQualifier || /^(?:[A-Za-z_]\w*\.)*\s*$/.test(prefix.trim()))) {
+          } else if (opts.isPascal && nextChar === ";" && !isDefinition && (pascalQualifier || /^(?:[A-Za-z_]\w*\.)*\s*$/.test(prefix2.trim()))) {
             matchedNames.forEach(function(name) {
               calls[name]++;
             });
@@ -11566,17 +14367,17 @@
       await Parser2.prepareTreeSitter(files.filter((file) => !file.analysisSkipped));
       const analyzed = [], allFns = [];
       for (let index = 0; index < files.length; index++) {
-        const file = files[index], path = file.path, name = file.name || path.split("/").pop();
-        const folder = file.folder || (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "root");
+        const file = files[index], path2 = file.path, name = file.name || path2.split("/").pop();
+        const folder = file.folder || (path2.includes("/") ? path2.slice(0, path2.lastIndexOf("/")) : "root");
         const content = typeof file.content === "string" ? file.content : "";
         const skipped = file.analysisSkipped || (Parser2.isOversized(file.size) || Parser2.isOversized(content.length) ? "oversized" : null);
-        const isCode2 = Parser2.isCode(name) && (!Parser2.isScriptContainer(path) || Parser2.hasEmbeddedCode(content, path));
-        const layer = Parser2.detectLayer(path);
-        const elixir = !skipped && isCode2 && Parser2.isElixir(path) ? Parser2.analyzeElixir(content, path) : null;
-        const functions = elixir && elixir.status !== "unavailable" ? elixir.functions : !skipped && isCode2 ? Parser2.extract(content, path) : [];
+        const isCode2 = Parser2.isCode(name) && (!Parser2.isScriptContainer(path2) || Parser2.hasEmbeddedCode(content, path2));
+        const layer = Parser2.detectLayer(path2);
+        const elixir = !skipped && isCode2 && Parser2.isElixir(path2) ? Parser2.analyzeElixir(content, path2) : null;
+        const functions = elixir && elixir.status !== "unavailable" ? elixir.functions : !skipped && isCode2 ? Parser2.extract(content, path2) : [];
         const record = {
           ...file,
-          path,
+          path: path2,
           name,
           folder,
           content: skipped ? "" : content,
@@ -11797,11 +14598,11 @@
         if (!file2.content) return;
         var links = Parser2.extractMarkdownLinks(file2.content);
         var deps = [];
-        links.forEach(function(link) {
-          var resolved = Parser2.resolveMarkdownLink(link.target, file2.path, mdPathIndex, link.kind);
-          deps.push({ kind: link.kind, raw: link.raw, target: link.target, resolved });
+        links.forEach(function(link2) {
+          var resolved = Parser2.resolveMarkdownLink(link2.target, file2.path, mdPathIndex, link2.kind);
+          deps.push({ kind: link2.kind, raw: link2.raw, target: link2.target, resolved });
           if (resolved && resolved !== file2.path) {
-            conns.push({ source: file2.path, target: resolved, fn: link.raw, count: 1, kind: link.kind });
+            conns.push({ source: file2.path, target: resolved, fn: link2.raw, count: 1, kind: link2.kind });
           }
         });
         file2.dependencies = deps;
@@ -11832,8 +14633,8 @@
           return { name: file2.name, file: file2.path, size: file2.size || 0 };
         })
       });
-      var deadFns = Object.entries(fnStats).filter(function(x) {
-        var stats = x[1], name = stats.name;
+      var deadFns = Object.entries(fnStats).filter(function(x2) {
+        var stats = x2[1], name = stats.name;
         if (stats.internal > 0 || stats.external > 0) return false;
         if (stats.possiblyCalled) return false;
         if (stats.isClassMethod) return false;
@@ -11851,8 +14652,8 @@
         if (stats.file && (/\.(?:spec|test)\.[jt]sx?$/.test(stats.file) || stats.file.includes("__tests__"))) return false;
         return true;
       });
-      if (deadFns.length) issues.push({ type: "warning", title: deadFns.length + " Unused Functions", desc: "Functions not called from other files", items: deadFns.map(function(x) {
-        return { name: x[1].name, file: x[1].file, line: x[1].line, code: x[1].code };
+      if (deadFns.length) issues.push({ type: "warning", title: deadFns.length + " Unused Functions", desc: "Functions not called from other files", items: deadFns.map(function(x2) {
+        return { name: x2[1].name, file: x2[1].file, line: x2[1].line, code: x2[1].code };
       }) });
       var godFiles = analyzed.filter(function(f) {
         return f.functions.length > 15;
@@ -11864,13 +14665,13 @@
       conns.forEach(function(c) {
         coupling[c.target] = (coupling[c.target] || 0) + 1;
       });
-      var highCoup = Object.entries(coupling).filter(function(x) {
-        return x[1] > 8;
+      var highCoup = Object.entries(coupling).filter(function(x2) {
+        return x2[1] > 8;
       }).sort(function(a, b) {
         return b[1] - a[1];
       });
-      if (highCoup.length) issues.push({ type: "warning", title: highCoup.length + " Highly Coupled", desc: "Files that import 8+ other files", items: highCoup.map(function(x) {
-        return { name: x[0].split("/").pop() + " (" + x[1] + " imports)", file: x[0], imports: x[1] };
+      if (highCoup.length) issues.push({ type: "warning", title: highCoup.length + " Highly Coupled", desc: "Files that import 8+ other files", items: highCoup.map(function(x2) {
+        return { name: x2[0].split("/").pop() + " (" + x2[1] + " imports)", file: x2[0], imports: x2[1] };
       }) });
       var circular = [];
       var circularSeen = /* @__PURE__ */ new Set();
@@ -11891,8 +14692,8 @@
       });
       if (circular.length) issues.push({ type: "critical", title: circular.length + " Circular Dependencies", desc: "Files that import each other", items: circular.map(function(p) {
         var parts = p.split("|");
-        return { name: parts.map(function(x) {
-          return x.split("/").pop();
+        return { name: parts.map(function(x2) {
+          return x2.split("/").pop();
         }).join(" \u2194 "), files: parts };
       }) });
       progress("Detecting patterns (3/6)...");
@@ -11981,9 +14782,9 @@
         duplicates,
         layerViolations,
         architectureDiagram,
-        deadFunctions: deadFns.map(function(x) {
-          var codeLines = x[1].code ? x[1].code.split("\n").length : 0;
-          return { name: x[1].name, file: x[1].file, folder: x[1].folder, line: x[1].line, code: x[1].code, codeLines, ext: x[1].file.split(".").pop() };
+        deadFunctions: deadFns.map(function(x2) {
+          var codeLines = x2[1].code ? x2[1].code.split("\n").length : 0;
+          return { name: x2[1].name, file: x2[1].file, folder: x2[1].folder, line: x2[1].line, code: x2[1].code, codeLines, ext: x2[1].file.split(".").pop() };
         }),
         excludePatterns,
         stats: { files: analyzed.length, functions: allFns.length, connections: conns.length, dead: deadFns.length, patterns: patterns.length, security: securityIssues.filter(function(i) {
@@ -59014,18 +61815,18 @@ This problem is likely caused by another plugin injecting
 
   // src/project/github.mjs
   function buildGitHubApiUrl(segments, query) {
-    var path = segments.filter(function(segment) {
+    var path2 = segments.filter(function(segment) {
       return segment !== void 0 && segment !== null && segment !== "";
     }).map(function(segment) {
       return encodeURIComponent(String(segment));
     }).join("/");
-    var url = "https://api.github.com/" + path;
+    var url = "https://api.github.com/" + path2;
     if (!query) return url;
     var params = new URLSearchParams();
     Object.keys(query).forEach(function(key) {
-      var value = query[key];
-      if (value === void 0 || value === null || value === "") return;
-      params.set(key, String(value));
+      var value2 = query[key];
+      if (value2 === void 0 || value2 === null || value2 === "") return;
+      params.set(key, String(value2));
     });
     var queryString = params.toString();
     return queryString ? url + "?" + queryString : url;
@@ -59033,8 +61834,8 @@ This problem is likely caused by another plugin injecting
   function buildRepoApiUrl(owner, repo, segments, query) {
     return buildGitHubApiUrl(["repos", owner, repo].concat(segments || []), query);
   }
-  function splitRepoPath(path) {
-    return (path || "").split("/").filter(Boolean);
+  function splitRepoPath(path2) {
+    return (path2 || "").split("/").filter(Boolean);
   }
   function decodeBase64Utf8(content) {
     if (content == null) return null;
@@ -59196,15 +61997,15 @@ This problem is likely caused by another plugin injecting
           return null;
         });
       },
-      getCommits: function(o, r, path, limit, signal) {
+      getCommits: function(o, r, path2, limit, signal) {
         if (this.rateLimit.remaining < 20 && !this.token) return Promise.resolve([]);
-        return this.fetch(buildRepoApiUrl(o, r, ["commits"], { per_page: limit || 30, path: path || void 0 }), { signal }).catch(function() {
+        return this.fetch(buildRepoApiUrl(o, r, ["commits"], { per_page: limit || 30, path: path2 || void 0 }), { signal }).catch(function() {
           if (signal) signal.throwIfAborted();
           return [];
         });
       },
-      getBlame: function(o, r, path) {
-        return this.getCommits(o, r, path, 50).then(function(commits) {
+      getBlame: function(o, r, path2) {
+        return this.getCommits(o, r, path2, 50).then(function(commits) {
           var authors = {};
           commits.forEach(function(c) {
             var name = c.commit.author.name;
@@ -59250,13 +62051,13 @@ This problem is likely caused by another plugin injecting
               throw new Error("Incomplete GitHub tree at " + (directory.path || "/"));
             }
             for (const entry of subtree.tree) {
-              const path = directory.path ? directory.path + "/" + entry.path : entry.path;
+              const path2 = directory.path ? directory.path + "/" + entry.path : entry.path;
               if (entry.type === "tree") {
-                if (!shouldIgnoreDirectory(path, entry.path, compiledPatterns)) {
-                  if (!entry.sha) throw new Error("GitHub subtree has no SHA: " + path);
-                  pending.push({ sha: entry.sha, path });
+                if (!shouldIgnoreDirectory(path2, entry.path, compiledPatterns)) {
+                  if (!entry.sha) throw new Error("GitHub subtree has no SHA: " + path2);
+                  pending.push({ sha: entry.sha, path: path2 });
                 }
-              } else if (entry.type === "blob") entries.push({ ...entry, path });
+              } else if (entry.type === "blob") entries.push({ ...entry, path: path2 });
             }
           }
         }
@@ -59280,6 +62081,7 @@ This problem is likely caused by another plugin injecting
   var { analyzeFiles } = createProjectAnalyzer(Parser);
   var runAnalysisData = createAnalysisClient({ analyzeFiles, yieldFn: yieldToBrowser });
   var GitHub = createGitHubAdapter({ KJUR: globalThis.KJUR });
+  var useProject = createProjectHook({ React, runAnalysisData, GitHub, JSZip: globalThis.JSZip });
   var { useState, useReducer, useEffect, useLayoutEffect, useRef, useMemo, useCallback } = React;
   var { SourceNavigation, AnalysisTools, SourceProcesses, SourceFindings, RuntimePanel } = createInspectionPanels(React);
   var useRuntimeInspection = createRuntimeInspectionHook(React);
@@ -59289,7 +62091,6 @@ This problem is likely caused by another plugin injecting
   var NativeCanvas = createNativeCanvas({ React, d3: globalThis.d3, Icon, COLORS, LAYER_COLORS });
   var { TreemapView, MatrixView, DendrogramView, SankeyView, DisjointView, BundleView } = createAlternateViews({ React, d3: globalThis.d3, colors: COLORS });
   var Graph3DView = createGraph3DView({ React, getRuntime: () => ({ ForceGraph3D: globalThis.ForceGraph3D, THREE: globalThis.THREE }), colors: COLORS, layerColors: LAYER_COLORS });
-  var ANALYSIS_LIMITS = { repoSoft: 300, localSoft: 500 };
   function calcPRRisk(prData, repoData) {
     if (!prData || !repoData) return { score: 0, level: "low", factors: [] };
     var score = 0;
@@ -59644,13 +62445,6 @@ This problem is likely caused by another plugin injecting
       borderRadius: 8
     }, extra || {});
   }
-  function buildAppUrl(repo, autoRun) {
-    var url = new URL(window.location.href);
-    url.search = "";
-    if (repo) url.searchParams.set("repo", repo);
-    if (autoRun && repo) url.searchParams.set("run", "1");
-    return url.toString();
-  }
   function getDialogTone(tone) {
     if (tone === "danger") return {
       color: "var(--red)",
@@ -59755,8 +62549,6 @@ This problem is likely caused by another plugin injecting
   function App() {
     const nativeCanvasRef = useRef(null);
     const [restoredNativeScene, setRestoredNativeScene] = useState(null);
-    const projectLoading = useMemo(createProjectLoading, []);
-    useEffect(() => () => projectLoading.dispose(), [projectLoading]);
     var _a = useState(window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"), theme = _a[0], setTheme = _a[1];
     var _b = useState(""), repoUrl = _b[0], setRepoUrl = _b[1];
     var _c = useState(""), token = _c[0], setToken = _c[1];
@@ -59764,10 +62556,43 @@ This problem is likely caused by another plugin injecting
     var _appId = useState(""), appId = _appId[0], setAppId = _appId[1];
     var _privateKey = useState(""), privateKey = _privateKey[0], setPrivateKey = _privateKey[1];
     var _showKeyModal = useState(false), showKeyModal = _showKeyModal[0], setShowKeyModal = _showKeyModal[1];
-    var _d = useState(false), loading = _d[0], setLoading = _d[1];
-    var _e = useState(""), progress = _e[0], setProgress = _e[1];
-    var _f = useState(null), error = _f[0], setError = _f[1];
-    var _g = useState(null), data = _g[0], setData = _g[1];
+    var _ai = useState(""), excludePatternInput = _ai[0], setExcludePatternInput = _ai[1];
+    var activeExcludePatterns = useMemo(function() {
+      return compileExcludePatterns(excludePatternInput);
+    }, [excludePatternInput]);
+    const project = useProject({ repoUrl, auth: { authMethod, token, appId, privateKey }, excludePatterns: activeExcludePatterns, confirm: requestConfirm, notify: showNotification, onReset: resetProjectPresentation, onRepositoryURL: setRepoUrl });
+    const { data, repoInfo, localSourceKind, loading, progress, recentAnalyses, cachedFromId, cliStatus, cliDirty, cliLiveByPath, beamAnalysis, localTools, codeSourceFailed } = project;
+    const [pickerError, setPickerError] = useState(null);
+    const error = pickerError || project.error;
+    const analyze = () => {
+      setPickerError(null);
+      return project.openGitHub(repoUrl);
+    };
+    const refreshAnalysis = project.refresh, reanalyzeRecent = project.refreshRecent, removeRecentAnalysis = project.removeRecent;
+    function loadRecentAnalysis(id) {
+      clearPendingRecentDelete();
+      return project.openRecent(id);
+    }
+    function currentAnalysisSource() {
+      return project.source;
+    }
+    function readLiveFileSource(path2) {
+      return project.readSource(path2);
+    }
+    function resetProjectPresentation({ cached = false } = {}) {
+      setPickerError(null);
+      setSelected(null);
+      setBlastRadius(null);
+      setOwnership(null);
+      setFolderFilter(null);
+      setPrData(null);
+      closeFilePreview();
+      setMobilePanel(null);
+      setShowGraphConfig(false);
+      setActiveSymbol(null);
+      setExpandedPaths(/* @__PURE__ */ new Set([""]));
+      if (cached) setGraphConfig((cfg) => ({ ...cfg, vizType: cfg.vizType === "architecture" ? "graph" : cfg.vizType }));
+    }
     const [investigation, dispatchInvestigation] = useReducer((state, action) => reduceInvestigation(state, action, data), void 0, createInvestigationState);
     const selected = useMemo(() => data && data.files.find((file) => file.path === investigation.selectedPath) || null, [data, investigation.selectedPath]);
     const folderFilter = investigation.scope, openedCodePaths = investigation.openedPaths, navigation = investigation.navigation;
@@ -59777,7 +62602,6 @@ This problem is likely caused by another plugin injecting
     function setFolderFilter(scope) {
       dispatchInvestigation({ type: "scope", scope: typeof scope === "function" ? scope(folderFilter) : scope });
     }
-    var _h = useState(null), repoInfo = _h[0], setRepoInfo = _h[1];
     var _i = useState("folder"), colorMode = _i[0], setColorMode = _i[1];
     var _k = useState(/* @__PURE__ */ new Set([""])), expandedPaths = _k[0], setExpandedPaths = _k[1];
     var _l = useState(/* @__PURE__ */ new Set(["blast", "fns"])), expandedCards = _l[0], setExpandedCards = _l[1];
@@ -59809,10 +62633,7 @@ This problem is likely caused by another plugin injecting
     var _ad = useState(360), rightPanelWidth = _ad[0], setRightPanelWidth = _ad[1];
     var _ae = useState(true), legendCollapsed = _ae[0], setLegendCollapsed = _ae[1];
     var _af = useState(null), filePreview = _af[0], setFilePreview = _af[1];
-    var _ag = useState(null), localDirHandle = _ag[0], setLocalDirHandle = _ag[1];
-    var _ap = useState(null), localSourceKind = _ap[0], setLocalSourceKind = _ap[1];
     var _ah = useState(false), showExcludeModal = _ah[0], setShowExcludeModal = _ah[1];
-    var _ai = useState(""), excludePatternInput = _ai[0], setExcludePatternInput = _ai[1];
     var _aj = useState(""), excludePatternDraft = _aj[0], setExcludePatternDraft = _aj[1];
     var _al = useState(null), confirmDialog = _al[0], setConfirmDialog = _al[1];
     var _am = useState(window.innerWidth), viewportWidth = _am[0], setViewportWidth = _am[1];
@@ -59821,11 +62642,8 @@ This problem is likely caused by another plugin injecting
     var _archTests = useState(false), architectureIncludeTests = _archTests[0], setArchitectureIncludeTests = _archTests[1];
     var _archBuild = useState(false), architectureIncludeBuildOutput = _archBuild[0], setArchitectureIncludeBuildOutput = _archBuild[1];
     var [selectedArchitectureBlock, setSelectedArchitectureBlock] = useState(null);
-    var _recents = useState([]), recentAnalyses = _recents[0], setRecentAnalyses = _recents[1];
-    var _cachedId = useState(null), cachedFromId = _cachedId[0], setCachedFromId = _cachedId[1];
     var _activeSym = useState(null), activeSymbol = _activeSym[0], setActiveSymbol = _activeSym[1];
     var _pendingDel = useState(null), pendingRecentDelete = _pendingDel[0], setPendingRecentDelete = _pendingDel[1];
-    var _cli = useState(null), cliStatus = _cli[0], setCliStatus = _cli[1];
     var [fileQuery, setFileQuery] = useState(""), [searchLimit, setSearchLimit] = useState(40);
     var projectSearchResults = useMemo(function() {
       return data ? searchProject(data, fileQuery) : [];
@@ -59848,12 +62666,11 @@ This problem is likely caused by another plugin injecting
         window.removeEventListener("keydown", quickOpen);
       };
     }, [viewportWidth]);
-    var [beamAnalysis, setBeamAnalysis] = useState(null);
     var [beamSymbols, setBeamSymbols] = useState([]), [beamLocations, setBeamLocations] = useState(null);
     var [beamNavigationError, setBeamNavigationError] = useState(null);
-    function beamLanguage(method, path, position) {
+    function beamLanguage(method, path2, position) {
       if (!localTools) return Promise.reject(new Error("Open this checkout with the CLI to use language navigation."));
-      return localTools.language(method, path, position);
+      return localTools.language(method, path2, position);
     }
     function openSourceLocation(location) {
       if (!location.range && Number.isInteger(location.line) && location.line > 0) {
@@ -59883,17 +62700,17 @@ This problem is likely caused by another plugin injecting
       else goToFile(location.path);
       setDrillDown(null);
     }
-    async function navigateBeamSymbol(method, path, position) {
+    async function navigateBeamSymbol(method, path2, position) {
       setBeamNavigationError(null);
       try {
-        var locations = await beamLanguage(method, path, position);
+        var locations = await beamLanguage(method, path2, position);
         if (method === "definition" && locations.length === 1) openSourceLocation(locations[0]);
         else setBeamLocations({ title: method === "references" ? "References" : "Definitions", items: locations });
       } catch (error2) {
         if (error2.name !== "AbortError") setBeamNavigationError(error2.message);
       }
     }
-    function beamSourceClick(event, path, line) {
+    function beamSourceClick(event, path2, line) {
       if (!event.metaKey && !event.ctrlKey) return;
       event.preventDefault();
       event.stopPropagation();
@@ -59904,51 +62721,29 @@ This problem is likely caused by another plugin injecting
       var range = document.createRange();
       range.selectNodeContents(event.currentTarget);
       range.setEnd(node, offset);
-      navigateBeamSymbol(event.shiftKey ? "references" : "definition", path, { line, character: range.toString().length });
+      navigateBeamSymbol(event.shiftKey ? "references" : "definition", path2, { line, character: range.toString().length });
     }
-    var _cliDirty = useState([]), cliDirty = _cliDirty[0], setCliDirty = _cliDirty[1];
-    var _cliLive = useState(/* @__PURE__ */ Object.create(null)), cliLiveByPath = _cliLive[0], setCliLiveByPath = _cliLive[1];
     var isMobile = viewportWidth <= 980;
     var graph3dViewRef = useRef(null);
     var alternateViewRef = useRef(null);
     var topbarRef = useRef(null);
     var filePreviewRef = useRef(null);
+    const previewRequestRef = useRef(null);
+    useEffect(() => () => {
+      previewRequestRef.current = null;
+    }, []);
     var architectureViewRef = useRef(null);
     var openedSceneRef = useRef("");
     var workspaceKeyRef = useRef(null), workspaceRestoreRef = useRef(null);
-    var codeSourceInFlightRef = useRef(/* @__PURE__ */ Object.create(null));
     var analysisHydrationIdRef = useRef("");
-    var dataRef = useRef(null);
-    dataRef.current = data;
-    var enqueueCliWatchDiffRef = useRef(null);
-    var cliDiffTimerRef = useRef(null);
-    var cliDiffPendingRef = useRef([]);
-    var cliDiffGenRef = useRef(/* @__PURE__ */ Object.create(null));
-    var cliDiffEpochRef = useRef(1);
-    var cliAnalyzingRef = useRef(false);
-    var cliWatchDuringRef = useRef([]);
-    var cliWatchReadRef = useRef(/* @__PURE__ */ Object.create(null));
-    var cliWatchSnapRevRef = useRef(/* @__PURE__ */ Object.create(null));
-    var _sourceFailed = useState(/* @__PURE__ */ Object.create(null)), codeSourceFailed = _sourceFailed[0], setCodeSourceFailed = _sourceFailed[1];
     var _codeExpand = useState(false), codeViewExpand = _codeExpand[0], setCodeViewExpand = _codeExpand[1];
     var _codeWrap = useState(true), codeViewWrap = _codeWrap[0], setCodeViewWrap = _codeWrap[1];
     var _lineThick = useState(readUiPrefs().lineThickness), lineThickness = _lineThick[0], setLineThickness = _lineThick[1];
     var pendingRecentDeleteTimerRef = useRef(null);
     var zipInputRef = useRef(null);
-    var zipArchiveRef = useRef(null);
-    var zipFileRef = useRef(null);
     var folderInputRef = useRef(null);
-    var localFilesRef = useRef(null);
-    var localFolderKeyRef = useRef(null);
-    var localFolderSelectionRef = useRef(null);
-    var zipKeyRef = useRef(null);
     var pendingExcludePatternsRef = useRef(null);
     var confirmResolverRef = useRef(null);
-    var forceRefreshRef = useRef(false);
-    var persistTimerRef = useRef(null);
-    var activeExcludePatterns = useMemo(function() {
-      return compileExcludePatterns(excludePatternInput);
-    }, [excludePatternInput]);
     var customExcludeCount = activeExcludePatterns.length;
     useEffect(function() {
       document.body.className = theme === "light" ? "light" : "";
@@ -60062,79 +62857,16 @@ This problem is likely caused by another plugin injecting
           }, 500);
         }
       }
-      refreshRecentList();
-      return probeCodeflowCli();
     }, []);
-    function parseUrl(url) {
-      if (!url || typeof url !== "string") return null;
-      url = url.trim();
-      if (url.length > 200 || url.includes("{") || url.includes('"')) return null;
-      var m = url.match(/^(?:https?:\/\/)?(?:www\.)?github\.com\/([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)/);
-      if (m) return { owner: m[1], repo: m[2].replace(/\.git$/, "") };
-      var simple = url.match(/^([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)$/);
-      if (simple) return { owner: simple[1], repo: simple[2] };
-      return null;
-    }
-    function currentAnalysisSource() {
-      if (localSourceKind === "folder") return { sourceType: "folder", sourceKey: repoInfo && (repoInfo.folderKey || repoInfo.name) || "local-folder", title: repoInfo && repoInfo.name || "Local Folder", repoUrl: "", localSourceKind: "folder" };
-      if (localSourceKind === "zip") return { sourceType: "zip", sourceKey: repoInfo && (repoInfo.zipKey || repoInfo.name) || "zip", title: repoInfo && repoInfo.name || "ZIP Archive", repoUrl: "", localSourceKind: "zip" };
-      if (localSourceKind === "cli") return { sourceType: "cli", sourceKey: repoInfo && repoInfo.cliRoot || cliStatus && cliStatus.root || "cli", title: cliStatus && cliStatus.name || repoInfo && repoInfo.name || "Local watch", repoUrl: "", localSourceKind: "cli" };
-      if (repoInfo && repoInfo.owner && repoInfo.repo && repoInfo.owner !== "local") return { sourceType: "github", sourceKey: githubSourceKeyForLoadedAnalysis(repoInfo.owner, repoInfo.repo, data, activeExcludePatterns), title: repoInfo.owner + "/" + repoInfo.repo, repoUrl: repoInfo.owner + "/" + repoInfo.repo, localSourceKind: null };
-      var parsed = parseUrl(repoUrl);
-      if (parsed) return { sourceType: "github", sourceKey: githubSourceKeyForLoadedAnalysis(parsed.owner, parsed.repo, data, activeExcludePatterns), title: parsed.owner + "/" + parsed.repo, repoUrl: parsed.owner + "/" + parsed.repo, localSourceKind: null };
-      if (cliStatus && cliStatus.ok) return { sourceType: "cli", sourceKey: cliStatus.root || "cli", title: cliStatus.name || "Local watch", repoUrl: "", localSourceKind: "cli" };
-      return null;
-    }
-    var analysisGraphIdentity = useMemo(function() {
-      return analysisGraphKey(data);
-    }, [data]);
-    var loadedSourceIdentity = useMemo(function() {
-      var parsed = parseUrl(repoUrl);
-      var githubOwner = repoInfo && repoInfo.owner && repoInfo.owner !== "local" ? repoInfo.owner : parsed && parsed.owner;
-      var githubRepo = repoInfo && repoInfo.owner && repoInfo.owner !== "local" ? repoInfo.repo : parsed && parsed.repo;
-      return loadedAnalysisSourceIdentity({
-        localSourceKind,
-        folderKey: repoInfo && (repoInfo.folderKey || repoInfo.name),
-        zipKey: repoInfo && (repoInfo.zipKey || repoInfo.name),
-        cliRoot: repoInfo && repoInfo.cliRoot || cliStatus && cliStatus.root,
-        cliOk: !!(cliStatus && cliStatus.ok),
-        githubOwner,
-        githubRepo,
-        githubKey: githubOwner && githubRepo ? githubSourceKeyForLoadedAnalysis(githubOwner, githubRepo, data, activeExcludePatterns) : null
-      });
-    }, [localSourceKind, repoInfo, repoUrl, data, cliStatus]);
-    var currentHydrationId = useMemo(function() {
-      return analysisHydrationIdFromParts(loadedSourceIdentity, analysisGraphIdentity);
-    }, [loadedSourceIdentity, analysisGraphIdentity]);
+    var currentHydrationId = project.hydrationId;
+    const loadedSourceIdentity = project.identity;
     analysisHydrationIdRef.current = currentHydrationId;
-    var localTools = useMemo(
-      function() {
-        return createLocalTools({ identity: loadedSourceIdentity, status: cliStatus });
-      },
-      [loadedSourceIdentity && loadedSourceIdentity.sourceType, loadedSourceIdentity && loadedSourceIdentity.sourceKey, cliStatus && cliStatus.root, cliStatus && cliStatus.ok]
-    );
     const runtimeInspection = useRuntimeInspection(localTools, cliStatus?.runtimeNode || "");
     const runtimeIndex = useMemo(() => indexRuntime(runtimeInspection.snapshot, data?.files || []), [runtimeInspection.snapshot, data]);
     useEffect(function() {
-      setBeamAnalysis(null);
       setBeamLocations(null);
       setBeamNavigationError(null);
-      return function() {
-        if (localTools) localTools.dispose();
-      };
     }, [localTools]);
-    useEffect(function() {
-      if (loading || !data || !data.beam || !localTools) return;
-      return subscribeCliAnalysis({ onUpdate: function(update) {
-        if (update.analysis) setBeamAnalysis(update.analysis);
-        if (update.diagnostics) setData(function(prev) {
-          return prev ? enrichAnalysisFindings(prev, update.diagnostics) : prev;
-        });
-        if (update.graph) setData(function(prev) {
-          return prev && prev.beam ? buildBeamAnalysisData({ data: prev, snapshot: update.graph }) : prev;
-        });
-      } });
-    }, [loading, localTools, !!(data && data.beam)]);
     useEffect(function() {
       setBeamSymbols([]);
       setBeamLocations(null);
@@ -60150,133 +62882,12 @@ This problem is likely caused by another plugin injecting
         cancelled = true;
       };
     }, [loading, localTools, selected && selected.path, beamAnalysis && beamAnalysis.language.build && beamAnalysis.language.build.completedAt, beamAnalysis && beamAnalysis.language.state]);
-    function refreshRecentList() {
-      listRecentAnalyses().then(function(rows) {
-        setRecentAnalyses((rows || []).map(function(row) {
-          return {
-            id: row.id,
-            title: row.title,
-            sourceType: row.sourceType,
-            sourceKey: row.sourceKey,
-            repoUrl: row.repoUrl,
-            fileCount: row.fileCount,
-            savedAt: row.savedAt
-          };
-        }));
-      }).catch(function() {
-      });
-    }
-    function persistCurrentAnalysis(dataObj, meta) {
-      if (!dataObj) return;
-      var source = meta || currentAnalysisSource();
-      if (!source) return;
-      var record = buildRecentAnalysisRecord({
-        sourceType: source.sourceType,
-        sourceKey: source.sourceKey,
-        title: source.title,
-        repoUrl: source.repoUrl,
-        data: compactAnalysisForCache(dataObj),
-        repoInfo: source.repoInfo || repoInfo,
-        localSourceKind: source.localSourceKind
-      });
-      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-      persistTimerRef.current = setTimeout(function() {
-        saveRecentAnalysis(record).then(function(ok) {
-          if (ok) refreshRecentList();
-        });
-      }, 80);
-    }
-    function applyCachedAnalysis(record) {
-      if (!record || !record.data) return;
-      projectLoading.begin();
-      setLoading(false);
-      setError(null);
-      cliAnalyzingRef.current = false;
-      setData(compactAnalysisForCache(record.data));
-      setExpandedPaths(/* @__PURE__ */ new Set([""]));
-      setSelected(null);
-      setBlastRadius(null);
-      setOwnership(null);
-      setFolderFilter(null);
-      setCachedFromId(record.id);
-      setActiveSymbol(null);
-      setCliDirty([]);
-      clearCliLiveDiffs();
-      if (record.repoInfo) setRepoInfo(record.repoInfo);
-      if (record.repoUrl) setRepoUrl(record.repoUrl);
-      var folderMatches = record.sourceType === "folder" && retainedFolderMatchesRecord(record, { sourceKey: localFolderKeyRef.current });
-      var zipMatches = record.sourceType === "zip" && retainedZipMatchesRecord(record, {
-        sourceKey: zipKeyRef.current,
-        identity: zipFileIdentity(zipFileRef.current)
-      });
-      if (!folderMatches) {
-        setLocalDirHandle(null);
-        localFolderKeyRef.current = null;
-        localFolderSelectionRef.current = null;
-        localFilesRef.current = null;
-      }
-      if (!zipMatches) {
-        zipArchiveRef.current = null;
-        zipFileRef.current = null;
-        zipKeyRef.current = null;
-      }
-      if (record.sourceType === "github" || record.sourceType === "cli") {
-        setLocalSourceKind(record.sourceType === "cli" ? "cli" : null);
-        setLocalDirHandle(null);
-      } else {
-        setLocalSourceKind(record.localSourceKind || record.sourceType);
-      }
-      setGraphConfig(function(cfg) {
-        return Object.assign({}, cfg, { vizType: cfg.vizType === "architecture" ? "graph" : cfg.vizType });
-      });
-      showNotification("Loaded cached analysis. Re-analyze to refresh.", "success");
-    }
-    function loadRecentAnalysis(id) {
-      const selectionSignal = projectLoading.begin();
-      clearPendingRecentDelete();
-      return getRecentAnalysis(id).then(function(record) {
-        if (selectionSignal.aborted) return null;
-        if (!record) {
-          showNotification("That analysis is no longer cached.", "warning");
-          refreshRecentList();
-          return null;
-        }
-        applyCachedAnalysis(record);
-        return record;
-      }).catch(function() {
-        if (selectionSignal.aborted) return null;
-        showNotification("Could not open cached analysis.", "error");
-        return null;
-      });
-    }
-    function reanalyzeRecent(id) {
-      const selectionSignal = projectLoading.begin();
-      return getRecentAnalysis(id).then(function(record) {
-        if (selectionSignal.aborted) return null;
-        if (!record) {
-          showNotification("That analysis is no longer cached.", "warning");
-          refreshRecentList();
-          return;
-        }
-        refreshAnalysis(record);
-      }).catch(function() {
-        if (selectionSignal.aborted) return null;
-        showNotification("Could not open cached analysis.", "error");
-      });
-    }
     function clearPendingRecentDelete() {
       if (pendingRecentDeleteTimerRef.current) {
         clearTimeout(pendingRecentDeleteTimerRef.current);
         pendingRecentDeleteTimerRef.current = null;
       }
       setPendingRecentDelete(null);
-    }
-    function removeRecentAnalysis(id) {
-      deleteRecentAnalysis(id).then(function() {
-        if (cachedFromId === id) setCachedFromId(null);
-        refreshRecentList();
-      }).catch(function() {
-      });
     }
     function requestRecentDelete(id, e) {
       if (e) e.stopPropagation();
@@ -60310,214 +62921,6 @@ This problem is likely caused by another plugin injecting
         return;
       }
       startGithubZipDownload(parsed.owner, parsed.repo);
-    }
-    function clearCliLiveDiffs() {
-      cliDiffEpochRef.current = bumpCliWatchDiffEpoch(cliDiffEpochRef.current);
-      cliDiffPendingRef.current = [];
-      cliDiffGenRef.current = /* @__PURE__ */ Object.create(null);
-      if (cliDiffTimerRef.current) {
-        clearTimeout(cliDiffTimerRef.current);
-        cliDiffTimerRef.current = null;
-      }
-      setCliLiveByPath(/* @__PURE__ */ Object.create(null));
-    }
-    function flushCliWatchDiffs(paths) {
-      if (!cliWatchAppliesToAnalysis(localSourceKind, cliStatus, currentAnalysisSource())) return;
-      var wanted = cliWatchDiffPaths(dataRef.current && dataRef.current.files, paths);
-      if (!wanted.length) return;
-      wanted.forEach(function(path) {
-        var epoch = cliDiffEpochRef.current;
-        var gen = (cliDiffGenRef.current[path] || 0) + 1;
-        cliDiffGenRef.current[path] = gen;
-        readCliWatchLiveSource(path).then(function(result) {
-          if (!cliWatchDiffRequestIsCurrent(cliDiffEpochRef.current, epoch, cliDiffGenRef.current, path, gen)) return;
-          if (!shouldApplyCliWatchLive(result)) return;
-          var live = result.kind === "missing" ? "" : result.content;
-          var file = analyzedFileForCliWatchPath(dataRef.current && dataRef.current.files, path);
-          if (cliWatchLiveClearsDirty(file, live, result.kind)) {
-            setCliLiveByPath(function(prev) {
-              return mergeCliLiveContents(prev, [{ path, content: null }]);
-            });
-            setCliDirty(function(prev) {
-              return forgetCliWatchPath(prev, path);
-            });
-            return;
-          }
-          setCliLiveByPath(function(prev) {
-            return mergeCliLiveContents(prev, [{ path, content: live }]);
-          });
-        });
-      });
-    }
-    function enqueueCliWatchDiff(path, rev) {
-      var next = normalizeCliWatchPath(path);
-      if (!next) return;
-      if (cliAnalyzingRef.current) cliWatchDuringRef.current = noteCliWatchDuringEvent(cliWatchDuringRef.current, next, rev);
-      if (!cliWatchAppliesToAnalysis(localSourceKind, cliStatus, currentAnalysisSource())) return;
-      setCliDirty(function(prev) {
-        return noteCliWatchPath(prev, next);
-      });
-      cliDiffPendingRef.current = noteCliWatchPath(cliDiffPendingRef.current, next);
-      if (cliDiffTimerRef.current) clearTimeout(cliDiffTimerRef.current);
-      cliDiffTimerRef.current = setTimeout(function() {
-        var pending = cliDiffPendingRef.current;
-        cliDiffPendingRef.current = [];
-        cliDiffTimerRef.current = null;
-        flushCliWatchDiffs(pending);
-      }, CLI_WATCH_DIFF_MS);
-    }
-    enqueueCliWatchDiffRef.current = enqueueCliWatchDiff;
-    function probeCodeflowCli() {
-      const probeSignal = projectLoading.begin();
-      let src;
-      fetch("/__codeflow/status", { signal: probeSignal }).then(function(res) {
-        return res.ok ? res.json() : null;
-      }).then(function(status) {
-        if (probeSignal.aborted || !status || !status.ok) return;
-        setCliStatus(status);
-        if (!window.location.search || window.location.search.indexOf("repo=") < 0) {
-          analyzeFromCli(false, status);
-        }
-        if (window.EventSource) {
-          src = new EventSource("/__codeflow/events");
-          src.onmessage = function(ev) {
-            try {
-              var payload = JSON.parse(ev.data || "{}");
-              if (payload.path && enqueueCliWatchDiffRef.current) enqueueCliWatchDiffRef.current(payload.path, payload.rev);
-            } catch (e) {
-            }
-          };
-        }
-      }).catch(function() {
-      });
-      return function() {
-        src?.close();
-      };
-    }
-    useEffect(function() {
-      if (!cliWatchAppliesToAnalysis(localSourceKind, cliStatus, currentAnalysisSource())) return;
-      if (!data || !data.files || !cliDirty.length) return;
-      var started = startedCliWatchDiffPaths(cliDiffPendingRef.current, cliDiffGenRef.current);
-      var missing = pendingCliWatchDiffPaths(cliDirty, cliLiveByPath, started);
-      if (!missing.length) return;
-      flushCliWatchDiffs(missing);
-    }, [currentHydrationId, cliDirty, localSourceKind, cliStatus, cliLiveByPath]);
-    async function analyzeFromCli(force, statusHint, wantedRoot) {
-      const selectionSignal = projectLoading.begin();
-      var status = statusHint || cliStatus;
-      if (!status || !status.ok) {
-        try {
-          var statusRes = await fetch("/__codeflow/status", { signal: selectionSignal });
-          if (statusRes.ok) {
-            var nextStatus = await statusRes.json();
-            if (nextStatus && nextStatus.ok) status = nextStatus;
-          }
-        } catch (e) {
-        }
-        if ((!status || !status.ok) && !force) return;
-      }
-      if (selectionSignal.aborted) return;
-      if (wantedRoot && !cliRecordMatchesStatus({ sourceKey: wantedRoot }, status)) {
-        showNotification("Restart the CLI in that folder to re-analyze it.", "warning");
-        return false;
-      }
-      if (status && status.ok) setCliStatus(status);
-      var cliMeta = cliWatchCacheMeta(status);
-      cliWatchDuringRef.current = [];
-      cliWatchReadRef.current = /* @__PURE__ */ Object.create(null);
-      cliWatchSnapRevRef.current = /* @__PURE__ */ Object.create(null);
-      resetAnalysisState();
-      cliAnalyzingRef.current = true;
-      const loadSignal = projectLoading.signal;
-      setLocalDirHandle(null);
-      localFolderKeyRef.current = null;
-      localFolderSelectionRef.current = null;
-      setLocalSourceKind("cli");
-      zipArchiveRef.current = null;
-      zipFileRef.current = null;
-      zipKeyRef.current = null;
-      setLoading(true);
-      setProgress("Reading local folder from CLI...");
-      try {
-        var listRes = await fetch("/__codeflow/files", { signal: loadSignal });
-        if (!listRes.ok) throw new Error("CLI file list failed");
-        var list = await listRes.json();
-        var files = filterAnalyzableLocalFiles(list && list.files ? list.files : [], activeExcludePatterns);
-        if (!files.length) throw new Error(activeExcludePatterns.length ? "No code files found in the watched folder after applying exclude patterns" : "No code files found in the watched folder");
-        const analyzed = await readCollectedFiles(files.map((file) => ({ ...file, read: async () => {
-          const response = await fetch("/__codeflow/file?path=" + encodeURIComponent(file.path), { signal: loadSignal });
-          if (!response.ok) throw new Error("CLI source request failed");
-          loadSignal.throwIfAborted();
-          const path = normalizeCliWatchPath(file.path);
-          cliWatchReadRef.current[path] = true;
-          const revision = cliWatchSnapRevFromResponse(response);
-          if (revision != null) cliWatchSnapRevRef.current[path] = revision;
-          return response.text();
-        } })), { signal: loadSignal, progress: (message) => {
-          if (!loadSignal.aborted) setProgress(message);
-        }, yieldFn: yieldToBrowser });
-        var snapshot = null;
-        if (status.beam) {
-          var beamRes = await fetch("/__codeflow/beam", { signal: loadSignal });
-          if (!beamRes.ok) throw new Error("Compiler snapshot request failed");
-          snapshot = await beamRes.json();
-        }
-        var dataObj = await runAnalysisData({
-          signal: loadSignal,
-          files: analyzed,
-          excludePatterns: activeExcludePatterns.map(function(x) {
-            return x.raw;
-          }),
-          progress: function(message) {
-            if (!loadSignal.aborted) setProgress(message);
-          },
-          yieldFn: yieldToBrowser
-        });
-        if (loadSignal.aborted) return;
-        if (status.beam) dataObj = buildBeamAnalysisData({ data: dataObj, snapshot });
-        var cliInfo = { owner: "local", repo: "cli", name: cliMeta.title, cliRoot: cliMeta.sourceKey };
-        var keep = retainCliWatchPathsAfterAnalysis(cliWatchDuringRef.current, cliWatchReadRef.current, cliWatchSnapRevRef.current);
-        cliAnalyzingRef.current = false;
-        cliWatchDuringRef.current = [];
-        cliWatchReadRef.current = /* @__PURE__ */ Object.create(null);
-        cliWatchSnapRevRef.current = /* @__PURE__ */ Object.create(null);
-        if (loadSignal.aborted) return;
-        setData(dataObj);
-        setExpandedPaths(/* @__PURE__ */ new Set([""]));
-        setRepoInfo(cliInfo);
-        setCachedFromId(null);
-        setCliDirty(keep);
-        clearCliLiveDiffs();
-        persistCurrentAnalysis(dataObj, { sourceType: "cli", sourceKey: cliMeta.sourceKey, title: cliMeta.title, repoUrl: "", repoInfo: cliInfo, localSourceKind: "cli" });
-        setLoading(false);
-        return true;
-      } catch (err) {
-        if (loadSignal.aborted) return;
-        cliAnalyzingRef.current = false;
-        cliWatchDuringRef.current = [];
-        cliWatchReadRef.current = /* @__PURE__ */ Object.create(null);
-        cliWatchSnapRevRef.current = /* @__PURE__ */ Object.create(null);
-        setError("CLI analysis failed: " + (err.message || err));
-        setLoading(false);
-      }
-    }
-    function resetAnalysisState() {
-      projectLoading.begin();
-      cliAnalyzingRef.current = false;
-      setError(null);
-      setData(null);
-      setSelected(null);
-      setBlastRadius(null);
-      setOwnership(null);
-      setFolderFilter(null);
-      setPrData(null);
-      setFilePreview(null);
-      setMobilePanel(null);
-      setShowGraphConfig(false);
-      setCachedFromId(null);
-      setActiveSymbol(null);
-      setCliDirty([]);
-      clearCliLiveDiffs();
     }
     function openExcludeModal() {
       setExcludePatternDraft(excludePatternInput);
@@ -60559,181 +62962,6 @@ This problem is likely caused by another plugin injecting
         return prev === panel ? null : panel;
       });
     }
-    function analyze(forceRefresh, explicitUrl) {
-      var p = parseUrl(explicitUrl || repoUrl);
-      if (!p) {
-        setError("Invalid URL. Use format: owner/repo");
-        return;
-      }
-      if (explicitUrl) setRepoUrl(explicitUrl);
-      var shouldForce = forceRefresh === true || forceRefreshRef.current;
-      forceRefreshRef.current = false;
-      var githubKey = githubCacheSourceKey(p.owner, p.repo, activeExcludePatterns);
-      var cacheId = analysisCacheKey("github", githubKey);
-      if (!shouldForce) {
-        const cacheSignal = projectLoading.begin();
-        getRecentAnalysis(cacheId).then(function(record) {
-          if (cacheSignal.aborted) return;
-          if (record && record.data && cachedAnalysisMatchesExcludes(record, activeExcludePatterns)) {
-            applyCachedAnalysis(record);
-            return;
-          }
-          analyze(true, p.owner + "/" + p.repo);
-        }).catch(function() {
-          if (!cacheSignal.aborted) analyze(true, p.owner + "/" + p.repo);
-        });
-        return;
-      }
-      var currentExcludePatterns = activeExcludePatterns;
-      if (authMethod === "pat" && !token) {
-        setError("Please enter a Personal Access Token");
-        return;
-      }
-      if (authMethod === "github_app") {
-        if (!appId) {
-          setError("Please enter the GitHub App ID");
-          return;
-        }
-        if (!privateKey) {
-          setError("Please set the GitHub App private key");
-          return;
-        }
-      }
-      resetAnalysisState();
-      const loadSignal = projectLoading.signal;
-      setLocalDirHandle(null);
-      setLocalSourceKind(null);
-      zipArchiveRef.current = null;
-      zipFileRef.current = null;
-      setLoading(true);
-      setProgress("Initializing...");
-      GitHub.token = null;
-      GitHub.appId = null;
-      GitHub.privateKey = null;
-      GitHub.installationToken = null;
-      if (authMethod === "pat") {
-        GitHub.token = token;
-      } else if (authMethod === "github_app") {
-        GitHub.appId = appId;
-        GitHub.privateKey = privateKey;
-      }
-      setRepoInfo(p);
-      var authPromise;
-      if (authMethod === "github_app") {
-        setProgress("Authenticating with GitHub App...");
-        authPromise = GitHub.authenticateApp(p.owner, p.repo, loadSignal).catch(function(err) {
-          throw new Error("GitHub App authentication failed: " + err.message);
-        });
-      } else {
-        authPromise = Promise.resolve();
-      }
-      authPromise.then(function() {
-        loadSignal.throwIfAborted();
-        setProgress("Checking rate limit...");
-        return GitHub.getRateLimit(loadSignal);
-      }).then(function(rl) {
-        loadSignal.throwIfAborted();
-        var hasAuth = !!GitHub.token || authMethod === "github_app";
-        var estimatedRequests = 50;
-        if (!hasAuth && rl.remaining < estimatedRequests) {
-          var resetTime = new Date(rl.reset * 1e3).toLocaleTimeString();
-          return requestConfirm({
-            tone: "warning",
-            icon: "warning",
-            title: "GitHub API rate limit is low",
-            message: "Remaining requests: " + rl.remaining + "/" + rl.limit + "\nResets at: " + resetTime + "\n\nThe folder picker is faster when the API is rate-limited. Open Folder and analyze locally, or download a ZIP and use Open ZIP.\n\nWithout authentication, you only get 60 requests per hour.\nAdding a token or GitHub App raises that to 5,000 requests per hour.\n\nToken (PAT): GitHub Settings -> Developer Settings -> Personal access tokens\nGitHub App: use App ID + Private Key for organization access\n\nContinue anyway with the remaining requests?",
-            confirmLabel: "Continue anyway"
-          }).then(function(proceed) {
-            loadSignal.throwIfAborted();
-            if (!proceed) {
-              setLoading(false);
-              return Promise.reject("cancelled");
-            }
-            setProgress("Scanning repository...");
-            return GitHub.scan(p.owner, p.repo, function(message) {
-              if (!loadSignal.aborted) setProgress(message);
-            }, currentExcludePatterns, loadSignal);
-          });
-        }
-        setProgress("Scanning repository...");
-        return GitHub.scan(p.owner, p.repo, function(message) {
-          if (!loadSignal.aborted) setProgress(message);
-        }, currentExcludePatterns, loadSignal);
-      }).then(function(files) {
-        loadSignal.throwIfAborted();
-        if (!files) return;
-        if (!files.length) throw new Error(currentExcludePatterns.length ? "No code files found after applying exclude patterns" : "No code files found");
-        var SOFT_LIMIT = ANALYSIS_LIMITS.repoSoft;
-        async function beginRepoAnalysis() {
-          const analyzed = await readCollectedFiles(files.map((file) => ({ ...file, read: async () => {
-            const [content, commits] = await Promise.all([
-              GitHub.getFile(p.owner, p.repo, file.path, loadSignal),
-              Parser.isCode(file.name) ? GitHub.getCommits(p.owner, p.repo, file.path, 10, loadSignal) : Promise.resolve([])
-            ]);
-            if (typeof content !== "string") throw new Error("GitHub source request failed");
-            return { content, churn: Array.isArray(commits) ? commits.length : 0 };
-          } })), { signal: loadSignal, progress: (message) => {
-            if (!loadSignal.aborted) setProgress(message);
-          }, yieldFn: yieldToBrowser });
-          async function finishAnalysis() {
-            if (loadSignal.aborted) return;
-            try {
-              var dataObj = await runAnalysisData({
-                signal: loadSignal,
-                files: analyzed,
-                excludePatterns: currentExcludePatterns.map(function(x) {
-                  return x.raw;
-                }),
-                progress: function(message) {
-                  if (!loadSignal.aborted) setProgress(message);
-                },
-                yieldFn: yieldToBrowser
-              });
-              var failedCount = analyzed.filter(function(af) {
-                return af.analysisSkipped === "fetch-failed";
-              }).length;
-              if (failedCount > 0) {
-                showNotification(failedCount + " of " + analyzed.length + " files could not be fetched (GitHub rate limit?). Results are PARTIAL \u2014 add a token or use Open ZIP for full analysis.", "warning");
-              }
-              if (loadSignal.aborted) return;
-              setData(dataObj);
-              setExpandedPaths(/* @__PURE__ */ new Set([""]));
-              setCachedFromId(null);
-              persistCurrentAnalysis(dataObj, { sourceType: "github", sourceKey: githubKey, title: p.owner + "/" + p.repo, repoUrl: p.owner + "/" + p.repo, repoInfo: p, localSourceKind: null });
-              window.history.replaceState({}, "", buildAppUrl(p.owner + "/" + p.repo, false));
-              setLoading(false);
-            } catch (err) {
-              if (loadSignal.aborted) return;
-              setError("Analysis failed: " + (err.message || err) + ". Try a smaller repository.");
-              setLoading(false);
-            }
-          }
-          await finishAnalysis();
-        }
-        if (files.length > SOFT_LIMIT) {
-          return requestConfirm({
-            tone: "warning",
-            icon: "warning",
-            title: "Analyze a large repository?",
-            message: "This repository has " + files.length + " files.\n\nAnalyzing larger repositories can take longer and may hit GitHub API rate limits.\n\nThe folder picker is faster when the API is rate-limited. You can also download a ZIP and use Open ZIP.\n\nTip: add a token or GitHub App for higher limits.",
-            confirmLabel: "Analyze repository"
-          }).then(function(proceed) {
-            loadSignal.throwIfAborted();
-            if (!proceed) {
-              setLoading(false);
-              return Promise.reject("cancelled");
-            }
-            return beginRepoAnalysis();
-          });
-        }
-        return beginRepoAnalysis();
-      }).catch(function(e) {
-        if (!loadSignal.aborted && e !== "cancelled") {
-          setError(e.message || e);
-          setLoading(false);
-        }
-      });
-    }
     function launchLocalFolderPicker(compiledPatterns) {
       pendingExcludePatternsRef.current = compiledPatterns || activeExcludePatterns;
       if (!window.showDirectoryPicker) {
@@ -60744,20 +62972,10 @@ This problem is likely caused by another plugin injecting
         return;
       }
       window.showDirectoryPicker().then(function(dirHandle) {
-        resetAnalysisState();
-        setRepoInfo(null);
-        localFolderKeyRef.current = null;
-        localFolderSelectionRef.current = newLocalSelectionId();
-        setLocalDirHandle(dirHandle);
-        setLocalSourceKind("folder");
-        zipArchiveRef.current = null;
-        zipFileRef.current = null;
-        setLoading(true);
-        setProgress("Reading local folder...");
-        readLocalFolder(dirHandle, compiledPatterns || activeExcludePatterns);
+        project.openFolder(dirHandle, compiledPatterns || activeExcludePatterns);
       }).catch(function(e) {
         if (e.name !== "AbortError") {
-          setError("Failed to open folder: " + (e.message || e));
+          setPickerError("Failed to open folder: " + (e.message || e));
         }
       });
     }
@@ -60766,7 +62984,7 @@ This problem is likely caused by another plugin injecting
     }
     function openLocalZip() {
       if (!window.JSZip) {
-        setError("ZIP support failed to load. Check your network connection and try again.");
+        setPickerError("ZIP support failed to load. Check your network connection and try again.");
         return;
       }
       if (zipInputRef.current) {
@@ -60777,192 +62995,16 @@ This problem is likely caused by another plugin injecting
     function handleZipSelected(e) {
       var file = e.target.files && e.target.files[0];
       if (!file) return;
-      resetAnalysisState();
-      setRepoInfo(null);
-      setLocalDirHandle(null);
-      setLocalSourceKind("zip");
-      zipArchiveRef.current = null;
-      zipFileRef.current = file;
-      zipKeyRef.current = null;
-      setLoading(true);
-      setProgress("Reading ZIP archive...");
-      readZipArchive(file, activeExcludePatterns);
+      project.openArchive(file);
     }
     function handleFolderSelected(e) {
       var fileList = e.target.files;
       if (!fileList || fileList.length === 0) return;
-      var files = Array.from(fileList);
-      localFilesRef.current = files;
-      resetAnalysisState();
-      setRepoInfo(null);
-      localFolderKeyRef.current = null;
-      localFolderSelectionRef.current = newLocalSelectionId();
-      setLocalDirHandle(null);
-      setLocalSourceKind("folder");
-      zipArchiveRef.current = null;
-      zipFileRef.current = null;
-      setLoading(true);
-      setProgress("Reading local folder...");
-      readLocalFolderFromFiles(files, pendingExcludePatternsRef.current || activeExcludePatterns);
-    }
-    function refreshAnalysis(record) {
-      var source = record && record.sourceType ? record : null;
-      var kind = source ? source.sourceType : localSourceKind || (parseUrl(repoUrl) ? "github" : null);
-      var githubUrl = source ? source.repoUrl || source.sourceKey : repoUrl;
-      setCachedFromId(null);
-      if (kind === "cli" || !source && cliStatus && cliStatus.ok && localSourceKind === "cli") {
-        var wantedRoot = source && source.sourceType === "cli" ? source.sourceKey : "";
-        if (wantedRoot && cliStatus && cliStatus.ok && !cliRecordMatchesStatus(source, cliStatus)) {
-          applyCachedAnalysis(source);
-          showNotification("Restart the CLI in that folder to re-analyze it.", "warning");
-          return;
-        }
-        Promise.resolve(analyzeFromCli(true, cliStatus, wantedRoot || null)).then(function(ok) {
-          if (ok === false && source) applyCachedAnalysis(source);
-        });
-        return;
-      }
-      if (kind === "folder") {
-        var retained = { sourceKey: localFolderKeyRef.current };
-        var handleMatches = !source || retainedFolderMatchesRecord(source, retained);
-        if (localDirHandle && handleMatches) {
-          resetAnalysisState();
-          setLoading(true);
-          setProgress("Reading local folder...");
-          readLocalFolder(localDirHandle, activeExcludePatterns);
-          return;
-        }
-        if (localFilesRef.current && handleMatches) {
-          resetAnalysisState();
-          setLoading(true);
-          setProgress("Reading local folder...");
-          readLocalFolderFromFiles(localFilesRef.current, activeExcludePatterns);
-          return;
-        }
-        if (source) applyCachedAnalysis(source);
-        showNotification("Open Folder again to re-analyze this local tree.", "warning");
-        return;
-      }
-      if (kind === "zip") {
-        var zipMatches = !source || retainedZipMatchesRecord(source, {
-          sourceKey: zipKeyRef.current,
-          identity: zipFileIdentity(zipFileRef.current)
-        });
-        if (!zipFileRef.current || !zipMatches) {
-          if (source) applyCachedAnalysis(source);
-          showNotification("Open ZIP again to re-analyze this archive.", "warning");
-          return;
-        }
-        resetAnalysisState();
-        setLocalDirHandle(null);
-        setLocalSourceKind("zip");
-        zipArchiveRef.current = null;
-        setLoading(true);
-        setProgress("Reading ZIP archive...");
-        readZipArchive(zipFileRef.current, activeExcludePatterns);
-        return;
-      }
-      if (kind === "github" || parseUrl(githubUrl)) {
-        analyze(true, githubUrl);
-        return;
-      }
-      analyze(true);
-    }
-    function readLocalFolder(dirHandle, patterns) {
-      return loadLocalCollection({
-        kind: "folder",
-        patterns,
-        title: dirHandle.name,
-        collect: (options) => collectDirectory(dirHandle, options)
-      });
-    }
-    function readLocalFolderFromFiles(fileObjs, patterns) {
-      return loadLocalCollection({
-        kind: "folder",
-        patterns,
-        collect: (options) => collectSelectedFiles(fileObjs, options)
-      });
-    }
-    function readZipArchive(zipFile, patterns) {
-      return loadLocalCollection({
-        kind: "zip",
-        patterns,
-        zipFile,
-        collect: async (options) => {
-          if (!window.JSZip) throw new Error("ZIP support failed to load");
-          const zip = await JSZip.loadAsync(zipFile);
-          options.signal.throwIfAborted();
-          return { ...await collectArchive(zip, options), zip };
-        }
-      });
-    }
-    async function loadLocalCollection({ kind, patterns = activeExcludePatterns, title, zipFile, collect }) {
-      const signal = projectLoading.signal;
-      const progress2 = (message) => {
-        if (!signal.aborted) setProgress(message);
-      };
-      const archive = kind === "zip";
-      const label = archive ? "ZIP archive" : "selected folder";
-      try {
-        progress2(archive ? "Reading ZIP archive..." : "Scanning local folder...");
-        const collection = await collect({ patterns, signal, progress: progress2 });
-        signal.throwIfAborted();
-        if (!collection.files.length) throw new Error("No code files found in the " + label + (patterns.length ? " after applying exclude patterns" : ""));
-        if (collection.files.length > ANALYSIS_LIMITS.localSoft) {
-          const proceed = await requestConfirm({
-            tone: "warning",
-            icon: archive ? "archive" : "folder",
-            title: "Analyze " + collection.files.length + " files?",
-            message: "CodeFlow will analyze every eligible file. Large " + (archive ? "archives" : "folders") + " can take minutes and use significant browser memory.",
-            confirmLabel: "Analyze all files"
-          });
-          signal.throwIfAborted();
-          if (!proceed) {
-            if (archive) {
-              setLocalSourceKind(null);
-              zipFileRef.current = null;
-            }
-            setLoading(false);
-            return;
-          }
-        }
-        const files = await readCollectedFiles(collection.files, { signal, progress: progress2, yieldFn: yieldToBrowser });
-        const dataObj = await runAnalysisData({ signal, files, excludePatterns: patterns.map((x) => x.raw), progress: progress2, yieldFn: yieldToBrowser });
-        signal.throwIfAborted();
-        let meta, info;
-        if (archive) {
-          meta = zipArchiveCacheMeta({ name: zipFile.name, size: zipFile.size, lastModified: zipFile.lastModified, paths: files.map((f) => f.path) });
-          info = { owner: "local", repo: "zip", name: meta.title, zipKey: meta.sourceKey };
-          zipArchiveRef.current = { zip: collection.zip, entriesByPath: collection.entriesByPath, name: zipFile.name };
-          zipFileRef.current = zipFile;
-          zipKeyRef.current = meta.sourceKey;
-          setLocalDirHandle(null);
-          setLocalSourceKind("zip");
-        } else {
-          if (!localFolderSelectionRef.current) localFolderSelectionRef.current = newLocalSelectionId();
-          meta = localFolderCacheMeta({ title, rootPrefix: collection.rootPrefix, paths: files.map((f) => f.path), selectionId: localFolderSelectionRef.current });
-          info = { owner: "local", repo: "folder", name: meta.title, folderKey: meta.sourceKey, folderSelectionId: meta.selectionId };
-          localFolderKeyRef.current = meta.sourceKey;
-        }
-        setData(dataObj);
-        setExpandedPaths(/* @__PURE__ */ new Set([""]));
-        setRepoInfo(info);
-        setCachedFromId(null);
-        persistCurrentAnalysis(dataObj, { sourceType: kind, sourceKey: meta.sourceKey, title: meta.title, repoUrl: "", repoInfo: info, localSourceKind: kind });
-        setLoading(false);
-      } catch (error2) {
-        if (signal.aborted) return;
-        if (archive) {
-          setLocalSourceKind(null);
-          zipArchiveRef.current = null;
-        }
-        setError("Failed to analyze " + label + ": " + (error2.message || error2));
-        setLoading(false);
-      }
+      project.openSelectedFiles(Array.from(fileList), pendingExcludePatternsRef.current || activeExcludePatterns);
     }
     var hadAnalysisRef = useRef(false);
-    var selectFile = useCallback(function(path, location) {
-      dispatchInvestigation({ type: "select", path, ...location, camera: snapshotZoomTransform(nativeCanvasRef.current?.snapshotScene().camera) });
+    var selectFile = useCallback(function(path2, location) {
+      dispatchInvestigation({ type: "select", path: path2, ...location, camera: snapshotZoomTransform(nativeCanvasRef.current?.snapshotScene().camera) });
     }, []);
     useEffect(function() {
       if (!selected) {
@@ -61004,9 +63046,9 @@ This problem is likely caused by another plugin injecting
         cancelled = true;
       };
     }, [investigation.selectedPath, repoInfo, localSourceKind]);
-    function openCodeFile(path, replace, range) {
-      dispatchInvestigation({ type: "open", path, replace, range, camera: snapshotZoomTransform(nativeCanvasRef.current?.snapshotScene().camera) });
-      nativeCanvasRef.current?.focus(path);
+    function openCodeFile(path2, replace, range) {
+      dispatchInvestigation({ type: "open", path: path2, replace, range, camera: snapshotZoomTransform(nativeCanvasRef.current?.snapshotScene().camera) });
+      nativeCanvasRef.current?.focus(path2);
     }
     function changeVisualization(view) {
       const action = { type: "view", view, enter: true, camera: snapshotZoomTransform(nativeCanvasRef.current?.snapshotScene().camera) };
@@ -61014,29 +63056,26 @@ This problem is likely caused by another plugin injecting
       if (view === "code" && next.openedPaths !== investigation.openedPaths) nativeCanvasRef.current?.focus(next.selectedPath);
       dispatchInvestigation(action);
     }
-    function closeCodeCard(path) {
-      const action = { type: "close", path, camera: snapshotZoomTransform(nativeCanvasRef.current?.snapshotScene().camera) };
+    function closeCodeCard(path2) {
+      const action = { type: "close", path: path2, camera: snapshotZoomTransform(nativeCanvasRef.current?.snapshotScene().camera) };
       const next = reduceInvestigation(investigation, action, data);
       if (next.selectedPath !== investigation.selectedPath) nativeCanvasRef.current?.focus(next.selectedPath);
       dispatchInvestigation(action);
     }
-    function retryCodeSource(path) {
-      if (!path) return;
-      delete codeSourceInFlightRef.current[path];
-      setCodeSourceFailed(function(prev) {
-        return clearCodeSourceFailure(prev, path);
-      });
+    function retryCodeSource(path2) {
+      if (!path2) return;
+      project.retrySource(path2);
     }
-    function revealGraphFile(path, camera) {
-      nativeCanvasRef.current?.reveal(path, camera);
+    function revealGraphFile(path2, camera) {
+      nativeCanvasRef.current?.reveal(path2, camera);
     }
-    function goToFile(path) {
-      if (codeFileNavOpensCard(graphConfig.vizType)) openCodeFile(path);
+    function goToFile(path2) {
+      if (codeFileNavOpensCard(graphConfig.vizType)) openCodeFile(path2);
       else {
-        var scope = folderFilterAfterCodeNav(path, data, folderFilter);
+        var scope = folderFilterAfterCodeNav(path2, data, folderFilter);
         setFolderFilter(scope);
-        selectFile(path, { scope });
-        if (graphConfig.vizType === "graph") revealGraphFile(path);
+        selectFile(path2, { scope });
+        if (graphConfig.vizType === "graph") revealGraphFile(path2);
       }
     }
     function navigateHistory(delta) {
@@ -61077,71 +63116,38 @@ This problem is likely caused by another plugin injecting
         return n;
       });
     }, []);
-    const projectSource = createProjectSource({
-      identity: currentAnalysisSource(),
-      cli: cliStatus,
-      folder: { handle: localDirHandle, sourceKey: localFolderKeyRef.current },
-      archive: {
-        entriesByPath: zipArchiveRef.current && zipArchiveRef.current.entriesByPath,
-        sourceKey: zipKeyRef.current,
-        file: zipFileRef.current
-      },
-      github: repoInfo ? { owner: repoInfo.owner, repo: repoInfo.repo, client: GitHub } : null
-    });
     function canReadLiveFileSource() {
-      return !!projectSource;
+      return project.sourceAvailable;
     }
-    function readCliWatchLiveSource(path) {
-      if (!path) return Promise.resolve({ kind: "error" });
-      return fetch("/__codeflow/file?path=" + encodeURIComponent(path)).then(function(res) {
-        var length = Number(res.headers && res.headers.get ? res.headers.get("content-length") : NaN);
-        if (cliWatchLiveRejectsOversized(length)) {
-          if (res.body && typeof res.body.cancel === "function") res.body.cancel();
-          return { kind: "error" };
-        }
-        if (res.ok) return res.text().then(function(text) {
-          return cliWatchLiveFromResponse(res.status, text, true, length);
-        });
-        return cliWatchLiveFromResponse(res.status, "", false);
-      }).catch(function() {
-        return { kind: "error" };
-      });
+    function closeFilePreview() {
+      previewRequestRef.current = null;
+      setFilePreview(null);
     }
-    async function readLiveFileSource(path) {
-      if (!projectSource) return null;
-      const result = await projectSource.read(path);
-      return result.status === "ready" ? result.content : null;
-    }
-    function rememberHydratedSources(updates) {
-      if (!updates || !updates.length) return;
-      setData(function(prev) {
-        return mergeHydratedFileSources(prev, updates, analysisHydrationIdRef.current);
-      });
-    }
-    function openFilePreview(path, line) {
+    function openFilePreview(path2, line) {
       if (!repoInfo) return;
-      var filename = path.split("/").pop();
-      setFilePreview({ path, filename, content: null, line: line || null, loading: true, error: null });
+      const request = {};
+      previewRequestRef.current = request;
+      var filename = path2.split("/").pop();
+      setFilePreview({ path: path2, filename, content: null, line: line || null, loading: true, error: null });
       var existingFile = data && data.files ? data.files.find(function(f) {
-        return f.path === path;
+        return f.path === path2;
       }) : null;
       if (existingFile && existingFile.analysisSkipped) {
-        setFilePreview({ path, filename, content: "", line: line || null, loading: false, error: existingFile.analysisSkipped === "oversized" ? "Skipped during analysis (file too large)" : "File was not fetched during analysis" });
+        setFilePreview({ path: path2, filename, content: "", line: line || null, loading: false, error: existingFile.analysisSkipped === "oversized" ? "Skipped during analysis (file too large)" : "File was not fetched during analysis" });
         return;
       }
       if (existingFile && fileHasLoadedSource(existingFile)) {
-        setFilePreview({ path, filename, content: existingFile.content, line: line || null, loading: false, error: null });
+        setFilePreview({ path: path2, filename, content: existingFile.content, line: line || null, loading: false, error: null });
         return;
       }
       var previewId = analysisHydrationIdRef.current;
-      readLiveFileSource(path).then(function(content) {
-        if (analysisHydrationIdRef.current !== previewId) return;
+      readLiveFileSource(path2).then(function(content) {
+        if (previewRequestRef.current !== request || analysisHydrationIdRef.current !== previewId) return;
         if (typeof content === "string") {
-          setFilePreview({ path, filename, content, line: line || null, loading: false, error: null });
-          rememberHydratedSources([{ path, content, hydrationId: previewId }]);
+          setFilePreview({ path: path2, filename, content, line: line || null, loading: false, error: null });
           return;
         }
-        setFilePreview({ path, filename, content: null, line: line || null, loading: false, error: canReadLiveFileSource() ? "Could not load file content" : "Reopen this project to preview source" });
+        setFilePreview({ path: path2, filename, content: null, line: line || null, loading: false, error: canReadLiveFileSource() ? "Could not load file content" : "Reopen this project to preview source" });
       });
     }
     useEffect(function() {
@@ -61201,8 +63207,6 @@ This problem is likely caused by another plugin injecting
       setSelectedArchitectureBlock(null);
       setFileQuery("");
       setRestoredNativeScene(null);
-      codeSourceInFlightRef.current = /* @__PURE__ */ Object.create(null);
-      setCodeSourceFailed(/* @__PURE__ */ Object.create(null));
       nativeCanvasRef.current?.focus(null);
     }, [currentHydrationId]);
     useEffect(function() {
@@ -61261,40 +63265,13 @@ This problem is likely caused by another plugin injecting
       if (data && !hadAnalysisRef.current) setLeftTab("overview");
       hadAnalysisRef.current = !!data;
     }, [data]);
-    function persistLineThickness(value) {
-      var next = persistUiPrefs({ lineThickness: value }).lineThickness;
+    function persistLineThickness(value2) {
+      var next = persistUiPrefs({ lineThickness: value2 }).lineThickness;
       setLineThickness(next);
     }
-    useEffect(function() {
-      var missing = filesNeedingSource(codeViewFiles);
-      if (!missing.length || !canReadLiveFileSource()) return;
-      var inflight = codeSourceInFlightRef.current;
-      var hydrationId = analysisHydrationIdRef.current;
-      nextCodeSourceReads(missing.map(function(file) {
-        return file.path;
-      }), inflight, codeSourceFailed).forEach(function(path) {
-        inflight[path] = true;
-        readLiveFileSource(path).then(function(content) {
-          if (typeof content === "string") {
-            rememberHydratedSources([{ path, content, hydrationId }]);
-            setCodeSourceFailed(function(prev) {
-              return clearCodeSourceFailureIfCurrent(prev, path, hydrationId, analysisHydrationIdRef.current);
-            });
-            return;
-          }
-          setCodeSourceFailed(function(prev) {
-            return recordCodeSourceFailureIfCurrent(prev, path, hydrationId, analysisHydrationIdRef.current);
-          });
-        }).then(function() {
-          delete inflight[path];
-        }, function() {
-          delete inflight[path];
-          setCodeSourceFailed(function(prev) {
-            return recordCodeSourceFailureIfCurrent(prev, path, hydrationId, analysisHydrationIdRef.current);
-          });
-        });
-      });
-    }, [codeViewFiles, localSourceKind, cliStatus, repoInfo, localDirHandle, codeSourceFailed]);
+    useEffect(() => {
+      project.ensureSources(openedCodePaths);
+    }, [codeViewFiles, project.codeSourceFailed, project.sourceAvailable]);
     function zoomIn() {
       if (graphConfig.vizType === "graph3d") {
         graph3dViewRef.current?.zoom(0.7);
@@ -61328,8 +63305,8 @@ This problem is likely caused by another plugin injecting
       var computed = getComputedStyle(document.documentElement);
       var root = ":root{";
       vars.forEach(function(name) {
-        var value = computed.getPropertyValue(name);
-        if (value) root += name + ":" + value.trim() + ";";
+        var value2 = computed.getPropertyValue(name);
+        if (value2) root += name + ":" + value2.trim() + ";";
       });
       root += "}";
       return root + "text{font-family:JetBrains Mono,monospace;pointer-events:none}";
@@ -61425,8 +63402,8 @@ This problem is likely caused by another plugin injecting
       URL.revokeObjectURL(url);
       showNotification("Architecture SVG downloaded.", "success");
     }
-    function graphSvgToPngDataUrlForPdf(scale, done) {
-      scale = scale || 2;
+    function graphSvgToPngDataUrlForPdf(scale2, done) {
+      scale2 = scale2 || 2;
       if (!nativeCanvasRef.current?.svgElement) {
         done("No graph to export");
         return;
@@ -61450,7 +63427,7 @@ This problem is likely caused by another plugin injecting
       var img = new Image();
       img.onload = function() {
         try {
-          var cw = Math.floor(w * scale), ch = Math.floor(h * scale);
+          var cw = Math.floor(w * scale2), ch = Math.floor(h * scale2);
           var canvas = document.createElement("canvas");
           canvas.width = cw;
           canvas.height = ch;
@@ -61505,9 +63482,9 @@ This problem is likely caused by another plugin injecting
             var fitScale = Math.min(maxW / imgW, maxH / imgH);
             var drawW = imgW * fitScale;
             var drawH = imgH * fitScale;
-            var x = margin + (maxW - drawW) / 2;
-            var y = margin + (maxH - drawH) / 2;
-            doc.addImage(dataUrl, "PNG", x, y, drawW, drawH);
+            var x2 = margin + (maxW - drawW) / 2;
+            var y2 = margin + (maxH - drawH) / 2;
+            doc.addImage(dataUrl, "PNG", x2, y2, drawW, drawH);
             doc.save("codeflow-" + Date.now() + ".pdf");
           } catch (ex) {
             showNotification(ex.message || "PDF export failed", "error");
@@ -61518,10 +63495,10 @@ This problem is likely caused by another plugin injecting
     function exportJSON() {
       if (!data) return;
       var url = URL.createObjectURL(new Blob([JSON.stringify(exportAnalysis(data), null, 2)], { type: "application/json" }));
-      var link = document.createElement("a");
-      link.href = url;
-      link.download = "codeflow-analysis.json";
-      link.click();
+      var link2 = document.createElement("a");
+      link2.href = url;
+      link2.download = "codeflow-analysis.json";
+      link2.click();
       URL.revokeObjectURL(url);
     }
     function getAnalysisSourceLabel() {
@@ -61533,10 +63510,10 @@ This problem is likely caused by another plugin injecting
       if (!data) return;
       var report = generateAnalysisReport({ data, repository: getAnalysisSourceLabel(), analyzedAt: (/* @__PURE__ */ new Date()).toISOString(), format });
       var url = URL.createObjectURL(new Blob([report.content], { type: report.mimeType }));
-      var link = document.createElement("a");
-      link.href = url;
-      link.download = report.filename;
-      link.click();
+      var link2 = document.createElement("a");
+      link2.href = url;
+      link2.download = report.filename;
+      link2.click();
       URL.revokeObjectURL(url);
       showNotification("Report exported as " + format.toUpperCase(), "success");
     }
@@ -61571,37 +63548,16 @@ This problem is likely caused by another plugin injecting
       });
     }
     function resetAnalysis() {
-      projectLoading.dispose();
-      setLoading(false);
-      setError(null);
-      cliAnalyzingRef.current = false;
-      setData(null);
-      setSelected(null);
-      setBlastRadius(null);
-      setOwnership(null);
-      setRepoInfo(null);
+      project.clear();
+      resetProjectPresentation();
       setRepoUrl("");
-      setPrData(null);
-      setFolderFilter(null);
-      setLocalDirHandle(null);
-      setLocalSourceKind(null);
       setArchitectureIncludeTests(false);
       setArchitectureIncludeBuildOutput(false);
-      setCachedFromId(null);
-      setActiveSymbol(null);
-      setCliDirty([]);
-      clearCliLiveDiffs();
-      localFolderKeyRef.current = null;
-      localFolderSelectionRef.current = null;
-      localFilesRef.current = null;
-      zipKeyRef.current = null;
-      zipArchiveRef.current = null;
-      zipFileRef.current = null;
       window.history.replaceState({}, "", window.location.pathname);
     }
-    function filterByFolder(path) {
+    function filterByFolder(path2) {
       setFolderFilter(function(prev) {
-        return prev === path ? null : path;
+        return prev === path2 ? null : path2;
       });
     }
     function renderRecentsList() {
@@ -61875,13 +63831,13 @@ This problem is likely caused by another plugin injecting
             "div",
             { className: "card-body" },
             React.createElement("div", { style: { fontSize: 10, color: "var(--t2)", marginBottom: 8 } }, block.group),
-            React.createElement("div", { style: { maxHeight: "35vh", overflowY: "auto" } }, (block.files || []).map(function(path) {
+            React.createElement("div", { style: { maxHeight: "35vh", overflowY: "auto" } }, (block.files || []).map(function(path2) {
               var declaration = (block.declarations || []).find(function(d) {
-                return d.path === path && d.kind === "module";
+                return d.path === path2 && d.kind === "module";
               });
-              return React.createElement("button", { type: "button", key: path, className: "top-btn", style: { width: "100%", whiteSpace: "normal", textAlign: "left", marginBottom: 4 }, onClick: function() {
-                openSourceLocation({ path, range: { start: { line: declaration ? declaration.line - 1 : 0, character: 0 } } });
-              } }, path);
+              return React.createElement("button", { type: "button", key: path2, className: "top-btn", style: { width: "100%", whiteSpace: "normal", textAlign: "left", marginBottom: 4 }, onClick: function() {
+                openSourceLocation({ path: path2, range: { start: { line: declaration ? declaration.line - 1 : 0, character: 0 } } });
+              } }, path2);
             }))
           )
         ),
@@ -62293,8 +64249,8 @@ This problem is likely caused by another plugin injecting
           React.createElement("div", { className: "resize-handle", onMouseDown: function(e) {
             e.preventDefault();
             var startX = e.clientX, startW = sidebarWidth;
-            function onMove(e2) {
-              setSidebarWidth(Math.max(180, Math.min(400, startW + e2.clientX - startX)));
+            function onMove(e3) {
+              setSidebarWidth(Math.max(180, Math.min(400, startW + e3.clientX - startX)));
             }
             function onUp() {
               document.removeEventListener("mousemove", onMove);
@@ -62398,44 +64354,44 @@ This problem is likely caused by another plugin injecting
                 React.createElement("option", { value: "architecture" }, "Block Diagram")
               )
             ),
-            graphConfig.vizType === "graph3d" && React.createElement(Graph3DView, { ref: graph3dViewRef, data, folderFilter, colorMap, colorMode, theme, config: graphConfig, selectedPath: selected && selected.path, blastRadius, lineThickness, onSelect: function(path) {
-              if (path) selectFile(path);
+            graphConfig.vizType === "graph3d" && React.createElement(Graph3DView, { ref: graph3dViewRef, data, folderFilter, colorMap, colorMode, theme, config: graphConfig, selectedPath: selected && selected.path, blastRadius, lineThickness, onSelect: function(path2) {
+              if (path2) selectFile(path2);
               else {
                 setSelected(null);
                 setBlastRadius(null);
               }
             } }),
-            graphConfig.vizType === "treemap" && React.createElement(TreemapView, { ref: alternateViewRef, files: data.files, folderFilter, onSelect: (path) => {
-              if (path) selectFile(path);
+            graphConfig.vizType === "treemap" && React.createElement(TreemapView, { ref: alternateViewRef, files: data.files, folderFilter, onSelect: (path2) => {
+              if (path2) selectFile(path2);
               else {
                 setSelected(null);
                 setBlastRadius(null);
               }
             }, colorMap: folderColors, selectedPath: selected?.path, blastRadius }),
-            graphConfig.vizType === "matrix" && React.createElement(MatrixView, { ref: alternateViewRef, files: data.files, folderFilter, onSelect: (path) => {
-              if (path) selectFile(path);
+            graphConfig.vizType === "matrix" && React.createElement(MatrixView, { ref: alternateViewRef, files: data.files, folderFilter, onSelect: (path2) => {
+              if (path2) selectFile(path2);
               else {
                 setSelected(null);
                 setBlastRadius(null);
               }
             }, connections: data.connections }),
-            graphConfig.vizType === "dendro" && React.createElement(DendrogramView, { ref: alternateViewRef, files: data.files, folderFilter, onSelect: (path) => {
-              if (path) selectFile(path);
+            graphConfig.vizType === "dendro" && React.createElement(DendrogramView, { ref: alternateViewRef, files: data.files, folderFilter, onSelect: (path2) => {
+              if (path2) selectFile(path2);
               else {
                 setSelected(null);
                 setBlastRadius(null);
               }
             }, colorMap: folderColors, lineThickness, onScope: filterByFolder }),
             graphConfig.vizType === "sankey" && React.createElement(SankeyView, { ref: alternateViewRef, files: data.files, folderFilter, connections: data.connections, colorMap: folderColors, lineThickness, onScope: filterByFolder }),
-            graphConfig.vizType === "disjoint" && React.createElement(DisjointView, { ref: alternateViewRef, files: data.files, folderFilter, onSelect: (path) => {
-              if (path) selectFile(path);
+            graphConfig.vizType === "disjoint" && React.createElement(DisjointView, { ref: alternateViewRef, files: data.files, folderFilter, onSelect: (path2) => {
+              if (path2) selectFile(path2);
               else {
                 setSelected(null);
                 setBlastRadius(null);
               }
             }, connections: data.connections, colorMap: folderColors, lineThickness }),
-            graphConfig.vizType === "bundle" && React.createElement(BundleView, { ref: alternateViewRef, files: data.files, folderFilter, onSelect: (path) => {
-              if (path) selectFile(path);
+            graphConfig.vizType === "bundle" && React.createElement(BundleView, { ref: alternateViewRef, files: data.files, folderFilter, onSelect: (path2) => {
+              if (path2) selectFile(path2);
               else {
                 setSelected(null);
                 setBlastRadius(null);
@@ -62614,8 +64570,8 @@ This problem is likely caused by another plugin injecting
           React.createElement("div", { className: "resize-handle", onMouseDown: function(e) {
             e.preventDefault();
             var startX = e.clientX, startW = rightPanelWidth;
-            function onMove(e2) {
-              setRightPanelWidth(Math.max(280, Math.min(500, startW - (e2.clientX - startX))));
+            function onMove(e3) {
+              setRightPanelWidth(Math.max(280, Math.min(500, startW - (e3.clientX - startX))));
             }
             function onUp() {
               document.removeEventListener("mousemove", onMove);
@@ -62683,7 +64639,7 @@ This problem is likely caused by another plugin injecting
                   setRightTab("runtime");
                 } }),
                 React.createElement(SourceFindings, { summary: findingsByFile.get(selected.path), onOpen: openSourceLocation }),
-                data.beam && React.createElement(SourceNavigation, { path: selected.path, symbols: beamSymbols, locations: beamLocations, error: beamNavigationError, onOpen: openSourceLocation, onReferences: (path, position) => navigateBeamSymbol("references", path, position) }),
+                data.beam && React.createElement(SourceNavigation, { path: selected.path, symbols: beamSymbols, locations: beamLocations, error: beamNavigationError, onOpen: openSourceLocation, onReferences: (path2, position) => navigateBeamSymbol("references", path2, position) }),
                 blastRadius && React.createElement(
                   "div",
                   { className: "card", style: { marginBottom: 12 } },
@@ -62732,10 +64688,10 @@ This problem is likely caused by another plugin injecting
                       "div",
                       { className: "blast-detail" },
                       React.createElement("div", { style: { fontSize: 9, fontWeight: 600, marginBottom: 6 } }, "Files that import from this:"),
-                      blastRadius.affected.slice(0, 8).map(function(path) {
-                        return React.createElement("div", { key: path, className: "blast-file", onClick: function() {
-                          goToFile(path);
-                        } }, React.createElement(Icon, { name: "file", size: "s" }), " ", path.split("/").pop());
+                      blastRadius.affected.slice(0, 8).map(function(path2) {
+                        return React.createElement("div", { key: path2, className: "blast-file", onClick: function() {
+                          goToFile(path2);
+                        } }, React.createElement(Icon, { name: "file", size: "s" }), " ", path2.split("/").pop());
                       }),
                       blastRadius.affected.length > 8 && React.createElement("div", { style: { fontSize: 9, color: "var(--t3)", marginTop: 4 } }, "+", blastRadius.affected.length - 8, " more")
                     ),
@@ -62743,10 +64699,10 @@ This problem is likely caused by another plugin injecting
                       "div",
                       { className: "blast-detail", style: { marginTop: 8 } },
                       React.createElement("div", { style: { fontSize: 9, fontWeight: 600, marginBottom: 6, color: "var(--orange)" } }, "Dependencies (risk if these change):"),
-                      blastRadius.dependencies.slice(0, 5).map(function(path) {
-                        return React.createElement("div", { key: path, className: "blast-file", onClick: function() {
-                          goToFile(path);
-                        } }, React.createElement(Icon, { name: "file", size: "s" }), " ", path.split("/").pop());
+                      blastRadius.dependencies.slice(0, 5).map(function(path2) {
+                        return React.createElement("div", { key: path2, className: "blast-file", onClick: function() {
+                          goToFile(path2);
+                        } }, React.createElement(Icon, { name: "file", size: "s" }), " ", path2.split("/").pop());
                       }),
                       blastRadius.dependencies.length > 5 && React.createElement("div", { style: { fontSize: 9, color: "var(--t3)", marginTop: 4 } }, "+", blastRadius.dependencies.length - 5, " more")
                     )
@@ -63405,8 +65361,8 @@ This problem is likely caused by another plugin injecting
                   React.createElement("div", { className: "pr-impact-card-title" }, iconLabel("activity", "Hotspots")),
                   React.createElement("div", { style: { fontSize: 10, color: "var(--t3)", marginBottom: 12 } }, "Files with highest blast radius"),
                   risk.hotspots.map(function(h, i) {
-                    var maxBlast = Math.max.apply(null, risk.hotspots.map(function(x) {
-                      return x.blast;
+                    var maxBlast = Math.max.apply(null, risk.hotspots.map(function(x2) {
+                      return x2.blast;
                     })) || 1;
                     return React.createElement(
                       "div",
@@ -63986,7 +65942,7 @@ This problem is likely caused by another plugin injecting
       filePreview && React.createElement(
         "div",
         { className: "file-preview-overlay", onClick: function() {
-          setFilePreview(null);
+          closeFilePreview();
         } },
         React.createElement(
           "div",
@@ -64008,7 +65964,7 @@ This problem is likely caused by another plugin injecting
               { className: "file-preview-actions" },
               filePreview.line && React.createElement("span", { className: "file-preview-line-badge" }, "Line ", filePreview.line),
               React.createElement("button", { className: "file-preview-close", onClick: function() {
-                setFilePreview(null);
+                closeFilePreview();
               } }, "\xD7")
             )
           ),
@@ -64043,7 +65999,8 @@ This problem is likely caused by another plugin injecting
         )
       ),
       error && React.createElement("div", { style: { position: "fixed", bottom: 20, right: 20, background: "var(--red)", color: "white", padding: "12px 20px", borderRadius: 8, zIndex: 1e3, maxWidth: 350 }, "role": "alert" }, [error, React.createElement("button", { "aria-label": "Dismiss error", "onClick": function() {
-        setError(null);
+        project.dismissError();
+        setPickerError(null);
       }, style: { marginLeft: 12, background: "none", border: "none", color: "white", cursor: "pointer", fontSize: 16 } }, "\xD7")])
     );
   }

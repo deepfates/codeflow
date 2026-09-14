@@ -48,8 +48,8 @@ Browser libraries and built application bundles are checked in under `vendor/` a
 Graph keeps Codeflow's file nodes, connections, layouts and folder filtering.
 Matrix retains every file while rendering cells in the visible viewport. Dendrogram,
 Bundle and Disjoint allocate a larger pan/zoom world for large inventories; Flow
-no longer limits folder count, though its current Sankey layout cannot draw cyclic
-dependencies. These views no longer take fixed-size file samples.
+uses the released circular Sankey layout to retain cyclic and reciprocal folder
+dependencies with their original weights. These views no longer take fixed-size file samples.
 Compiler references enrich the same graph alongside source-analysis relationships,
 including links from tests, documentation and other languages. Mix dependency and
 build directories (`deps`, `_build`, `.elixir_ls`) are excluded by default, including
@@ -455,7 +455,8 @@ The HTML file owns the document and styles. The application code lives in module
 - `src/analysis/`: parser runtime factory, shared file classification, code indexing, architecture, metrics and merging compiler and linter results.
 - `src/investigation/`: `state.mjs` owns selection, source ranges, folder scope, view, open cards and history as one reducer. Opening, closing, Back/Forward and workspace restoration commit these changes together; the selected file is read from the current code index. Workspace, preferences and recent-analysis persistence live alongside it. Camera movement and card placement remain rendering concerns.
 - `src/views/`: `native-canvas.mjs` owns the shared Graph/Code simulation, camera, source cards, geometry and minimap. Its scene snapshot is persisted by the project workspace owner; source acquisition and investigation transitions remain outside rendering. Shared graph styling, links and source rendering helpers live alongside it. `architecture.mjs` is the Block Diagram component: it owns Mermaid rendering, selection highlighting, pan/zoom, container resizing and the rendered SVG used by exports. The app supplies the shared diagram and selection callbacks. `graph3d.mjs` owns the native WebGL renderer, camera and teardown; selection and display changes update the mounted renderer. `alternate.mjs` owns the existing Treemap, Matrix, Dendrogram, Sankey, Disjoint and Bundle components, including their SVGs, cameras, tooltips, resize handling and simulation cleanup. SVG export reads the active view through its rendering interface. `inspection.mjs` renders the source outline, tool status and runtime panels; both directions of process/source navigation use `project/runtime-index.mjs`, which retains observed process records and links only exact paths in the current code index.
-- `src/browser/app.mjs`: React composition, project orchestration, and remaining sidebar/inspector/modal code. `src/browser/analysis-client.mjs` owns worker transport; `src/worker/analysis-worker.mjs` and `src/node/analysis.mjs` configure the same analysis engine.
+- `src/browser/project.mjs`: the active project hook composes acquisition, retained source handles, cancellation, cache restoration, source hydration and CLI/tool updates. Its named commands open or refresh projects and read sources; it exposes the current project without exposing state setters.
+- `src/browser/app.mjs`: React composition, authentication/picker controls, investigation/workspace coordination, and remaining sidebar/inspector/modal code. `src/browser/analysis-client.mjs` owns worker transport; `src/worker/analysis-worker.mjs` and `src/node/analysis.mjs` configure the same analysis engine.
 
 `npm run build` uses pinned esbuild to produce the shipped `dist/` artifacts.
 They are checked in to preserve the no-build `file://` entry point. The worker

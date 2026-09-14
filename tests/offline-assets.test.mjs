@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -25,7 +25,18 @@ test('browser runtime dependencies are local', async () => {
 
 test('vendored asset hashes match the recorded manifest', async () => {
   assert.equal(manifest.version, 1);
-  assert.equal(manifest.assets.length, 35);
+  async function assetPaths(directory, prefix = '') {
+    const paths = [];
+    for (const entry of await readdir(directory, {withFileTypes:true})) {
+      if (!prefix && ['licenses', 'manifest.json', 'THIRD_PARTY_NOTICES.md'].includes(entry.name)) continue;
+      const path = prefix + entry.name;
+      if (entry.isDirectory()) paths.push(...await assetPaths(join(directory, entry.name), path + '/'));
+      else paths.push(path);
+    }
+    return paths;
+  }
+  assert.deepEqual(manifest.assets.map(asset => asset.file).sort(), (await assetPaths(vendorRoot)).sort(),
+    'the manifest covers every shipped asset exactly once');
 
   for (const asset of manifest.assets) {
     const bytes = await readFile(join(vendorRoot, asset.file));
