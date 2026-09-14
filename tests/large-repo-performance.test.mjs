@@ -1,15 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const require = createRequire(import.meta.url);
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const { loadAnalyzer } = require(join(__dirname, '..', 'card', 'lib', 'analyzer.js'));
+import { createNodeAnalyzer } from './helpers/analysis.mjs';
 
 test('bounded duplicate similarity keeps near-copies distinct from unrelated code', () => {
-  const { Parser } = loadAnalyzer(join(__dirname, '..', 'index.html'));
+  const { Parser } = createNodeAnalyzer();
   const first = 'function processAlpha(items) { const out = []; for (const item of items) { if (item.ok) out.push(item.id); } return out; }';
   const renamed = 'function processBeta(rows) { const result = []; for (const row of rows) { if (row.ok) result.push(row.id); } return result; }';
   const unrelated = 'async function fetchUser(id) { const response = await fetch(`/users/${id}`); return response.json(); }';
@@ -19,7 +13,7 @@ test('bounded duplicate similarity keeps near-copies distinct from unrelated cod
 });
 
 test('large mixed repositories index paths once and never call-scan non-code assets', async () => {
-  const { Parser, buildAnalysisData } = loadAnalyzer(join(__dirname, '..', 'index.html'));
+  const { Parser, buildAnalysisData } = createNodeAnalyzer();
   const repeatedData = '{"snapshot":"targetCall()"}\n'.repeat(150);
   const analyzed = Array.from({ length: 3000 }, (_, index) => ({
     path: `artifacts/snapshot-${index}.json`,

@@ -9,11 +9,119 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
-[**Try it Now**](https://codeflow-five.vercel.app/) · [Report Bug](https://github.com/braedonsaunders/codeflow/issues) · [Request Feature](https://github.com/braedonsaunders/codeflow/issues)
+[**Upstream demo**](https://codeflow-five.vercel.app/) · [Report Bug](https://github.com/braedonsaunders/codeflow/issues) · [Request Feature](https://github.com/braedonsaunders/codeflow/issues)
 
 <img src="./screenshot.png" alt="CodeFlow Screenshot" width="100%"/>
 
 </div>
+
+---
+
+## Explore an Elixir project
+
+This fork integrates Elixir project exploration into Codeflow's existing Graph,
+Code, file tree and source cards.
+
+```sh
+git clone https://github.com/deepfates/codeflow.git
+cd codeflow
+npm ci
+node cli/codeflow.mjs /absolute/path/to/your/project
+```
+
+Use Node.js 18+ and Elixir 1.19+ with `mix` on your PATH. Prepare the project's
+dependencies using its own documented setup. Codeflow recognizes `mix.exs` and
+starts ElixirLS, which compiles and indexes the project. Credo runs independently.
+When the project provides Credo, Codeflow uses that version, configuration and plugins;
+otherwise it runs Credo 1.7.19 through Mix.install’s isolated cache without changing
+the project’s dependencies or lockfile. Only open trusted projects:
+Mix and the language server evaluate project configuration and macros.
+
+On first use, Codeflow downloads the official ElixirLS 0.31.1 release, verifies its
+published SHA-256 digest and caches it under `~/.cache/codeflow`. Its launcher may
+install additional dependencies. Set `CODEFLOW_ELIXIR_LS` to use an existing launcher.
+`--source-only` disables language-server startup and Credo collection; the saved
+compiler graph is still read. `--no-open` prints the URL without opening a browser.
+Browser libraries and built application bundles are checked in under `vendor/` and
+`dist/`; running the app needs no frontend build.
+
+Graph keeps Codeflow's file nodes, connections, layouts and folder filtering.
+Matrix retains every file while rendering cells in the visible viewport. Dendrogram,
+Bundle and Disjoint allocate a larger pan/zoom world for large inventories; Flow
+uses the released circular Sankey layout to retain cyclic and reciprocal folder
+dependencies with their original weights. Scoping Flow to a folder keeps its
+connections to neighboring folders and reveals its files in the existing tree.
+These views no longer take fixed-size file samples.
+Compiler references enrich the same graph alongside source-analysis relationships,
+including links from tests, documentation and other languages. Mix dependency and
+build directories (`deps`, `_build`, `.elixir_ls`) are excluded by default, including
+nested umbrella projects. Application source, tests and documentation remain in
+the inventory. The exclusions dialog lists these defaults alongside custom patterns. GitHub imports recover truncated recursive tree responses by walking subtrees at the same root SHA; an unreadable subtree fails collection rather than silently omitting files.
+
+Use **Files** (or **⌘P / Ctrl+P**) to find a file, module or function. File results
+locate the file in the current view; module and function results open source at
+the definition. Back and Forward retrace the investigation across Graph and Code, including
+distinct definitions within the same file.
+
+Code view uses the existing source cards. The File panel adds an ElixirLS outline;
+Command-click (or Ctrl-click) source text to go to a definition, and add Shift to
+find references. Compiler diagnostics and Credo findings appear in Issues with
+source locations and tool attribution, and are included in analysis exports.
+Patterns, Security, Actions, Block Diagram and reports remain available. Tool
+failure is reported as unavailable, not as a clean assessment.
+
+Workspace view, scope, selection, navigation history, open cards, placement, sizes
+and Graph/Code camera are saved in this browser for each project, including
+projects without Elixir. Treemap, Matrix, Dendrogram, Flow, Disjoint and Bundle
+also retain their latest camera when switching views or reloading. Source
+contents are loaded from the local server.
+
+To inspect a running local BEAM node:
+
+```sh
+node cli/codeflow.mjs /absolute/path/to/project --node app@hostname
+```
+
+You can also enter the node name in Runtime and connect there. The inspector uses
+the normal Erlang cookie, or `CODEFLOW_BEAM_COOKIE` from the CLI environment. The
+node must already be running locally with matching distribution naming and cookie.
+Refresh collects applications, supervision trees, process metrics and source links.
+Open Source on a process to inspect its implementation; the File panel links back
+to matching running processes and expands their supervision ancestry.
+Failed process queries are marked unavailable; only a confirmed missing PID is
+marked exited. An incomplete process inventory is reported alongside the
+observations that were collected. It does not start the application, inspect
+process state or record messages.
+
+Compiler relationships come from Mix manifests; source-analysis relationships
+retain their own provenance. After each successful ElixirLS build, Codeflow collects its updated graph and refreshes the current view
+without clearing open cards. With `--source-only`, compiler evidence is the initial
+snapshot of ordinary build artifacts; recompile and restart to update it.
+[`mix xref`](https://mix.hexdocs.pm/Mix.Tasks.Xref.html) distinguishes compile,
+export and runtime dependencies; a runtime edge means a reference inside function
+code, not an observed execution. Arrows point from dependency to consumer. Source
+and language-server results may be newer than the latest successful compiler
+snapshot. Missing compiler artifacts leave the existing source analysis available.
+The health score remains Codeflow's heuristic summary. Use **Color → Findings** in Graph or 3D to see file assessments in the existing map.
+Changing colors preserves node positions and the camera; 3D keeps its folder-based
+layout across color modes. Selecting a file shows its findings and their source links. Neutral files have no
+recorded findings; this does not establish that they are healthy. Functions without observed
+callers stay available for investigation; Elixir callbacks and dynamic invocation
+make their usage uncertain, so those candidates do not count as proven dead code
+in the score. Source-based patterns and security checks remain heuristic findings,
+not compiler guarantees. Elixir source analysis uses the vendored Tree-sitter
+grammar to distinguish modules, function arities and clauses, aliases and imports.
+The analysis JSON retains unresolved dynamic calls and macro-generated definitions
+as explicit unknowns.
+Block Diagram groups declared namespaces and recognizes OTP/Phoenix roles, retaining
+member files and source evidence alongside compiler links. Select a block to
+bring it into focus, follow its connections or open any member at its declaration.
+The diagram uses the bundled Mermaid/ELK renderer. Parallel evidence shares a
+connection on screen; hover or inspect its details for the evidence, and export
+JSON or Mermaid to retain the individual observations.
+
+Live message tracing, execution replay and agent-history integration are outside
+this version. The hosted upstream demo does not include this fork's integration.
 
 ---
 
@@ -35,7 +143,7 @@ Paste URL / Select Files -> See Architecture -> Make Better Decisions
 ## Features
 
 ### Interactive Dependency Graph
-See how your files connect at a glance. Click any node to highlight its dependencies. Drag, zoom, and explore. The **Code** view keeps that map and opens the selected file plus its connected files as full-file cards on the canvas, grouped by directory.
+See how your files connect at a glance. Click any node to highlight its dependencies. Drag, zoom, and explore. The **Code** view keeps that map and opens source cards as you navigate, grouped by directory. Open cards stay in the investigation until you close them.
 
 ### Blast Radius Analysis
 *"If I change this file, what breaks?"* — CodeFlow answers this instantly. Select any file and see exactly how many files would be affected by changes.
@@ -106,7 +214,7 @@ See [card/](./card/) for setup, or jump to the [style gallery](#card-style-galle
 
 **Your code stays on your machine.** CodeFlow:
 
-- Runs 100% in the browser
+- Runs static exploration in the browser; the optional local CLI runs Elixir tooling on your machine
 - Makes API calls directly from your browser to GitHub
 - Never stores your code or tokens
 - Works with private repos (just add your token locally)
@@ -118,19 +226,20 @@ Your GitHub token (if used) is only stored in your browser's memory and is clear
 
 ## Quick Start
 
-### Option 1: Use Online (Recommended)
-Just visit [CodeFlow](https://codeflow-five.vercel.app/) and paste any GitHub URL.
+### Option 1: Try the upstream demo
+The [upstream demo](https://codeflow-five.vercel.app/) runs the original CodeFlow.
+Use the local setup below for this fork’s Elixir analysis and runtime integration.
 
 ### Option 2: Self-Host
 ```bash
 # Clone the repo
-git clone https://github.com/braedonsaunders/codeflow.git
+git clone https://github.com/deepfates/codeflow.git
 
 # That's it! Just open index.html in your browser
 open index.html
 ```
 
-No build process. No npm install. Clone the whole repository: `index.html` loads pinned,
+No build or npm install is needed to open the app. Clone the whole repository: `index.html` loads pinned,
 checked-in browser dependencies from `vendor/`, so a fresh local launch works without a network connection.
 
 ### Option 3: Local CLI
@@ -172,7 +281,7 @@ Click the "Open Folder" button to analyze code from your computer:
 - **Drag & Drop:** Drag files or folders directly onto the page
 - **Custom Excludes:** Add patterns like `uploads/**`, `**/cache/**`, or `*.png` before scanning
 
-Generated dependencies, caches, build output, local worktrees, and test artifacts are pruned automatically (for example `node_modules`, `.next`, `.turbo`, `.local`, `dist`, and `playwright-report`). Individual files over 2 MB remain visible in results but their contents are not parsed.
+Generated dependencies, caches, build output, local worktrees, and test artifacts are pruned automatically (for example `node_modules`, `.next`, `.turbo`, `.local`, `dist`, and `playwright-report`). Individual files over 2 MB remain visible in results but their contents are not parsed. GitHub imports request every eligible file after the large-import confirmation; API read failures remain visible in the inventory.
 
 All processing happens locally in your browser - nothing is uploaded.
 
@@ -195,7 +304,8 @@ Export your analysis in multiple formats for further processing:
 
 - **Markdown Report** - Human-readable formatted report
 - **Plain Text Report** - Simple text format
-- **SVG Image** - Export the dependency graph visualization
+- **SVG Image** - Export the current SVG visualization
+- **PNG Image** - Export the current 3D scene
 - **PDF Document** - Export the dependency graph as a printable PDF
 - **Raw JSON** - Simplified data export
 
@@ -257,7 +367,7 @@ strings and Pascal comment forms; unsupported language features fall back gracef
 | **Layer** | Color by architectural layer (UI, Services, Utils, etc.) |
 | **Churn** | Color by commit frequency (hot spots) |
 | **Blast** | Color by impact when a file is selected |
-| **Code** | Same graph, with selected and connected files as full-file cards grouped by directory |
+| **Code** | Same graph, with opened source cards grouped by directory |
 
 ---
 
@@ -334,7 +444,7 @@ node scripts/vendor-browser-deps.mjs
 The vendored runtime includes:
 - React 18
 - D3.js 7
-- Babel (for JSX)
+- Babel (for JavaScript/TypeScript source analysis)
 
 ---
 
@@ -343,14 +453,49 @@ The vendored runtime includes:
 We love contributions! Here's how:
 
 1. Fork the repo
-2. Make your changes to `index.html`
-3. Test locally (just open in browser)
+2. Change the source modules under `src/`
+3. Run `npm run build`, then test the ordinary app
 4. Submit a PR
 
-Node.js unit tests live under `tests/` and run with no dependencies:
+The HTML file owns the document and styles. The application code lives in modules:
+
+- `src/project/`: shared exclusion policy, source identity, change tracking, tree and export; `reports.mjs` builds JSON, Markdown and text reports from explicit analysis, repository and date inputs, keeping rendering and downloads outside report generation; `collection.mjs` enumerates directories, selected files and archives and reads source for all five browser import paths, retaining failed and oversized files; `loading.mjs` owns the active load cancellation signal; selecting another project cancels the prior analysis worker, CLI reads and GitHub requests, and loaders discard obsolete results. Source cards use project-bound readers for CLI checkouts, GitHub, folders and archives; retained handles cannot supply source for a different project. `local-tools.mjs` binds language navigation and runtime requests to the matching CLI checkout and cancels them when switching projects. GitHub access has an explicit adapter. `cli-analysis.mjs` polls local tool results and owns request cancellation, refresh timing and duplicate-update suppression.
+- `src/analysis/`: parser runtime factory, shared file classification, code indexing, architecture, metrics and merging compiler and linter results. `pull-request.mjs` owns PR risk, review areas, test suggestions and dependency-chain calculations; review areas describe code organization, not invented reviewers.
+- `src/investigation/`: `state.mjs` owns selection, source ranges, folder scope, view, open cards and history as one reducer. Opening, closing, Back/Forward and workspace restoration commit these changes together; the selected file is read from the current code index. Workspace, preferences and recent-analysis persistence live alongside it. Camera movement and card placement remain rendering concerns.
+- `src/views/`: `native-canvas.mjs` owns the shared Graph/Code simulation, camera, source cards, geometry and minimap. Its scene snapshot is persisted by the project workspace owner; source acquisition and investigation transitions remain outside rendering. Shared graph styling, links and source rendering helpers live alongside it. `architecture.mjs` is the Block Diagram component: it owns Mermaid rendering, selection highlighting, pan/zoom, container resizing and the rendered SVG used by exports. The app supplies the shared diagram and selection callbacks. `graph3d.mjs` owns the native WebGL renderer, camera and teardown; selection and display changes update the mounted renderer. `alternate.mjs` owns the existing Treemap, Matrix, Dendrogram, Sankey, Disjoint and Bundle components, including their SVGs, cameras, tooltips, resize handling and simulation cleanup. SVG export reads the active view through its rendering interface. `file-inspector.mjs` owns selected-file projections, connections, function callers, disclosure state and ownership requests; shared source/runtime panels compose inside it. `inspection.mjs` renders the source outline, tool status and runtime panels; both directions of process/source navigation use `project/runtime-index.mjs`, which retains observed process records and links only exact paths in the current code index.
+- `src/browser/project.mjs`: the active project hook composes acquisition, retained source handles, cancellation, cache restoration, source hydration and CLI/tool updates. Its named commands open or refresh projects and read sources; it exposes the current project without exposing state setters.
+- `src/browser/source-navigation.mjs`: outline, definition/reference results and errors belong to the current project and investigation. Moving to another location invalidates pending results; the hook delegates actual source opening to the shared navigation action.
+- `src/browser/app.mjs`: React composition, authentication/picker controls, investigation/workspace coordination, and remaining sidebar/inspector/modal code. `src/browser/analysis-client.mjs` owns worker transport; `src/worker/analysis-worker.mjs` and `src/node/analysis.mjs` configure the same analysis engine.
+
+`npm run build` uses pinned esbuild to produce the shipped `dist/` artifacts.
+They are checked in to preserve the no-build `file://` entry point. The worker
+includes its syntax runtimes and the Elixir/Python grammars used by analysis;
+local-file analysis therefore needs no grammar fetch. The Node Babel adapter is
+also bundled so a cold GitHub Action checkout does not need an install step. `npm run build:check`
+compares a fresh deterministic build against the shipped files. Edit the source
+modules, then rebuild; do not edit the generated bundles.
+
+Node imports the canonical modules directly, with Babel’s Node API configured
+to ignore consumer Babel configuration and the same vendored Tree-sitter grammars. The browser never fetches its HTML
+to extract executable code. Every loader supplies source records to `analyzeFiles`;
+the engine loads grammars before extraction and owns definitions, classification
+and project assembly. Acquisition failures remain inventory entries. Source stays
+in the live project model; recent-analysis
+persistence makes its own compact projection. Raw JSON retains source evidence,
+including Elixir declarations and unresolved calls, alongside diagnostics and links.
+
+Node.js tests live under `tests/`. Install dependencies with `npm ci`. Test files
+run sequentially so other workers do not compete with the existing two-second
+large-repository benchmark (parallel CI execution exceeded that limit):
 
 ```bash
-node --test tests/*.test.mjs tests/*.smoke.js
+npm test
+# Also exercise a real disposable Mix project (requires Elixir 1.19+)
+npm run test:beam
+# Repeat the complete browser navigation / graph refresh / restoration journey
+npx playwright install chromium
+npm run test:browser
+# Or use an installed Chrome: CODEFLOW_BROWSER_CHANNEL=chrome npm run test:browser
 ```
 
 `tests/verify-brain-vault.mjs` is an optional end-to-end script that always verifies the bundled fixtures and will also scan a real local vault when you explicitly set `BRAIN_VAULT=/path/to/vault`.
@@ -367,7 +512,7 @@ node --test tests/*.test.mjs tests/*.smoke.js
 ## FAQ
 
 **Q: How does it work without a backend?**
-> CodeFlow runs entirely in your browser. It calls the GitHub API directly from your browser and processes everything client-side.
+> Static repository exploration runs in your browser. The local CLI adds filesystem watching, ElixirLS, Credo and BEAM inspection through a loopback server.
 
 **Q: Is my code safe?**
 > Yes. Your code is fetched directly from GitHub to your browser. Nothing is sent to any server we control. The app and its pinned browser dependencies are checked into this repository for inspection.

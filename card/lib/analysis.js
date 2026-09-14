@@ -5,9 +5,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const { loadAnalyzer, locateIndexHtml } = require('./analyzer.js');
-const { buildAnalyzed } = require('./collect.js');
-const { compileExcludePatterns } = require('./exclude.js');
+const { collectFiles } = require('./collect.js');
+const { compileExcludePatterns } = require('../../src/project/exclusion-policy.cjs');
 const { snapshotFromAnalysis } = require('./state.js');
 
 const HEADLESS_SCHEMA_VERSION = 1;
@@ -47,23 +46,19 @@ async function analyze(options) {
   const opts = options || {};
   const repoRoot = path.resolve(opts.repoRoot || process.cwd());
   validateRepoRoot(repoRoot);
-  const actionDir = path.resolve(opts.actionDir || path.join(__dirname, '..'));
   const progress = typeof opts.progress === 'function' ? opts.progress : () => {};
-  const indexHtmlPath = opts.indexHtmlPath || locateIndexHtml(actionDir, repoRoot);
-
-  progress('analyzer source: ' + indexHtmlPath);
-  const { Parser, buildAnalysisData, calcBlast, calcHealth } = loadAnalyzer(indexHtmlPath);
+  const {createNodeAnalyzer} = await import('../../src/node/analysis.mjs');
+  const {Parser,analyzeFiles,calcBlast,calcHealth} = createNodeAnalyzer();
   const excludePatterns = compileExcludePatterns(normalizeExcludeInput(opts.exclude));
   if (excludePatterns.length > 0) {
     progress('exclude patterns: ' + excludePatterns.map((pattern) => pattern.raw).join(', '));
   }
 
-  const { analyzed, allFns } = await buildAnalyzed(repoRoot, Parser, excludePatterns);
-  progress('collected ' + analyzed.length + ' files (' + allFns.length + ' functions)');
+  const files = await collectFiles(repoRoot, Parser, excludePatterns);
+  progress('collected ' + files.length + ' files');
 
-  const data = await buildAnalysisData({
-    analyzed,
-    allFns,
+  const data = await analyzeFiles({
+    files,
     excludePatterns: excludePatterns.map((pattern) => pattern.raw),
     progress: (message) => progress(message),
     yieldFn: async () => {},

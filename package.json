@@ -9,17 +9,35 @@
   "files": [
     "index.html",
     "vendor",
-    "cli"
+    "cli",
+    "dist",
+    "src"
   ],
   "engines": {
     "node": ">=18"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/braedonsaunders/codeflow.git"
+    "url": "git+https://github.com/deepfates/codeflow.git"
   },
   "scripts": {
     "start": "node cli/codeflow.mjs .",
-    "test": "node --test tests/*.test.mjs tests/*.smoke.js"
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs tests/*.smoke.js",
+    "test:beam": "CODEFLOW_TEST_MIX=1 node --test tests/beam-compiler.test.mjs tests/beam-native.test.mjs tests/runtime.test.mjs tests/credo-integration.test.mjs",
+    "test:browser": "CODEFLOW_TEST_BROWSER=1 node --test --test-concurrency=1 tests/*browser.test.mjs tests/elixir-source.test.mjs",
+    "build": "node scripts/build.mjs",
+    "build:check": "node scripts/build.mjs --check"
+  },
+  "dependencies": {
+    "d3-sankey-circular": "0.34.0",
+    "vscode-jsonrpc": "9.0.2"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.7",
+    "@babel/plugin-transform-react-jsx": "7.29.7",
+    "@babel/preset-react": "7.29.7",
+    "@babel/preset-typescript": "7.29.7",
+    "esbuild": "0.28.2",
+    "playwright": "1.63.0"
   }
 }

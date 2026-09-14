@@ -124,7 +124,11 @@ test('CLI server serves the same UI and folder files', async (t) => {
   const ui = await fetch(base + '/');
   assert.equal(ui.status, 200);
   const html = await ui.text();
-  assert.match(html, /CODEFLOW/);
+  assert.match(html, /<script src="\.\/dist\/app\.js"><\/script>/);
+  const bundle=await fetch(base+'/dist/app.js');
+  assert.equal(bundle.status,200);
+  assert.match(bundle.headers.get('content-type'),/javascript/);
+  assert.equal(await bundle.text(),await readFile(join(repoRoot,'dist/app.js'),'utf8'));
   const files = await (await fetch(base + '/__codeflow/files')).json();
   assert.ok(files.files.some((f) => f.path === 'src/app.js'));
   const file = await fetch(base + '/__codeflow/file?path=src/app.js');
@@ -252,6 +256,13 @@ test('CLI watch events tell the UI which file changed', async (t) => {
   });
   const { port } = server.address();
   const events = await new Promise((resolve, reject) => {
+    let writeTimer, deadline;
+    const finish = (error, value) => {
+      clearTimeout(writeTimer);
+      clearTimeout(deadline);
+      req.destroy();
+      if (error) reject(error); else resolve(value);
+    };
     const req = http.request({
       hostname: '127.0.0.1',
       port,
@@ -262,19 +273,21 @@ test('CLI watch events tell the UI which file changed', async (t) => {
       res.setEncoding('utf8');
       res.on('data', (chunk) => {
         buf += chunk;
-        if (buf.includes('data: ')) {
+        // macOS may deliver an earlier directory event for fixture setup.
+        // Wait for the actual edited file, not simply the first event.
+        if (buf.includes('"path":"src/app.js"')) {
           res.destroy();
-          resolve(buf);
+          finish(null, buf);
         }
       });
-      res.on('error', reject);
+      res.on('error', (error) => finish(error));
     });
-    req.on('error', reject);
+    req.on('error', (error) => finish(error));
     req.end();
-    setTimeout(async () => {
-      await writeFile(join(root, 'src', 'app.js'), 'export const ok = 2;\n');
+    writeTimer = setTimeout(() => {
+      writeFile(join(root, 'src', 'app.js'), 'export const ok = 2;\n').catch((error) => finish(error));
     }, 40);
-    setTimeout(() => reject(new Error('watch event timed out')), 3000);
+    deadline = setTimeout(() => finish(new Error('watch event timed out')), 3000);
   });
   assert.match(events, /"type":"change"/);
   assert.match(events, /"path":"src\/app.js"/);
@@ -403,4 +416,30 @@ test('Node 18 fallback re-watches a directory that is deleted and recreated', as
   assert.ok(listeners.has(resolve(root, 'gone', 'nested')));
   watcher.close();
   await rm(root, { recursive: true, force: true });
+});
+
+test('Elixir HTTP navigation preserves source coordinates and excludes server logs', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'codeflow-language-'));
+  await writeFile(join(root, 'sample.ex'), 'defmodule Sample do\nend\n');
+  let disposed = false;
+  const calls = [];
+  const analysis = {assessment:{status:'ready',findings:[]},session:{
+    status:()=>({state:'ready',log:'private server log'}),
+    definition:async (file,position)=>{calls.push({file,position});return [{path:file,range:{start:position,end:position}}];},
+    dispose:()=>{disposed=true;}
+  }};
+  const app = createCodeflowServer({uiRoot:repoRoot,watchRoot:root,analysis});
+  try {
+    await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+    const base='http://127.0.0.1:'+app.server.address().port;
+    const status=await (await fetch(base+'/__codeflow/analysis')).json();
+    assert.deepEqual(status.language,{state:'ready'});
+    const response=await fetch(base+'/__codeflow/language?method=definition&path=sample.ex&line=3&character=7');
+    assert.equal(response.status,200);
+    assert.equal((await response.json())[0].range.start.character,7);
+    assert.deepEqual(calls,[{file:'sample.ex',position:{line:3,character:7}}]);
+    assert.equal((await fetch(base+'/__codeflow/language?method=definition&path=sample.ex')).status,400);
+    assert.equal((await fetch(base+'/__codeflow/language?method=definition&path=../secret&line=0&character=0')).status,404);
+  } finally {await app.close();await rm(root,{recursive:true,force:true});}
+  assert.equal(disposed,true);assert.equal(analysis.closed,true);
 });

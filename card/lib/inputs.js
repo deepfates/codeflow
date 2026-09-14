@@ -57,7 +57,7 @@ function loadInputs() {
     'codeflow-card[bot]@users.noreply.github.com'
   );
   const token = readInput('github-token', process.env.GITHUB_TOKEN || '');
-  // Raw exclude string; compiled by the caller (see lib/exclude.js). Supports
+  // Raw exclude string; compiled by the caller (see src/project/exclusion-policy.cjs). Supports
   // comma- or newline-separated glob patterns like `vendor/**` or `*.min.js`.
   const exclude = readInput('exclude', '');
   return {

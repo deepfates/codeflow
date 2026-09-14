@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, cp, chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
@@ -112,4 +112,25 @@ test('headless collection prunes dependencies, caches, and local worktrees by de
   assert.deepEqual(result.data.files.map((file) => file.path), ['huge.json', 'index.js']);
   assert.equal(result.data.files[0].analysisSkipped, 'oversized');
   assert.equal(result.data.stats.skipped, 1);
+});
+
+test('a cold Action checkout analyzes JSX and Elixir without node_modules or consumer configuration',async t=>{
+ const temp=await mkdtemp(join(tmpdir(),'codeflow-cold-action-'));
+ t.after(()=>rm(temp,{recursive:true,force:true}));
+ const shipped=join(temp,'action'),consumer=join(temp,'consumer');
+ await mkdir(shipped);await mkdir(consumer);
+ for(const part of ['src','card','dist/node-babel.cjs','vendor/acorn','vendor/tree-sitter','vendor/tree-sitter-wasms']){
+  await cp(join(repoRoot,part),join(shipped,part),{recursive:true});
+ }
+ const marker=join(consumer,'executed');
+ await writeFile(join(consumer,'babel.config.cjs'),`require('node:fs').writeFileSync(${JSON.stringify(marker)},'bad');throw Error('consumer config executed');`);
+ await writeFile(join(consumer,'widget.tsx'),'export function Widget({name}: {name: string}) { return <div>{name}</div>; }');
+ await writeFile(join(consumer,'example.ex'),'defmodule Example do\n def run(), do: :ok\nend');
+ const {stdout,stderr}=await execFileAsync(process.execPath,[join(shipped,'card/analyze.js'),'--path',consumer],{cwd:shipped});
+ const result=JSON.parse(stdout);
+ assert.equal(stderr,'');
+ assert.ok(result.data.files.find(f=>f.path==='widget.tsx').functions.some(f=>f.name==='Widget'));
+ assert.equal(result.data.files.find(f=>f.path==='example.ex').elixir.status,'ready');
+ await assert.rejects(access(marker),{code:'ENOENT'});
+ await assert.rejects(access(join(shipped,'node_modules')),{code:'ENOENT'});
 });

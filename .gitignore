@@ -1,6 +1,10 @@
 # Dependencies and build output
 node_modules/
-dist/
+# The shipped bundles preserve the no-build offline entry point.
+/dist/*
+!/dist/app.js
+!/dist/analysis-worker.js
+!/dist/node-babel.cjs
 build/
 .next/
 target/

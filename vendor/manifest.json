@@ -6,7 +6,9 @@
       "version": "1.80.0",
       "file": "3d-force-graph/3d-force-graph.min.js",
       "source": "https://unpkg.com/3d-force-graph@1.80.0/dist/3d-force-graph.min.js",
-      "sha256": "d96e738edcca580edd524730c1c6b05ed2efce028c23ca95db1bf43033a72e42"
+      "sha256": "93e1bc29c5c81b4010ca36e588d3ab1880f453b8aa067013208b01510064b185",
+      "upstreamSha256": "d96e738edcca580edd524730c1c6b05ed2efce028c23ca95db1bf43033a72e42",
+      "patch": "../scripts/patch-3d-force-graph.mjs"
     },
     {
       "package": "acorn",
@@ -21,13 +23,6 @@
       "file": "babel/babel.min.js",
       "source": "https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js",
       "sha256": "558a1f7f5ffe218499dcfe5e4fe28d8c890553131b2f718fd4c547be2e09c484"
-    },
-    {
-      "package": "d3-sankey",
-      "version": "0.12.3",
-      "file": "d3-sankey/d3-sankey.min.js",
-      "source": "https://cdnjs.cloudflare.com/ajax/libs/d3-sankey/0.12.3/d3-sankey.min.js",
-      "sha256": "8286db5d6aa049cc6e8a546708943b79dfb4daaefb0ccf42af674ec0ee4c86be"
     },
     {
       "package": "d3",

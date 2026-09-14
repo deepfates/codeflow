@@ -1,36 +1,9 @@
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const vm = require('node:vm');
+const test = require('node:test');
 
-const repoRoot = path.resolve(__dirname, '..');
-const htmlSource = fs.readFileSync(path.join(repoRoot, 'index.html'), 'utf8');
-const parserStart = htmlSource.indexOf('const Parser={');
-const parserEnd = htmlSource.indexOf('\nvar GitHub={', parserStart);
-
-if (parserStart === -1 || parserEnd === -1) {
-  throw new Error('Could not locate Parser source in index.html');
-}
-
-const context = {
-  console,
-  TreeSitter: undefined,
-  Babel: undefined,
-  acorn: undefined,
-  getSecurityScanContent() {
-    return '';
-  },
-  isSanitizedPreviewRenderer() {
-    return false;
-  }
-};
-
-vm.createContext(context);
-vm.runInContext(`${htmlSource.slice(parserStart, parserEnd)}\nthis.Parser = Parser;`, context);
-
-const Parser = context.Parser;
-
-assert(Parser, 'Parser should be available');
+test('HTML source analysis includes executable script blocks and excludes data scripts',async()=>{
+const {createNodeAnalyzer}=await import('../src/node/analysis.mjs');
+const {Parser}=createNodeAnalyzer();
 
 const hybridHtml = `
 <!doctype html>
@@ -123,6 +96,6 @@ assert.deepEqual(
   'Multi-script container files should analyze every executable script block'
 );
 
-assert(Parser.extract(htmlSource, 'index.html').length > 20, 'The repo index.html should now surface inline functions');
 
-console.log('HTML inline script analysis smoke tests passed');
+
+});

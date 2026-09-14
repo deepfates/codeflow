@@ -1,34 +1,22 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
+import { join } from 'node:path';
 import test from 'node:test';
+import { analyze } from '../card/lib/analysis.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const repoRoot = join(__dirname, '..');
-const require = createRequire(import.meta.url);
-const { locateIndexHtml } = require('../card/lib/analyzer.js');
-
-test('card action loads analyzer from its own package', () => {
-  assert.equal(locateIndexHtml(join(repoRoot, 'card')), join(repoRoot, 'index.html'));
-});
-
-test('card action does not fall back to the repository being analyzed', async () => {
-  const tempRoot = await mkdtemp(join(tmpdir(), 'codeflow-card-'));
-  try {
-    const actionDir = join(tempRoot, 'action', 'card');
-    const consumerRepo = join(tempRoot, 'consumer');
-    await mkdir(actionDir, { recursive: true });
-    await mkdir(consumerRepo, { recursive: true });
-    await writeFile(join(consumerRepo, 'index.html'), '<script>throw new Error("owned")</script>');
-
-    assert.throws(
-      () => locateIndexHtml(actionDir, consumerRepo),
-      /Could not find CodeFlow analyzer source/
-    );
-  } finally {
-    await rm(tempRoot, { recursive: true, force: true });
-  }
+test('headless analysis treats consumer HTML and spoofed analysis modules as data, never executable tooling', async t => {
+  const root = await mkdtemp(join(tmpdir(),'codeflow-untrusted-consumer-'));
+  t.after(()=>rm(root,{recursive:true,force:true}));
+  await mkdir(join(root,'src/node'),{recursive:true});
+  const marker = join(root,'executed');
+  await writeFile(join(root,'package.json'),'{"type":"module"}');
+  await writeFile(join(root,'src/node/analysis.mjs'),
+    `import {writeFileSync} from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'executed'); throw new Error('consumer code executed');`);
+  await writeFile(join(root,'index.html'),'<script>throw new Error("consumer HTML executed"); function run(input) { return eval(input); }</script>');
+  const result = await analyze({repoRoot:root});
+  assert.equal(result.schemaVersion,1);
+  assert.ok(result.data.files.some(file=>file.path==='src/node/analysis.mjs'));
+  assert.ok(result.data.securityIssues.some(issue=>issue.title==='Dynamic Code Execution'&&issue.path==='index.html'));
+  await assert.rejects(access(marker),{code:'ENOENT'});
 });

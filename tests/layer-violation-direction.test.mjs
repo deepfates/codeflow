@@ -1,40 +1,10 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import vm from 'node:vm';
+import { createRegexAnalyzer } from './helpers/analysis.mjs';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const repoRoot = join(__dirname, '..');
-const htmlSource = await readFile(join(repoRoot, 'index.html'), 'utf8');
-const startMarker = '// ===== CODEFLOW_ANALYZER_START =====';
-const endMarker = '// ===== CODEFLOW_ANALYZER_END =====';
-const parserStart = htmlSource.indexOf(startMarker);
-const parserEnd = htmlSource.indexOf(endMarker, parserStart);
+const { Parser, buildAnalysisData } = createRegexAnalyzer();
 
-if (parserStart < 0 || parserEnd < 0) {
-  throw new Error('Could not locate analyzer source in index.html');
-}
-
-const context = {
-  console,
-  TreeSitter: undefined,
-  Babel: undefined,
-  acorn: undefined,
-  getSecurityScanContent(file) {
-    return file && file.content ? file.content : '';
-  },
-  isSanitizedPreviewRenderer() {
-    return false;
-  },
-};
-
-vm.createContext(context);
-vm.runInContext(`${htmlSource.slice(parserStart, parserEnd)}\nthis.Parser = Parser;`, context);
-const { Parser } = context;
-
-// Convention (index.html): connection {source: fileDefiningFn (imported), target: fileCallingFn (importer)}.
+// Shared connection convention: connection {source: fileDefiningFn (imported), target: fileCallingFn (importer)}.
 // layerOrder: lower number = higher/topmost layer. services=2, utils/lib=4. utils importing UP from services = violation.
 const files = [
   { path: 'src/services/userService.ts', layer: 'services' },
@@ -89,14 +59,18 @@ test('a test file importing a util or service is NOT flagged as a layer violatio
   assert.equal(violations.length, 0);
 });
 
-test('coupling issue label describes fan-out (files it imports), not fan-in', () => {
-  const start = htmlSource.indexOf("title:highCoup.length+' Highly Coupled'");
-  assert.ok(start > 0, 'Highly Coupled issue builder not found in analyzer source');
-  const snippet = htmlSource.slice(start, start + 200);
-  // The stale fan-in wording ("imported by 8+ others") must be gone...
-  assert.equal(/imported by 8\+ others/.test(snippet), false, 'stale fan-in wording still present');
-  // ...replaced by wording that describes fan-out (this file imports others).
-  assert.match(snippet, /import 8\+ other/);
+test('coupling finding describes the consumer importing nine providers', async () => {
+  const sources = Object.fromEntries(Array.from({length:9},(_,i)=>['src/provider'+i+'.js','export function provider'+i+'() { return '+i+'; }']));
+  sources['src/consumer.js'] = Array.from({length:9},(_,i)=>"import { provider"+i+" } from './provider"+i+".js';").join('\n')+
+    '\nexport function consume() { '+Array.from({length:9},(_,i)=>'provider'+i+'();').join(' ')+' }';
+  const analyzed = Object.entries(sources).map(([path,content])=>({path,name:path.split('/').pop(),folder:'src',content,
+    isCode:true,lines:content.split('\n').length,layer:Parser.detectLayer(path),functions:Parser.extract(content,path)}));
+  const result = await buildAnalysisData({analyzed,allFns:analyzed.flatMap(file=>file.functions.map(fn=>({...fn,folder:file.folder,layer:file.layer})))});
+  const finding = result.issues.find(issue=>/Highly Coupled/.test(issue.title));
+  assert.ok(finding,'nine imported providers produce a coupling finding');
+  assert.match(finding.desc,/import 8\+ other/);
+  assert.equal(finding.items.length,1);
+  assert.equal(finding.items[0].path||finding.items[0].file,'src/consumer.js','the consumer, not the providers, is highly coupled');
 });
 
 test('Python test files and test-folder importers are not flagged (layer=test), and .spec files outside tests/ stay excluded', () => {

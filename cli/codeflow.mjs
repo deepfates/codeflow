@@ -1,33 +1,18 @@
 #!/usr/bin/env node
 // Thin local entry point. Serves the same index.html UI and watches a folder.
-// The public app stays one HTML file in the browser.
+// The HTML shell loads the checked-in browser bundle.
 
 import { existsSync, promises as fs, watch } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
+import { collectBeamGraph, unavailableBeam } from './beam.mjs';
+import { collectRuntimeSnapshot } from './runtime.mjs';
 
-const IGNORE = new Set([
-  'node_modules', '.git', 'vendor', 'dist', 'build', 'out', 'coverage',
-  '.next', '.nuxt', '.cache', '.parcel-cache', '.turbo', '.vercel', '.local',
-  '.artifacts', '.playwright-cli', 'playwright-report', 'test-results',
-  '.claude', '.codex', '.idea', '.vscode', '.pnpm-store', '.yarn', 'tmp',
-  'temp', 'target', 'bin', 'obj', '__pycache__', '.venv', 'venv', 'env',
-  '.tox', '.mypy_cache', '.pytest_cache', '.ruff_cache', '__pypackages__',
-  '.eggs', '__macosx'
-]);
-
-const TEXT_EXT = new Set([
-  'js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs', 'py', 'java', 'go', 'rb', 'php',
-  'vue', 'svelte', 'rs', 'c', 'h', 'cpp', 'cc', 'cxx', 'hpp', 'hh', 'hxx',
-  'cs', 'swift', 'kt', 'kts', 'scala', 'sc', 'groovy', 'gvy', 'ex', 'exs',
-  'erl', 'hrl', 'hs', 'lhs', 'lua', 'r', 'jl', 'dart', 'pl', 'pm', 'sh',
-  'bash', 'zsh', 'fish', 'ps1', 'psm1', 'psd1', 'fs', 'fsi', 'fsx', 'ml',
-  'mli', 'clj', 'cljs', 'cljc', 'elm', 'vba', 'bas', 'cls', 'pas', 'pp',
-  'dpr', 'dpk', 'lpr', 'inc', 'html', 'htm', 'xhtml', 'md', 'markdown',
-  'json', 'yml', 'yaml', 'toml', 'css', 'scss', 'sql'
-]);
+import exclusionPolicy from '../src/project/exclusion-policy.cjs';
+import {isIncluded} from '../src/analysis/file-types.mjs';
+const {IGNORE}=exclusionPolicy;
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
@@ -97,16 +82,27 @@ export function shouldSkipName(name) {
 }
 
 export function isWatchableFile(name) {
-  const ext = String(name || '').split('.').pop().toLowerCase();
-  return TEXT_EXT.has(ext);
+  return isIncluded(String(name || ''));
 }
 
 export function parseCliArgs(argv) {
   const args = argv.slice(2);
   let port = 4173;
   let target = '.';
+  let beam = false;
+  let noOpen = false;
+  let node;
+  let sourceOnly = false;
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--port' && args[i + 1]) {
+    if (args[i] === '--node' && args[i + 1]) {
+      node = args[++i];
+    } else if (args[i] === '--source-only') {
+      sourceOnly = true;
+    } else if (args[i] === '--no-open') {
+      noOpen = true;
+    } else if (args[i] === '--beam') {
+      beam = true;
+    } else if (args[i] === '--port' && args[i + 1]) {
       port = Number(args[++i]);
     } else if (args[i] === '--help' || args[i] === '-h') {
       return { help: true };
@@ -114,7 +110,7 @@ export function parseCliArgs(argv) {
       target = args[i];
     }
   }
-  return { port, target };
+  return { port, target, ...(node ? { node } : {}), ...(sourceOnly ? { sourceOnly: true } : {}), ...(beam ? { beam: true } : {}), ...(noOpen ? { noOpen: true } : {}) };
 }
 
 export async function listWatchFiles(root) {
@@ -394,10 +390,19 @@ export function createCodeflowServer(options) {
   const name = path.basename(watchRoot);
   const clients = new Set();
   const watchRevs = new Map();
+  let runtimeJob = null;
+  let runtimeNode = options.node || null;
+  const analysis = options.analysis;
+  let assessmentJob = null;
 
   const watchSession = startFileWatchers(watchRoot, (rel) => {
     const pathKey = normalizeWatchRel(rel);
     const rev = bumpWatchRev(watchRevs, pathKey);
+    if (analysis?.session && /\.exs?$/.test(pathKey)) {
+      resolveSafeExistingPath(watchRoot, pathKey).then(async safe => {
+        if (safe && (await fs.stat(safe)).size <= CLI_FILE_MAX_BYTES) await analysis.session.change(pathKey, await fs.readFile(safe, 'utf8'), { save: true });
+      }).catch(() => {});
+    }
     const payload = `data: ${JSON.stringify({ type: 'change', path: pathKey, rev })}\n\n`;
     for (const client of clients) client.write(payload);
   });
@@ -416,8 +421,51 @@ export function createCodeflowServer(options) {
         return;
       }
       const url = parsed.url;
+      if (url.pathname === '/__codeflow/analysis') {
+        const state = analysis?.session?.status() || analysis?.state || { state: 'unavailable' };
+        const { log, ...publicState } = state;
+        sendJson(res, 200, { language: publicState, graphRevision: options.beamGraph?.producer?.collectedAt || null, assessment: analysis?.assessment || { status: 'unavailable', findings: [] } });
+        return;
+      }
+      if (url.pathname === '/__codeflow/assess') {
+        if (!analysis) { sendJson(res, 409, { error: 'Elixir analysis is not enabled' }); return; }
+        if (!assessmentJob) {
+          analysis.assessment = { status: 'running', findings: [] };
+          assessmentJob = import('./elixir-analysis.mjs').then(({ collectCredo }) => collectCredo(watchRoot)).then(result => analysis.assessment = result).catch(() => analysis.assessment = { status: 'unavailable', findings: [], reason: 'Assessment failed' }).finally(() => { assessmentJob = null; });
+        }
+        sendJson(res, 202, analysis.assessment);
+        return;
+      }
+      if (url.pathname === '/__codeflow/language') {
+        if (!analysis?.session) { sendJson(res, 503, { error: analysis?.state?.reason || 'Language services are starting' }); return; }
+        const method = url.searchParams.get('method');
+        const relative = url.searchParams.get('path');
+        const safe = await resolveSafeExistingPath(watchRoot, relative);
+        if (!safe || (await fs.stat(safe)).size > CLI_FILE_MAX_BYTES) { sendJson(res, 404, { error: 'Source unavailable' }); return; }
+        let result;
+        if (method === 'symbols') result = await analysis.session.symbols(relative);
+        else if (method === 'definition' || method === 'references') {
+          const line = Number(url.searchParams.get('line')), character = Number(url.searchParams.get('character'));
+          if (!url.searchParams.has('line') || !url.searchParams.has('character') || !Number.isInteger(line) || line < 0 || !Number.isInteger(character) || character < 0) { sendJson(res, 400, { error: 'Invalid source position' }); return; }
+          result = await analysis.session[method](relative, { line, character });
+        } else { sendJson(res, 400, { error: 'Unknown language operation' }); return; }
+        sendJson(res, 200, result);
+        return;
+      }
+      if (url.pathname === '/__codeflow/runtime') {
+        const target = url.searchParams.get('node') || runtimeNode;
+        if (runtimeJob && target !== runtimeNode) { sendJson(res, 409, { error: 'A node snapshot is already running' }); return; }
+        runtimeNode = target;
+        if (!runtimeJob) runtimeJob = collectRuntimeSnapshot(watchRoot, { node: target }).finally(() => { runtimeJob = null; });
+        sendJson(res, 200, await runtimeJob);
+        return;
+      }
+      if (url.pathname === '/__codeflow/beam') {
+        sendJson(res, 200, options.beamGraph || unavailableBeam(watchRoot, 'Restart the local CLI with --beam to explicitly collect compiler evidence.'));
+        return;
+      }
       if (url.pathname === '/__codeflow/status') {
-        sendJson(res, 200, { ok: true, root: watchRoot, name, watch: !!watchSession.watching });
+        sendJson(res, 200, { ok: true, root: watchRoot, name, beam: !!options.beamGraph, runtimeNode, language: !!analysis, watch: !!watchSession.watching });
         return;
       }
       if (url.pathname === '/__codeflow/files') {
@@ -474,6 +522,8 @@ export function createCodeflowServer(options) {
     server,
     close() {
       watchSession.close();
+      if (analysis) analysis.closed = true;
+      analysis?.session?.dispose();
       for (const client of clients) client.end();
       return new Promise((resolve) => server.close(resolve));
     }
@@ -483,7 +533,7 @@ export function createCodeflowServer(options) {
 async function main() {
   const parsed = parseCliArgs(process.argv);
   if (parsed.help) {
-    console.log('Usage: npx codeflow [folder] [--port 4173]\nOpens the same Codeflow UI and watches that folder.');
+    console.log('Usage: codeflow [folder] [--port 4173] [--node name@host] [--source-only] [--no-open]\nMix projects start ElixirLS and Credo automatically. Only open trusted projects.\n--source-only disables those tools; saved compiler relationships remain available.\n--beam explicitly enables Mix compiler collection for a local project.');
     process.exit(0);
   }
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -499,15 +549,45 @@ async function main() {
     process.exit(1);
   }
 
-  const { server } = createCodeflowServer({ uiRoot, watchRoot });
+  const beam = parsed.beam || existsSync(path.join(watchRoot, 'mix.exs'));
+  const beamGraph = beam ? await collectBeamGraph(watchRoot) : undefined;
+  const analysis = beam && !parsed.sourceOnly ? { state: { state: 'starting' }, session: null, assessment: { status: 'pending', findings: [] } } : null;
+  const serverOptions = { uiRoot, watchRoot, beamGraph, analysis, node: parsed.node };
+  const app = createCodeflowServer(serverOptions);
+  const { server } = app;
+  if (analysis) {
+    import('./elixir-analysis.mjs').then(async ({ createElixirSession, collectCredo }) => {
+      if (analysis.closed) return;
+      // Linting does not depend on language-server initialization or compilation.
+      collectCredo(watchRoot).then(result => {
+        if (!analysis.closed) analysis.assessment = result;
+      }).catch(error => {
+        if (!analysis.closed) analysis.assessment = { status: 'unavailable', findings: [], reason: error.message };
+      });
+      let lastBuild = null, graphJob = Promise.resolve();
+      analysis.session = await createElixirSession(watchRoot, { onUpdate(status) {
+        if (analysis.closed || status.build.state !== 'ready' || status.build.completedAt === lastBuild) return;
+        lastBuild = status.build.completedAt;
+        // ElixirLS 0.31.1 owns this build root (Build.reload_project post_config).
+        // MIX_BUILD_PATH is environment-specific; pointing at its parent yields an empty graph.
+        const buildPath = path.join('.elixir_ls', 'build', status.producer.environment);
+        graphJob = graphJob.then(async () => {
+          if (analysis.closed) return;
+          serverOptions.beamGraph = await collectBeamGraph(watchRoot, { environment: status.producer.environment, buildPath });
+        }).catch(() => {});
+      } });
+      if (analysis.closed) { await analysis.session.dispose(); return; }
+    }).catch(error => { analysis.state = { state: 'error', reason: error.message }; });
+  }
+  for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { app.close().finally(() => process.exit(0)); });
   await new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(parsed.port, '127.0.0.1', resolve);
   });
-  const url = 'http://127.0.0.1:' + parsed.port + '/?cli=1';
+  const url = 'http://127.0.0.1:' + server.address().port + '/?cli=1';
   console.log('Codeflow UI: ' + url);
   console.log('Watching: ' + watchRoot);
-  openBrowser(url);
+  if (!parsed.noOpen) openBrowser(url);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

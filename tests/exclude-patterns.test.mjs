@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { compileExcludePatterns, matchesExcludePattern } = require('../card/lib/exclude.js');
+const { compileExcludePatterns, matchesExcludePattern } = require('../src/project/exclusion-policy.cjs');
 
 function matches(pattern, path, name = path.split('/').pop()) {
   return matchesExcludePattern(compileExcludePatterns(pattern), path, name);

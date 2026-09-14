@@ -2,7 +2,10 @@
 
 A GitHub Action that drops a slick auto-updating SVG card on your README — health grade, scale, fragility, hidden costs — recomputed every merge by [codeflow](https://github.com/braedonsaunders/codeflow).
 
-The card uses the **same analyzer** as the codeflow web app. There's no separate parser, no version drift — the Action reads codeflow's `index.html` and runs its analyzer in a Node `vm`.
+The card imports the same analysis modules as the browser and worker through
+`src/node/analysis.mjs`, using Babel’s Node packages and the vendored Tree-sitter runtime and grammars.
+Consumer repositories supply source data; their files are never loaded as
+Codeflow's implementation.
 
 ## Headless analysis
 

@@ -21,5 +21,24 @@ jobs:
         with:
           node-version: 20
 
+      - name: Install dependencies
+        run: npm ci
+
       - name: Run test suite
-        run: node --test tests/*.test.mjs tests/*.smoke.js
+        run: npm test
+
+  beam-compiler:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: '28'
+          elixir-version: '1.19.5'
+      - name: Install dependencies
+        run: npm ci
+      - name: Exercise real Mix compilation and graph projection
+        run: npm run test:beam

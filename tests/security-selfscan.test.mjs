@@ -1,117 +1,45 @@
-// Regression tests for the CodeFlow self-scan exemption in detectSecurity.
-//
-// Background (issue #91): when CodeFlow analyzes its own index.html, the
-// security scanner used to flag its own detection patterns (eval(, innerHTML=,
-// child_process literals, ...) because they exist as source text. The old
-// content-surgery "fix" in getSecurityScanContent anchored on its own string
-// literal and deleted ~43KB of unrelated analyzer code instead.
-//
-// The fix blanks the CODEFLOW_ANALYZER_START..END block out of the scan copy
-// (preserving line numbers) inside detectSecurity, so every runtime
-// (main thread, worker, card action) shares the same structural exemption.
-
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFile, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
 import test from 'node:test';
-import vm from 'node:vm';
+import { analyze } from '../card/lib/analysis.js';
+import { createNodeAnalyzer } from './helpers/analysis.mjs';
 
-const __dirname = fileURLToPath(new URL('.', import.meta.url));
-const repoRoot = join(__dirname, '..');
-const htmlSource = await readFileSync(join(repoRoot, 'index.html'), 'utf8');
-const startMarker = '// ===== CODEFLOW_ANALYZER_START =====';
-const endMarker = '// ===== CODEFLOW_ANALYZER_END =====';
-const parserStart = htmlSource.indexOf(startMarker);
-const parserEnd = htmlSource.indexOf(endMarker, parserStart);
+const { Parser } = createNodeAnalyzer();
 
-if (parserStart < 0 || parserEnd < 0) {
-  throw new Error('Could not locate analyzer source in index.html');
-}
-
-const context = {
-  console,
-  TreeSitter: undefined,
-  Babel: undefined,
-  acorn: undefined,
-  getSecurityScanContent(file) {
-    return file && file.content ? file.content : '';
-  },
-  isSanitizedPreviewRenderer() {
-    return false;
-  },
-};
-
-vm.createContext(context);
-vm.runInContext(
-  `${htmlSource.slice(parserStart, parserEnd)}\nthis.Parser = Parser;`,
-  context
-);
-
-const { Parser } = context;
-
-function detectOn(files) {
-  return Parser.detectSecurity(files.map(function (f) {
-    return Object.assign({ isCode: true, content: '' }, f);
-  }));
-}
-
-test('self-scan: analyzer block source produces no security findings', () => {
-  // Synthetic standalone copy of just the analyzer block: pre-fix, the
-  // scanner flagged its own detection literals here (issue #91).
-  const synthetic =
-    htmlSource.slice(htmlSource.indexOf(startMarker), htmlSource.indexOf(endMarker)) +
-    endMarker + '\n';
-  const issues = detectOn([{ name: 'index.html', path: 'index.html', content: synthetic }]);
-  assert.equal(issues.length, 0, 'expected zero findings for analyzer source, got: ' +
-    issues.map((i) => i.title).join(', '));
+test('the actual parser source does not mistake its detector literals for executable threats', async () => {
+  const path = 'src/analysis/parser.mjs';
+  const content = await readFile(new URL('../' + path, import.meta.url), 'utf8');
+  const issues = Parser.detectSecurity([{path,name:'parser.mjs',isCode:true,content}]);
+  const falseTitles = ['Dynamic Code Execution','Shell Command Execution','Excessive Error Suppression'];
+  assert.deepEqual(issues.filter(issue=>falseTitles.includes(issue.title)), []);
 });
 
-test('self-scan: analyzer-induced titles are gone from the real index.html report', () => {
-  // These three originate exclusively from detectSecurity's own source text
-  // (Shell( description strings, On Error Resume Next literals, TODO/FIXME
-  // lists). Remaining advisories about the UI region (innerHTML assignments,
-  // an eval() mention in a hint string) are out of scope for this fix.
-  const issues = detectOn([{ name: 'index.html', path: 'index.html', content: htmlSource }]);
-  const titles = new Set(issues.map((i) => i.title));
-  assert.equal(titles.has('Shell Command Execution'), false);
-  assert.equal(titles.has('Excessive Error Suppression'), false);
-  assert.equal(titles.has('Code Comments'), false);
-});
-
-test('self-scan exemption preserves line numbers outside the analyzer block', () => {
-  const pad = Array.from({ length: 40 }, (_, i) => '// filler line ' + (i + 1)).join('\n');
-  // The analyzer block itself contains eval( literals; this synthetic copy
-  // places an ADDITIONAL real finding after the END marker and checks that
-  // its reported line matches the original content's line numbering.
-  const tail = [
-    'module.exports = function run(userInput) {',
-    '  return eval(userInput);',
-    '};',
+test('ordinary headless analysis scans hostile consumer HTML despite spoofed old analyzer markers', async t => {
+  const root = await mkdtemp(join(tmpdir(),'codeflow-hostile-html-'));
+  t.after(()=>rm(root,{recursive:true,force:true}));
+  const content = [
+    '<!doctype html><script>',
+    '// ===== CODEFLOW_ANALYZER_START =====',
+    'function run(input) { return eval(input); }',
+    '// ===== CODEFLOW_ANALYZER_END =====',
+    '</script>',
   ].join('\n');
-  const synthetic =
-    pad + '\n' +
-    htmlSource.slice(htmlSource.indexOf(startMarker), htmlSource.indexOf(endMarker)) +
-    endMarker + '\n' + tail + '\n';
-  const expectedEvalLine = synthetic.slice(0, synthetic.indexOf('return eval')).split('\n').length;
-  const issues = detectOn([{ name: 'index.html', path: 'index.html', content: synthetic }]);
-  const dynamic = issues.filter((i) => /Dynamic Code Execution|Python eval\(\)/.test(i.title));
-  assert.ok(dynamic.length >= 1, 'expected the post-block eval() to be reported');
-  for (const issue of dynamic) {
-    assert.equal(issue.line, expectedEvalLine, 'reported line should match original numbering');
-  }
+  await writeFile(join(root,'index.html'),content);
+  const result = await analyze({repoRoot:root});
+  const findings = result.data.securityIssues.filter(issue=>issue.title==='Dynamic Code Execution');
+  assert.equal(findings.length,1);
+  assert.equal(findings[0].line,3);
+  assert.equal(findings[0].file,'index.html');
 });
 
-test('non-CodeFlow files with trigger strings are still reported', () => {
-  const issues = detectOn([
-    { name: 'app.js', path: 'src/app.js', content: 'export function run(x){ return eval(x); }\n' },
-  ]);
-  assert.equal(issues.filter((i) => i.title === 'Dynamic Code Execution').length, 1);
-});
-
-test('a foreign index.html without analyzer markers is still fully scanned', () => {
-  const issues = detectOn([
-    { name: 'index.html', path: 'index.html', content: '<script>var x = eval(input);</script>\n' },
-  ]);
-  assert.equal(issues.filter((i) => i.title === 'Dynamic Code Execution').length, 1);
+test('ordinary headless analysis retains a benign consumer HTML source without execution findings', async t => {
+  const root = await mkdtemp(join(tmpdir(),'codeflow-benign-html-'));
+  t.after(()=>rm(root,{recursive:true,force:true}));
+  const content = '<!doctype html><script>function greet(name) { return "Hello " + name; }</script>';
+  await writeFile(join(root,'index.html'),content);
+  const result = await analyze({repoRoot:root});
+  assert.equal(result.data.files[0].content,content);
+  assert.equal(result.data.securityIssues.some(issue=>issue.title==='Dynamic Code Execution'),false);
 });
