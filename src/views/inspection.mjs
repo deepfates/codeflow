@@ -25,14 +25,26 @@ export function createInspectionPanels(React){
     }
     function SourceFindings({summary,onOpen}){
         if(!summary?.count)return null;
+        // A native assessment can describe several symbols in this file. Keep
+        // that explanation once, with each original item as a source link.
+        const groups=new Map();
+        for(const entry of summary.entries){
+            if(!groups.has(entry.issue))groups.set(entry.issue,[]);
+            groups.get(entry.issue).push(entry);
+        }
         return React.createElement('div',{className:'card','aria-label':'File findings'},
             React.createElement('div',{className:'card-header'},'Findings (',summary.count,')'),
-            React.createElement('div',{className:'card-body'},summary.entries.map((entry,i)=>{
-                const issue=entry.issue,location=entry.sourceLocation;
-                const line=location.range?location.range.start.line+1:location.line;
-                return React.createElement('button',{key:i,className:'top-btn',style:{display:'block',width:'100%',textAlign:'left',whiteSpace:'normal',marginBottom:6},onClick:()=>onOpen(location)},
-                    React.createElement('div',null,entry.kind==='issue'&&!issue.sourceLocation?(issue.desc||issue.title):(issue.title||issue.message||issue.type)),
-                    React.createElement('div',{style:{fontSize:10,color:'var(--t3)'}},issue.evidence||issue.provider||(entry.kind==='security'?'Security':'Source analysis'),line?' · L'+line:''));
+            React.createElement('div',{className:'card-body'},Array.from(groups,([issue,entries],i)=>{
+                const grouped=entries[0].kind==='issue'&&!issue.sourceLocation;
+                return React.createElement('div',{key:i,style:{marginBottom:10}},
+                    grouped&&React.createElement('div',{style:{fontSize:11,color:'var(--t2)',marginBottom:6}},issue.desc||issue.title),
+                    entries.map((entry,j)=>{
+                        const location=entry.sourceLocation;
+                        const line=location.range?location.range.start.line+1:location.line;
+                        return React.createElement('button',{key:j,className:'top-btn',style:{display:'block',width:'100%',textAlign:'left',whiteSpace:'normal',marginBottom:6},onClick:()=>onOpen(location)},
+                            React.createElement('div',null,grouped?(entry.item?.name||location.path):(issue.title||issue.message||issue.type)),
+                            React.createElement('div',{style:{fontSize:10,color:'var(--t3)'}},issue.provider||(entry.kind==='security'?'Security':'Source analysis'),line?' · L'+line:''));
+                    }));
             })));
     }
     function SourceProcesses({index,path,onSelect}){
