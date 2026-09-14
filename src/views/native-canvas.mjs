@@ -1,5 +1,5 @@
 import {highlightSyntax} from './highlight.mjs';
-import {FINDING_COLORS,graphLinkStrokeWidth,prefersReducedMotion,subscribePrefersReducedMotion,forceLinkVisual,forceLinkParticlesNeedTickUpdate,readableLabelScale,zoomShowsColorBlocks,graphColorBlockSize,graphColorBlockScale,graphColorBlockFill} from './graph-style.mjs';
+import {graphLinkStrokeWidth,prefersReducedMotion,subscribePrefersReducedMotion,forceLinkVisual,forceLinkParticlesNeedTickUpdate,readableLabelScale,zoomShowsColorBlocks,graphColorBlockSize,graphColorBlockScale,graphColorBlockFill} from './graph-style.mjs';
 import {graphStructureKey,codeViewSceneKey} from '../project/identity.mjs';
 import {asCodeLines,fileSourceDisplayState} from '../project/source.mjs';
 import {codeCardDiffClass,codeCardDiffLineNo,codeCardDiffRows} from '../project/changes.mjs';
@@ -108,6 +108,9 @@ var [codePillScroll,setCodePillScroll]=useState(0);
  lineThicknessRef.current=lineThickness;
  selectFileRef.current=onSelect;openCodeFileRef.current=onOpen;
 
+// Event handlers installed with the scene must use the current color mode.
+const nodeColorRef=useRef(getNodeColor);
+nodeColorRef.current=getNodeColor;
 function updateGraphHighlight(path,blast){
         if(!nodesRef.current||!linksRef.current)return;
         var affectedSet=new Set(blast?blast.affected:[]);
@@ -126,7 +129,6 @@ var graphRebuildKey=useMemo(function(){
         return [
             currentHydrationId,
             graphStructureKey(data,folderFilter),
-            colorMode,
             theme,
             graphConfig.vizType,
             graphConfig.viewMode,
@@ -136,7 +138,7 @@ var graphRebuildKey=useMemo(function(){
             graphConfig.curvedLinks,
             graphConfig.vizType==='code'?[selected&&selected.path,openedCodePaths.join('|')].join(':'):''
         ].join('\0');
-    },[currentHydrationId,data,folderFilter,colorMode,theme,graphConfig,selected&&selected.path,openedCodePaths]);
+    },[currentHydrationId,data,folderFilter,theme,graphConfig,selected&&selected.path,openedCodePaths]);
 useEffect(function(){
         var el=codeCanvasRef.current;
         if(!el||graphConfig.vizType!=='code')return;
@@ -265,7 +267,7 @@ function refreshMinimap(){
         var viewH=svg.clientHeight||600;
         var nodes=simRef.current?simRef.current.nodes():[];
         var overlay=minimapCardInputs(graphConfig.vizType,codeCardSizesRef.current,codeCardPathsRef.current);
-        var content=collectMinimapContent(nodes,overlay.sizesByPath,overlay.cardPaths,getNodeColor);
+        var content=collectMinimapContent(nodes,overlay.sizesByPath,overlay.cardPaths,nodeColorRef.current);
         if(!content.world||!content.world.width){
             minimapModelRef.current=null;
             clearCanvasMinimap(canvas);
@@ -474,13 +476,7 @@ useEffect(function(){
         });
         var links=Array.from(linkMap.values());
         function getR(d){return Math.max(8,Math.min(24,5+d.fnCount*0.8));}
-        function getC(d){
-            if(colorMode==='folder')return colorMap[d.folder]||COLORS[0];
-            if(colorMode==='layer')return LAYER_COLORS[d.layer]||LAYER_COLORS['utils'];
-            if(colorMode==='findings')return colorMap[d.id]||FINDING_COLORS.none;
-            if(colorMode==='churn')return colorMap[d.id]||'#22c55e';
-            return COLORS[0];
-        }
+        function getC(d){return nodeColorRef.current(d);}
         var folders=[...new Set(nodes.map(function(n){return n.folder;}))];
         var cols=Math.max(2,Math.ceil(Math.sqrt(folders.length)));
         var cw=w/(cols+1);
@@ -1131,7 +1127,14 @@ function renderCodeView(){
             )
         );
     }
- useEffect(()=>{if(!selected){updateGraphHighlight(null,null);return;}if(graphConfig.vizType==='code')applyForceLinkVisuals();else updateGraphHighlight(selected.path,calcBlast(selected.path,data.connections,data.files));},[selected?.path,data,graphConfig.vizType]);
+ useEffect(()=>{
+   if(!active||!nodesRef.current)return;
+   nodesRef.current.selectAll('.nc,.nb').attr('fill',function(n){const c=getNodeColor(n);return d3.select(this).classed('nb')?graphColorBlockFill(c):c;})
+     .attr('stroke',function(n){const block=d3.select(this).classed('nb');const c=d3.color(block?graphColorBlockFill(getNodeColor(n)):getNodeColor(n));return c?(block?c.darker(0.35):c.brighter(0.3)):(block?'#000':'#fff');});
+   if(!selected)updateGraphHighlight(null,null);
+   else if(graphConfig.vizType==='code')applyForceLinkVisuals();
+   else updateGraphHighlight(selected.path,calcBlast(selected.path,data.connections,data.files));
+ },[selected?.path,data,graphConfig.vizType,colorMode,colorMap,active]);
  function reveal(path,camera){
    pendingFlyToRef.current=null;
    requestAnimationFrame(()=>requestAnimationFrame(()=>{
