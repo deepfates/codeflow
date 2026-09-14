@@ -1857,11 +1857,12 @@ function App(){
             showNotification('Switch to Graph view to export SVG. Code cards are HTML overlays.','error');
             return;
         }
-        if(!nativeCanvasRef.current?.svgElement)return;
-        var svgClone=nativeCanvasRef.current?.svgElement.cloneNode(true);
+        const sourceSvg=graphConfig.vizType==='graph'?nativeCanvasRef.current?.svgElement:alternateViewRef.current?.svgElement;
+        if(!sourceSvg)return;
+        var svgClone=sourceSvg.cloneNode(true);
         svgClone.setAttribute('xmlns','http://www.w3.org/2000/svg');
-        svgClone.setAttribute('width',nativeCanvasRef.current?.svgElement.clientWidth);
-        svgClone.setAttribute('height',nativeCanvasRef.current?.svgElement.clientHeight);
+        svgClone.setAttribute('width',sourceSvg.clientWidth);
+        svgClone.setAttribute('height',sourceSvg.clientHeight);
         var style=document.createElementNS('http://www.w3.org/2000/svg','style');
         style.textContent=getEmbeddedSvgStyle();
         svgClone.insertBefore(style,svgClone.firstChild);
