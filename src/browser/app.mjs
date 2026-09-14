@@ -484,7 +484,7 @@ function App(){
     function loadRecentAnalysis(id){clearPendingRecentDelete();return project.openRecent(id);}
     function currentAnalysisSource(){return project.source;}
     function readLiveFileSource(path){return project.readSource(path);}
-    function resetProjectPresentation({cached=false}={}){setPickerError(null);setSelected(null);setBlastRadius(null);setOwnership(null);setFolderFilter(null);setPrData(null);setFilePreview(null);setMobilePanel(null);setShowGraphConfig(false);setActiveSymbol(null);setExpandedPaths(new Set(['']));if(cached)setGraphConfig(cfg=>({...cfg,vizType:cfg.vizType==='architecture'?'graph':cfg.vizType}));}
+    function resetProjectPresentation({cached=false}={}){setPickerError(null);setSelected(null);setBlastRadius(null);setOwnership(null);setFolderFilter(null);setPrData(null);closeFilePreview();setMobilePanel(null);setShowGraphConfig(false);setActiveSymbol(null);setExpandedPaths(new Set(['']));if(cached)setGraphConfig(cfg=>({...cfg,vizType:cfg.vizType==='architecture'?'graph':cfg.vizType}));}
 
     const [investigation,dispatchInvestigation]=useReducer((state,action)=>reduceInvestigation(state,action,data),undefined,createInvestigationState);
     const selected=useMemo(()=>data&&data.files.find(file=>file.path===investigation.selectedPath)||null,[data,investigation.selectedPath]);
@@ -597,6 +597,8 @@ function App(){
     var alternateViewRef=useRef(null);
     var topbarRef=useRef(null);
     var filePreviewRef=useRef(null);
+    const previewRequestRef=useRef(null);
+    useEffect(()=>()=>{previewRequestRef.current=null;},[]);
     var architectureViewRef=useRef(null);
 
     var openedSceneRef=useRef('');
@@ -951,9 +953,17 @@ function App(){
 
     function canReadLiveFileSource(){return project.sourceAvailable;}
 
-    // Open file preview
+    function closeFilePreview(){
+        previewRequestRef.current=null;
+        setFilePreview(null);
+    }
+
+    // A source read belongs to the project; only its current preview request may
+    // present the result. Closing or opening another preview detaches the old one.
     function openFilePreview(path,line){
         if(!repoInfo)return;
+        const request={};
+        previewRequestRef.current=request;
         var filename=path.split('/').pop();
         setFilePreview({path:path,filename:filename,content:null,line:line||null,loading:true,error:null});
         var existingFile=data&&data.files?data.files.find(function(f){return f.path===path;}):null;
@@ -967,7 +977,7 @@ function App(){
         }
         var previewId=analysisHydrationIdRef.current;
         readLiveFileSource(path).then(function(content){
-            if(analysisHydrationIdRef.current!==previewId)return;
+            if(previewRequestRef.current!==request||analysisHydrationIdRef.current!==previewId)return;
             if(typeof content==='string'){
                 setFilePreview({path:path,filename:filename,content:content,line:line||null,loading:false,error:null});
                 return;
@@ -2533,7 +2543,7 @@ function App(){
             );
         })(),
         toast&&React.createElement('div',{className:'toast '+(toast.type||'success'),'role':'alert'},toast.msg),
-        filePreview&&React.createElement('div',{className:'file-preview-overlay',onClick:function(){setFilePreview(null);}},
+        filePreview&&React.createElement('div',{className:'file-preview-overlay',onClick:function(){closeFilePreview();}},
             React.createElement('div',{className:'file-preview-modal',onClick:function(e){e.stopPropagation();}},
                 React.createElement('div',{className:'file-preview-header'},
                     React.createElement('div',{className:'file-preview-title'},
@@ -2543,7 +2553,7 @@ function App(){
                     ),
                     React.createElement('div',{className:'file-preview-actions'},
                         filePreview.line&&React.createElement('span',{className:'file-preview-line-badge'},'Line ',filePreview.line),
-                        React.createElement('button',{className:'file-preview-close',onClick:function(){setFilePreview(null);}},'×')
+                        React.createElement('button',{className:'file-preview-close',onClick:function(){closeFilePreview();}},'×')
                     )
                 ),
                 React.createElement('div',{className:'file-preview-content',ref:filePreviewRef},
