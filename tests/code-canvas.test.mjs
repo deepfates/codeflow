@@ -332,7 +332,7 @@ test('Code view seeds cards without waiting for a click', () => {
   assert.equal(codeFileNavOpensCard('graph'), false);
   assert.equal(codeFileNavOpensCard(null), false);
   assert.equal(graphSvgExportEnabled('graph'), true);
-  assert.equal(graphSvgExportEnabled('graph3d'), true);
+  assert.equal(graphSvgExportEnabled('graph3d'), false);
   assert.equal(graphSvgExportEnabled('code'), false);
 });
 

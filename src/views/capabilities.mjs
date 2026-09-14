@@ -4,7 +4,7 @@ export function codeFileNavOpensCard(vizType){
 }
 
 export function graphSvgExportEnabled(vizType){
-    return vizType!=='code';
+    return vizType!=='code'&&vizType!=='graph3d';
 }
 
 export function vizUsesLineThickness(vizType){

@@ -1107,6 +1107,14 @@ function App(){
         root+='}';
         return root+'text{font-family:JetBrains Mono,monospace;pointer-events:none}';
     }
+    async function export3DImage(){
+        try{
+            const blob=await graph3dViewRef.current.snapshotImage();
+            const url=URL.createObjectURL(blob),link=document.createElement('a');
+            link.href=url;link.download='codeflow-'+Date.now()+'.png';link.click();
+            URL.revokeObjectURL(url);
+        }catch(error){showNotification(error.message||'Could not export the 3D view.','error');}
+    }
     function exportSVG(){
         if(!graphSvgExportEnabled(graphConfig.vizType)){
             showNotification('Switch to Graph view to export SVG. Code cards are HTML overlays.','error');
@@ -2094,9 +2102,9 @@ function App(){
                     ),
                     graphConfig.vizType!=='architecture'&&React.createElement(React.Fragment,null,
                         React.createElement('div',{style:{fontSize:10,fontWeight:600,color:'var(--t3)',textTransform:'uppercase',marginBottom:8,marginTop:data&&data.architectureDiagram?16:0}},'Graph Visualization'),
-                        !graphSvgExportEnabled(graphConfig.vizType)&&React.createElement('div',{style:{fontSize:9,color:'var(--t2)',marginBottom:10,lineHeight:1.4}},'Code cards are HTML overlays, not SVG. Switch to Graph to export an image.'),
+                        graphConfig.vizType==='code'&&React.createElement('div',{style:{fontSize:9,color:'var(--t2)',marginBottom:10,lineHeight:1.4}},'Code cards are HTML overlays, not SVG. Switch to Graph to export an image.'),
                         React.createElement('div',{className:'export-options'},
-                            React.createElement('div',{className:'export-option'+(graphSvgExportEnabled(graphConfig.vizType)?'':' disabled'),'aria-disabled':graphSvgExportEnabled(graphConfig.vizType)?undefined:'true',onClick:function(){if(!graphSvgExportEnabled(graphConfig.vizType))return;exportSVG();setShowExport(false);}},React.createElement('div',{className:'export-option-icon'},React.createElement(Icon,{name:'image',size:'xl'})),React.createElement('div',{className:'export-option-label'},'SVG Image')),
+                            graphConfig.vizType==='graph3d'?React.createElement('div',{className:'export-option',onClick:function(){export3DImage();setShowExport(false);}},React.createElement('div',{className:'export-option-icon'},React.createElement(Icon,{name:'image',size:'xl'})),React.createElement('div',{className:'export-option-label'},'PNG Image')):React.createElement('div',{className:'export-option'+(graphSvgExportEnabled(graphConfig.vizType)?'':' disabled'),'aria-disabled':graphSvgExportEnabled(graphConfig.vizType)?undefined:'true',onClick:function(){if(!graphSvgExportEnabled(graphConfig.vizType))return;exportSVG();setShowExport(false);}},React.createElement('div',{className:'export-option-icon'},React.createElement(Icon,{name:'image',size:'xl'})),React.createElement('div',{className:'export-option-label'},'SVG Image')),
                             React.createElement('div',{className:'export-option'+(graphConfig.vizType==='graph'?'':' disabled'),'aria-disabled':graphConfig.vizType==='graph'?undefined:'true',onClick:function(){if(graphConfig.vizType!=='graph')return;exportPDF();setShowExport(false);}},React.createElement('div',{className:'export-option-icon'},React.createElement(Icon,{name:'file-pdf',size:'xl'})),React.createElement('div',{className:'export-option-label'},'PDF Document')),
                             React.createElement('div',{className:'export-option',onClick:function(){copyLink();setShowExport(false);}},React.createElement('div',{className:'export-option-icon'},React.createElement(Icon,{name:'link',size:'xl'})),React.createElement('div',{className:'export-option-label'},'Share Link'))
                         )

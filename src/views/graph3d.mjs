@@ -9,7 +9,18 @@ export function createGraph3DView({React,getRuntime,colors:COLORS,layerColors:LA
     onSelectRef.current=onSelect;
     useImperativeHandle(ref,()=>({
         zoom(factor){const graph=graph3dInstanceRef.current;if(!graph)return;const pos=graph.cameraPosition();graph.cameraPosition({x:pos.x*factor,y:pos.y*factor,z:pos.z*factor},null,400);},
-        fit(){graph3dInstanceRef.current?.zoomToFit(600);}
+        fit(){graph3dInstanceRef.current?.zoomToFit(600);},
+        snapshotImage(){
+            const graph=graph3dInstanceRef.current;
+            if(!graph)return Promise.reject(new Error('The 3D view is not ready.'));
+            // Render and capture in the same turn: WebGL may clear its drawing
+            // buffer after presenting a frame. No persistent buffer is needed.
+            const renderer=graph.renderer();
+            renderer.render(graph.scene(),graph.camera());
+            return new Promise((resolve,reject)=>renderer.domElement.toBlob(blob=>{
+                if(blob)resolve(blob);else reject(new Error('Could not capture the 3D view.'));
+            },'image/png'));
+        }
     }),[]);
     useEffect(function(){
         const {ForceGraph3D}=getRuntime();
