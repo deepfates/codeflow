@@ -210,14 +210,17 @@ export function createAlternateViews({React,d3,colors:COLORS}){
             var filteredFiles=folderFilter?sourceFiles.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}):sourceFiles;
             var hier={name:'root',children:[]};
             var folderMap={};
-            filteredFiles.slice(0,80).forEach(function(f){
+            filteredFiles.forEach(function(f){
                 var folder=f.folder||'root';
                 if(!folderMap[folder])folderMap[folder]={name:folder.split('/').pop()||'root',fullPath:folder,children:[]};
                 folderMap[folder].children.push({name:f.name,path:f.path,fns:f.functions.length,lines:f.lines,folder:folder,layer:f.layer});
             });
             hier.children=Object.values(folderMap);
             var root=d3.hierarchy(hier);
-            var treeLayout=d3.cluster().size([h-60,w-200]);
+            // Reserve one readable row per file, plus separation between folders.
+            var worldHeight=Math.max(h-60,(filteredFiles.length+hier.children.length)*24);
+            zoom.scaleExtent([Math.min(0.3,(h-40)/worldHeight),3]);
+            var treeLayout=d3.cluster().size([worldHeight,Math.max(320,w-200)]);
             treeLayout(root);
             var tooltip=container.append('div').attr('class','treemap-tooltip').style('display','none').style('position','absolute');
             g.selectAll('path.dendro-link').data(root.links()).join('path').attr('class','dendro-link')
@@ -260,7 +263,7 @@ export function createAlternateViews({React,d3,colors:COLORS}){
     });
 
     const SankeyView=React.forwardRef(function SankeyView({files:sourceFiles,connections,folderFilter,colorMap,lineThickness,onScope},ref){
-        const containerRef=useRef(null),cameraRef=useRef(d3.zoomIdentity),paintRef=useRef(null),stateRef=useRef(null);
+        const containerRef=useRef(null),cameraRef=useRef(null),paintRef=useRef(null),stateRef=useRef(null);
         stateRef.current={onScope,colorMap,lineThickness};
         useImperativeHandle(ref,()=>({get svgElement(){return containerRef.current?.querySelector('svg')||null;}}),[]);
         const size=useSize(containerRef);
@@ -273,9 +276,9 @@ export function createAlternateViews({React,d3,colors:COLORS}){
             var zoom=d3.zoom().scaleExtent([0.5,2]).on('zoom',function(e){g.attr('transform','translate('+(20+e.transform.x)+','+(20+e.transform.y)+') scale('+e.transform.k+')');});
             svg.call(zoom);
             function cleanup(){cameraRef.current=d3.zoomTransform(svg.node());paintRef.current=null;svg.interrupt();svg.selectAll('*').interrupt();svg.on('.zoom',null);container.selectAll('*').remove();}
-            svg.call(zoom.transform,cameraRef.current);
+            svg.call(zoom.transform,cameraRef.current||d3.zoomIdentity);
             var filteredFiles=folderFilter?sourceFiles.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}):sourceFiles;
-            var folders=[...new Set(filteredFiles.map(function(f){return f.folder||'root';}))].slice(0,15);
+            var folders=[...new Set(filteredFiles.map(function(f){return f.folder||'root';}))];
             var folderIdx={};folders.forEach(function(f,i){folderIdx[f]=i;});
             var filteredPaths=new Set(filteredFiles.map(function(f){return f.path;}));
             var flowMap={};
@@ -313,10 +316,19 @@ export function createAlternateViews({React,d3,colors:COLORS}){
                 g.append('text').attr('x',w/2-20).attr('y',h/2).attr('fill','var(--t3)').attr('font-size','12px').text('No cross-folder dependencies to visualize');
                 return cleanup;
             }
-            var sankey=d3.sankey().nodeId(function(d){return d.id;}).nodeWidth(20).nodePadding(15).extent([[0,0],[w-60,h-60]]);
+            // Folder lanes keep enough space for labels even in a large project.
+            var worldHeight=h-60,worldWidth=w-60;
+            var sankey=d3.sankey().nodeId(function(d){return d.id;}).nodeWidth(20).nodePadding(15).extent([[0,0],[worldWidth,worldHeight]]);
             var graph;
             try{
                 graph=sankey({nodes:nodes.map(function(d){return Object.assign({},d);}),links:links.map(function(d){return Object.assign({},d);})});
+                const columns=new Map();
+                graph.nodes.forEach(node=>columns.set(node.depth,(columns.get(node.depth)||0)+1));
+                worldHeight=Math.max(h-60,Math.max(...columns.values())*32);
+                worldWidth=Math.max(w-60,columns.size*180);
+                graph=sankey.extent([[0,0],[worldWidth,worldHeight]])(graph);
+                zoom.scaleExtent([Math.min(0.5,(h-40)/worldHeight,(w-40)/worldWidth),2]);
+                if(!cameraRef.current)svg.call(zoom.transform,d3.zoomIdentity.scale(Math.min(1,(w-40)/worldWidth,(h-40)/worldHeight)));
             }catch(e){
                 g.append('text').attr('x',w/2-20).attr('y',h/2).attr('fill','var(--t3)').attr('font-size','12px').attr('text-anchor','middle').text('Sankey diagram unavailable: dependency graph has circular references. Try the Force Graph view.');
                 return cleanup;
@@ -337,8 +349,8 @@ export function createAlternateViews({React,d3,colors:COLORS}){
             node.append('rect').attr('x',function(d){return d.x0;}).attr('y',function(d){return d.y0;})
                 .attr('width',function(d){return d.x1-d.x0;}).attr('height',function(d){return Math.max(4,d.y1-d.y0);})
                 .attr('fill',function(d){return stateRef.current.colorMap[d.fullPath]||COLORS[d.id%COLORS.length];}).attr('rx',3);
-            node.append('text').attr('x',function(d){return d.x0<w/2?d.x1+8:d.x0-8;}).attr('y',function(d){return(d.y0+d.y1)/2;})
-                .attr('dy','0.35em').attr('text-anchor',function(d){return d.x0<w/2?'start':'end';})
+            node.append('text').attr('x',function(d){return d.x0<worldWidth/2?d.x1+8:d.x0-8;}).attr('y',function(d){return(d.y0+d.y1)/2;})
+                .attr('dy','0.35em').attr('text-anchor',function(d){return d.x0<worldWidth/2?'start':'end';})
                 .attr('fill','var(--t1)').attr('font-size','10px').attr('font-weight','500').text(function(d){return d.name+' ('+d.fileCount+')';});
             node.on('mouseenter',function(e,d){
                 tooltip.html(renderTooltipHtml(d.fullPath,[
@@ -358,7 +370,7 @@ export function createAlternateViews({React,d3,colors:COLORS}){
     });
 
     const DisjointView=React.forwardRef(function DisjointView({files:sourceFiles,connections,folderFilter,colorMap,lineThickness,onSelect},ref){
-        const containerRef=useRef(null),cameraRef=useRef(d3.zoomIdentity),paintRef=useRef(null),stateRef=useRef(null);
+        const containerRef=useRef(null),cameraRef=useRef(null),paintRef=useRef(null),stateRef=useRef(null);
         stateRef.current={onSelect,colorMap,lineThickness};
         useImperativeHandle(ref,()=>({get svgElement(){return containerRef.current?.querySelector('svg')||null;}}),[]);
         const size=useSize(containerRef);
@@ -371,15 +383,28 @@ export function createAlternateViews({React,d3,colors:COLORS}){
             var zoom=d3.zoom().scaleExtent([0.2,4]).on('zoom',function(e){g.attr('transform',e.transform);});
             svg.call(zoom);
             function cleanup(){cameraRef.current=d3.zoomTransform(svg.node());paintRef.current=null;svg.interrupt();svg.selectAll('*').interrupt();svg.on('.zoom',null);container.selectAll('*').remove();sim?.stop();}
-            svg.call(zoom.transform,cameraRef.current);
+            svg.call(zoom.transform,cameraRef.current||d3.zoomIdentity);
             var filteredFiles=folderFilter?sourceFiles.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}):sourceFiles;
-            var files=filteredFiles.slice(0,100);
+            var files=filteredFiles;
             var fileIdx={};files.forEach(function(f,i){fileIdx[f.path]=i;});
             var folders=[...new Set(files.map(function(f){return f.folder||'root';}))];
-            var cols=Math.ceil(Math.sqrt(folders.length));
-            var cellW=w/cols,cellH=h/Math.ceil(folders.length/cols);
+            var cols=Math.max(1,Math.ceil(Math.sqrt(folders.length)));
+            var rows=Math.max(1,Math.ceil(folders.length/cols));
+            var population=new Map(folders.map(folder=>[folder,0]));
+            files.forEach(file=>population.set(file.folder||'root',population.get(file.folder||'root')+1));
+            // A cluster gets room for its population, not a fraction of the viewport.
+            var clusterSize=folder=>Math.max(180,Math.ceil(Math.sqrt(population.get(folder)))*44+60);
+            var columnWidths=Array.from({length:cols},()=>180),rowHeights=Array.from({length:rows},()=>180);
+            folders.forEach((folder,i)=>{columnWidths[i%cols]=Math.max(columnWidths[i%cols],clusterSize(folder));rowHeights[Math.floor(i/cols)]=Math.max(rowHeights[Math.floor(i/cols)],clusterSize(folder));});
+            var offsets=values=>values.map((_,i)=>values.slice(0,i).reduce((sum,value)=>sum+value,0));
+            var columnX=offsets(columnWidths),rowY=offsets(rowHeights);
+            var worldWidth=Math.max(w,columnWidths.reduce((sum,value)=>sum+value,0));
+            var worldHeight=Math.max(h,rowHeights.reduce((sum,value)=>sum+value,0));
+            zoom.scaleExtent([Math.min(0.2,w/worldWidth,h/worldHeight),4]);
+            if(!cameraRef.current)svg.call(zoom.transform,d3.zoomIdentity.scale(Math.min(1,(w-40)/worldWidth,(h-40)/worldHeight)));
+            var bounds=folders.map((folder,i)=>({x:columnX[i%cols],y:rowY[Math.floor(i/cols)],width:columnWidths[i%cols],height:rowHeights[Math.floor(i/cols)]}));
             var centers={};
-            folders.forEach(function(f,i){centers[f]={x:(i%cols+0.5)*cellW,y:(Math.floor(i/cols)+0.5)*cellH};});
+            folders.forEach(function(f,i){centers[f]={x:bounds[i].x+bounds[i].width/2,y:bounds[i].y+bounds[i].height/2};});
             var nodes=files.map(function(f){return{id:f.path,name:f.name,folder:f.folder||'root',fns:f.functions.length,lines:f.lines,layer:f.layer,cx:centers[f.folder||'root'].x,cy:centers[f.folder||'root'].y};});
             var links=[];
             connections.forEach(function(c){
@@ -394,12 +419,12 @@ export function createAlternateViews({React,d3,colors:COLORS}){
                 .force('y',d3.forceY(function(d){return d.cy;}).strength(0.15))
                 .force('collide',d3.forceCollide(15));
             g.selectAll('rect.cluster-bg').data(folders).join('rect').attr('class','cluster-bg')
-                .attr('x',function(d,i){return(i%cols)*cellW+10;}).attr('y',function(d,i){return Math.floor(i/cols)*cellH+10;})
-                .attr('width',cellW-20).attr('height',cellH-20).attr('rx',12)
+                .attr('x',function(d,i){return bounds[i].x+10;}).attr('y',function(d,i){return bounds[i].y+10;})
+                .attr('width',(d,i)=>bounds[i].width-20).attr('height',(d,i)=>bounds[i].height-20).attr('rx',12)
                 .attr('fill',function(d){return stateRef.current.colorMap[d]||COLORS[folders.indexOf(d)%COLORS.length];}).attr('opacity',0.08)
                 .attr('stroke',function(d){return stateRef.current.colorMap[d]||COLORS[folders.indexOf(d)%COLORS.length];}).attr('stroke-width',1).attr('stroke-opacity',0.3);
             g.selectAll('text.cluster-label').data(folders).join('text').attr('class','cluster-label')
-                .attr('x',function(d,i){return(i%cols)*cellW+20;}).attr('y',function(d,i){return Math.floor(i/cols)*cellH+28;})
+                .attr('x',function(d,i){return bounds[i].x+20;}).attr('y',function(d,i){return bounds[i].y+28;})
                 .attr('fill','var(--t2)').attr('font-size','11px').attr('font-weight','600').text(function(d){return d.split('/').pop()||'root';});
             var link=g.selectAll('line.disjoint-link').data(links).join('line').attr('class','disjoint-link')
                 .attr('stroke','var(--border)').attr('stroke-width',scaleStrokeWidth(1,stateRef.current.lineThickness)).attr('stroke-opacity',0.3);
@@ -440,7 +465,7 @@ export function createAlternateViews({React,d3,colors:COLORS}){
     });
 
     const BundleView=React.forwardRef(function BundleView({files:sourceFiles,connections,folderFilter,colorMap,selectedPath,blastRadius,lineThickness,onSelect,onScope},ref){
-        const containerRef=useRef(null),cameraRef=useRef(d3.zoomIdentity),paintRef=useRef(null),stateRef=useRef(null);
+        const containerRef=useRef(null),cameraRef=useRef(null),paintRef=useRef(null),stateRef=useRef(null);
         stateRef.current={onSelect,onScope,colorMap,selected:selectedPath?{path:selectedPath}:null,blastRadius,lineThickness};
         useImperativeHandle(ref,()=>({get svgElement(){return containerRef.current?.querySelector('svg')||null;}}),[]);
         const size=useSize(containerRef);
@@ -453,10 +478,14 @@ export function createAlternateViews({React,d3,colors:COLORS}){
             var zoom=d3.zoom().scaleExtent([0.4,3]).on('zoom',function(e){mainG.attr('transform','translate('+(w/2+e.transform.x)+','+(h/2+e.transform.y)+') scale('+e.transform.k+')');});
             svg.call(zoom);
             function cleanup(){cameraRef.current=d3.zoomTransform(svg.node());paintRef.current=null;svg.interrupt();svg.selectAll('*').interrupt();svg.on('.zoom',null);container.selectAll('*').remove();}
-            svg.call(zoom.transform,cameraRef.current);
+            svg.call(zoom.transform,cameraRef.current||d3.zoomIdentity);
             var radius=Math.min(w,h)/2-100;
             var filteredFiles=folderFilter?sourceFiles.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}):sourceFiles;
-            var files=filteredFiles.slice(0,70);
+            var files=filteredFiles;
+            // Circumference grows with source count, preserving space between labels.
+            radius=Math.max(radius,files.length*20/(2*Math.PI));
+            zoom.scaleExtent([Math.min(0.4,Math.min(w,h)/(2*(radius+140))),3]);
+            if(!cameraRef.current)svg.call(zoom.transform,d3.zoomIdentity.scale(Math.min(1,(Math.min(w,h)-80)/(2*(radius+140)))));
             var fileIdx={};files.forEach(function(f,i){fileIdx[f.path]=i;});
             var folderGroups={};files.forEach(function(f){var folder=f.folder||'root';if(!folderGroups[folder])folderGroups[folder]=[];folderGroups[folder].push(f);});
             var nodes=[],angle=0;
