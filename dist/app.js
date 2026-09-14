@@ -4324,6 +4324,349 @@
     };
   }
 
+  // src/views/card-size.mjs
+  function codeCardSizeForDiff(file, prefs, diffRows) {
+    prefs = normalizeCodeCardPrefs(prefs);
+    var base = codeCardSize(file, prefs);
+    if (!diffRows || !diffRows.length) return base;
+    var painted = codeCardSize(fileForCodeCardDiff(file, diffRows), prefs);
+    if (prefs.expand) return painted;
+    return Object.assign({}, base, {
+      naturalHeight: Math.max(base.naturalHeight || 0, painted.naturalHeight || 0),
+      naturalWidth: Math.max(base.naturalWidth || 0, painted.naturalWidth || 0),
+      clipped: !!(base.clipped || painted.naturalHeight > base.height || painted.naturalWidth > base.width)
+    });
+  }
+  var CODE_CARD_MIN_WIDTH = 320;
+  var CODE_CARD_MIN_HEIGHT = 160;
+  var CODE_CARD_MAX_HEIGHT = 1840;
+  var CODE_CARD_LINE_HEIGHT = 19;
+  var CODE_CARD_CHAR_WIDTH = 7;
+  var CODE_CARD_HEAD_HEIGHT = 42;
+  var CODE_CARD_BODY_PAD = 16;
+  var CODE_CARD_GUTTER = 72;
+  function codeCardContentMetrics(file) {
+    var content = file && typeof file.content === "string" ? file.content : "";
+    var lines = content ? content.split("\n") : [""];
+    var maxLineChars = 0;
+    var lineChars = [];
+    for (var i = 0; i < lines.length; i++) {
+      var n = String(lines[i]).length;
+      lineChars.push(n);
+      if (n > maxLineChars) maxLineChars = n;
+    }
+    return { lines: Math.max(1, lines.length), maxLineChars, lineChars };
+  }
+  var CODE_CARD_WIDTH = 440;
+  function normalizeCodeCardPrefs(prefs) {
+    prefs = prefs || {};
+    return { expand: !!prefs.expand, wrap: !!prefs.wrap };
+  }
+  function codeCardWrapColumns() {
+    return Math.max(1, Math.floor((CODE_CARD_WIDTH - CODE_CARD_GUTTER - CODE_CARD_BODY_PAD) / CODE_CARD_CHAR_WIDTH));
+  }
+  function codeCardWrappedLineCount(metrics, prefs) {
+    metrics = metrics || codeCardContentMetrics(null);
+    prefs = normalizeCodeCardPrefs(prefs);
+    if (!prefs.wrap) return Math.max(1, metrics.lines || 1);
+    var cols = codeCardWrapColumns();
+    var chars = metrics.lineChars || [];
+    var count = 0;
+    if (!chars.length) return Math.max(1, metrics.lines || 1);
+    for (var i = 0; i < chars.length; i++) {
+      count += Math.max(1, Math.ceil((chars[i] || 0) / cols) || 1);
+    }
+    return Math.max(1, count);
+  }
+  function codeCardVisualLineIndex(file, line, prefs) {
+    var n = Math.max(1, Number(line) || 1);
+    prefs = normalizeCodeCardPrefs(prefs);
+    if (!prefs.wrap) return n;
+    var metrics = codeCardContentMetrics(file);
+    var cols = codeCardWrapColumns();
+    var chars = metrics.lineChars || [];
+    var visual = 0;
+    var lim = Math.min(chars.length, n - 1);
+    for (var i = 0; i < lim; i++) {
+      visual += Math.max(1, Math.ceil((chars[i] || 0) / cols) || 1);
+    }
+    return visual + 1;
+  }
+  function codeCardVisualLineEndIndex(file, line, prefs) {
+    var n = Math.max(1, Number(line) || 1);
+    prefs = normalizeCodeCardPrefs(prefs);
+    if (!prefs.wrap) return n;
+    var metrics = codeCardContentMetrics(file);
+    var total = codeCardWrappedLineCount(metrics, prefs);
+    if (n >= Math.max(1, metrics.lines || 1)) return total;
+    return Math.max(n, codeCardVisualLineIndex(file, n + 1, prefs) - 1);
+  }
+  function codeCardNaturalWidth(metrics) {
+    metrics = metrics || { maxLineChars: 0 };
+    return CODE_CARD_GUTTER + CODE_CARD_BODY_PAD + (metrics.maxLineChars || 0) * CODE_CARD_CHAR_WIDTH;
+  }
+  function codeCardSize(file, prefs) {
+    prefs = normalizeCodeCardPrefs(prefs);
+    var metrics = codeCardContentMetrics(file);
+    var width = CODE_CARD_WIDTH;
+    var naturalWidth = codeCardNaturalWidth(metrics);
+    var visualLines = codeCardWrappedLineCount(metrics, prefs);
+    var naturalHeight = CODE_CARD_HEAD_HEIGHT + CODE_CARD_BODY_PAD + visualLines * CODE_CARD_LINE_HEIGHT;
+    var height = Math.max(CODE_CARD_MIN_HEIGHT, prefs.expand ? naturalHeight : Math.min(CODE_CARD_MAX_HEIGHT, naturalHeight));
+    var heightClipped = !prefs.expand && naturalHeight > CODE_CARD_MAX_HEIGHT;
+    var widthClipped = !prefs.wrap && naturalWidth > width;
+    return { width, height, clipped: heightClipped || widthClipped, expand: prefs.expand, wrap: prefs.wrap, naturalHeight, naturalWidth };
+  }
+  var CODE_CARD_RESIZE_MAX_WIDTH = 1200;
+  function clampCodeCardResize(width, height, prefs) {
+    prefs = normalizeCodeCardPrefs(prefs);
+    var w = Math.max(CODE_CARD_MIN_WIDTH, Math.min(CODE_CARD_RESIZE_MAX_WIDTH, Number(width) || CODE_CARD_WIDTH));
+    var h = Math.max(CODE_CARD_MIN_HEIGHT, Number(height) || CODE_CARD_MIN_HEIGHT);
+    if (!prefs.expand) h = Math.min(CODE_CARD_MAX_HEIGHT, h);
+    return { width: w, height: h };
+  }
+  function applyCodeCardUserSize(base, override) {
+    base = base || codeCardSize(null);
+    if (!override) return base;
+    var next = clampCodeCardResize(override.width != null ? override.width : base.width, override.height != null ? override.height : base.height, base);
+    var heightClipped = (base.naturalHeight || 0) > next.height;
+    var widthClipped = !base.wrap && (base.naturalWidth || 0) > next.width;
+    return Object.assign({}, base, { width: next.width, height: next.height, clipped: heightClipped || widthClipped });
+  }
+
+  // src/views/camera.mjs
+  var CODE_VIEW_MIN_FIT_SCALE = 0.4;
+  var CODE_VIEW_MAX_FIT_SCALE = 1.15;
+  function snapshotZoomTransform(transform) {
+    var t = transform || {};
+    var k = Number(t.k);
+    if (!isFinite(k) || k <= 0) k = 1;
+    var x2 = Number(t.x);
+    if (!isFinite(x2)) x2 = 0;
+    var y2 = Number(t.y);
+    if (!isFinite(y2)) y2 = 0;
+    return { k, x: x2, y: y2 };
+  }
+  function shouldFitCodeCamera(cameraReady, vizType) {
+    return vizType === "code" && !cameraReady;
+  }
+  function clampCodeViewFitScale(scale2) {
+    var value2 = Number(scale2);
+    if (!isFinite(value2) || value2 <= 0) return CODE_VIEW_MIN_FIT_SCALE;
+    if (value2 < CODE_VIEW_MIN_FIT_SCALE) return CODE_VIEW_MIN_FIT_SCALE;
+    if (value2 > CODE_VIEW_MAX_FIT_SCALE) return CODE_VIEW_MAX_FIT_SCALE;
+    return value2;
+  }
+  function codeCardFitBounds(nodes, sizesByPath, cardPaths) {
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    (nodes || []).forEach(function(node) {
+      if (!node || !cardPaths || !cardPaths.has(node.id) || !isFinite(node.x) || !isFinite(node.y)) return;
+      var size = sizesByPath && sizesByPath[node.id] || codeCardSize(null);
+      minX = Math.min(minX, node.x - size.width / 2);
+      minY = Math.min(minY, node.y - size.height / 2);
+      maxX = Math.max(maxX, node.x + size.width / 2);
+      maxY = Math.max(maxY, node.y + size.height / 2);
+    });
+    if (!isFinite(minX)) return null;
+    return { minX, minY, maxX, maxY, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
+  }
+
+  // src/investigation/navigation.mjs
+  function searchProject(data, query) {
+    var normalize = function(value2) {
+      return String(value2 || "").toLowerCase().replace(/[._/\\-]+/g, " ");
+    };
+    var terms = normalize(query).trim().split(/\s+/).filter(Boolean);
+    if (!terms.length) return [];
+    var results = [];
+    function add(item, text) {
+      var haystack = normalize(text);
+      if (!terms.every(function(term) {
+        return haystack.includes(term);
+      })) return;
+      var title = normalize(item.label), needle = terms.join(" ");
+      item.rank = title === needle ? 0 : title.startsWith(needle) ? 1 : 2;
+      results.push(item);
+    }
+    (data.files || []).forEach(function(file) {
+      add({ kind: "file", path: file.path, label: file.name, line: 1 }, file.path);
+      (file.functions || []).forEach(function(fn) {
+        add({ kind: "symbol", path: file.path, label: fn.name, line: fn.line || 1 }, fn.name + " " + file.path);
+      });
+      (file.elixir && file.elixir.modules || []).forEach(function(module) {
+        var name = typeof module === "string" ? module : module.name;
+        add({ kind: "module", path: file.path, label: name, line: module.line || 1 }, name);
+      });
+    });
+    return results.sort(function(a, b) {
+      return a.rank - b.rank || (a.kind === "file" ? -1 : 1) - (b.kind === "file" ? -1 : 1) || a.label.localeCompare(b.label) || a.path.localeCompare(b.path);
+    });
+  }
+  function navigationWithCamera(history, camera) {
+    if (history.index < 0 || !camera) return history;
+    var entries = history.entries.slice();
+    entries[history.index] = Object.assign({}, entries[history.index], { camera });
+    return { entries, index: history.index };
+  }
+  function recordNavigation(history, location, camera) {
+    var entries = navigationWithCamera(history, camera).entries.slice(0, history.index + 1), previous = entries[entries.length - 1];
+    if (previous && previous.path === location.path && previous.scope === location.scope && previous.view === location.view && JSON.stringify(previous.range || null) === JSON.stringify(location.range || null)) {
+      entries[entries.length - 1] = location;
+    } else entries.push(location);
+    return { entries, index: entries.length - 1 };
+  }
+  function stepNavigation(history, delta, camera) {
+    var index = history.index + delta;
+    if (index < 0 || index >= history.entries.length) return null;
+    return { entries: navigationWithCamera(history, camera).entries, index };
+  }
+  var CODE_CARD_MAX = 12;
+  function defaultCodeViewSeed(data, folderFilter) {
+    if (!data || !data.files || !data.files.length) return null;
+    var filtered = folderFilter ? data.files.filter(function(f) {
+      return f.folder === folderFilter || f.folder.startsWith(folderFilter + "/");
+    }) : data.files;
+    if (!filtered.length) return null;
+    var byPath = /* @__PURE__ */ Object.create(null);
+    filtered.forEach(function(f) {
+      byPath[f.path] = f;
+    });
+    var counts = /* @__PURE__ */ Object.create(null);
+    (data.connections || []).forEach(function(c) {
+      var src = typeof c.source === "object" ? c.source.id : c.source;
+      var tgt = typeof c.target === "object" ? c.target.id : c.target;
+      if (byPath[src]) counts[src] = (counts[src] || 0) + 1;
+      if (byPath[tgt]) counts[tgt] = (counts[tgt] || 0) + 1;
+    });
+    var best = filtered[0];
+    var bestN = counts[best.path] || 0;
+    filtered.forEach(function(file) {
+      var n = counts[file.path] || 0;
+      if (n > bestN) {
+        best = file;
+        bestN = n;
+      }
+    });
+    return best.path;
+  }
+  function fileMatchesFolderFilter(file, folderFilter) {
+    if (!folderFilter) return true;
+    if (!file) return false;
+    return file.folder === folderFilter || !!file.folder && file.folder.startsWith(folderFilter + "/");
+  }
+  function pathMatchesFolderFilter(path2, data, folderFilter) {
+    if (!folderFilter) return true;
+    if (!data || !data.files || !path2) return false;
+    for (var i = 0; i < data.files.length; i++) {
+      if (data.files[i].path === path2) return fileMatchesFolderFilter(data.files[i], folderFilter);
+    }
+    return false;
+  }
+  function folderFilterAfterCodeNav(path2, data, folderFilter) {
+    if (pathMatchesFolderFilter(path2, data, folderFilter)) return folderFilter || null;
+    return null;
+  }
+  function codeViewSeedPath(selectedPath, data, folderFilter) {
+    if (!data || !data.files || !data.files.length) return null;
+    if (selectedPath) {
+      var selected = null;
+      for (var i = 0; i < data.files.length; i++) {
+        if (data.files[i].path === selectedPath) {
+          selected = data.files[i];
+          break;
+        }
+      }
+      if (selected && fileMatchesFolderFilter(selected, folderFilter)) return selectedPath;
+    }
+    return defaultCodeViewSeed(data, folderFilter);
+  }
+  function hiddenOpenedCodePaths(paths, data, folderFilter) {
+    var hidden = /* @__PURE__ */ Object.create(null);
+    if (!folderFilter) return hidden;
+    var visible = /* @__PURE__ */ Object.create(null);
+    filesForOpenedCodePaths(paths, data, folderFilter).forEach(function(file) {
+      if (file && file.path) visible[file.path] = true;
+    });
+    (paths || []).forEach(function(path2) {
+      if (path2 && !visible[path2]) hidden[path2] = true;
+    });
+    return hidden;
+  }
+  function codeCardPlacementKeepSet(openedPaths, visibleFiles) {
+    var keep = /* @__PURE__ */ Object.create(null);
+    (openedPaths || []).forEach(function(path2) {
+      if (path2) keep[path2] = true;
+    });
+    (visibleFiles || []).forEach(function(file) {
+      if (file && file.path) keep[file.path] = true;
+    });
+    return keep;
+  }
+  function pruneCodeCardPlacements(placements, keep) {
+    var departed = /* @__PURE__ */ Object.create(null);
+    Object.keys(placements || {}).forEach(function(path2) {
+      if (keep && keep[path2]) return;
+      departed[path2] = true;
+      delete placements[path2];
+    });
+    return departed;
+  }
+  function evictHiddenCodeCards(list, hidden, count) {
+    var need = Number(count);
+    if (!isFinite(need) || need <= 0) return (list || []).slice();
+    var removed = 0;
+    return (list || []).filter(function(path2) {
+      if (removed >= need) return true;
+      if (pathIsFlagged(hidden, path2)) {
+        removed++;
+        return false;
+      }
+      return true;
+    });
+  }
+  function openCodeCardPaths(prev, path2, limit, replace, hidden) {
+    var list = (prev || []).slice();
+    if (!path2) return list;
+    if (list.indexOf(path2) >= 0) return list;
+    var max = limit == null ? CODE_CARD_MAX : Number(limit);
+    if (isFinite(max) && list.length >= max) {
+      var need = list.length - max + 1;
+      if (hidden) list = evictHiddenCodeCards(list, hidden, need);
+      if (list.length >= max) {
+        if (!replace) return list;
+        list = list.slice(Math.max(0, list.length - max + 1));
+      }
+    }
+    list.push(path2);
+    return list;
+  }
+  function resolveOpenCodeCard(prev, path2, limit, replace, hidden) {
+    var before = prev || [];
+    var next = openCodeCardPaths(before, path2, limit, replace, hidden);
+    var already = !!(path2 && before.indexOf(path2) >= 0);
+    var inserted = !!(path2 && !already && next.indexOf(path2) >= 0);
+    return { paths: next, already, inserted, opened: already || inserted };
+  }
+  function ensureCodeViewOpenedPaths(openedPaths, selectedPath, data, folderFilter) {
+    var seed = codeViewSeedPath(selectedPath, data, folderFilter);
+    if (!seed) return { paths: openedPaths || [], seed: null, opened: false, inserted: false };
+    var resolved = resolveOpenCodeCard(openedPaths, seed, Infinity, false, hiddenOpenedCodePaths(openedPaths, data, folderFilter));
+    return { paths: resolved.paths, seed, opened: resolved.opened, inserted: resolved.inserted };
+  }
+  function filesForOpenedCodePaths(paths, data, folderFilter) {
+    if (!data || !data.files) return [];
+    var filtered = folderFilter ? data.files.filter(function(f) {
+      return f.folder === folderFilter || f.folder.startsWith(folderFilter + "/");
+    }) : data.files;
+    var byPath = /* @__PURE__ */ Object.create(null);
+    filtered.forEach(function(file) {
+      byPath[file.path] = file;
+    });
+    return (paths || []).map(function(path2) {
+      return byPath[path2];
+    }).filter(Boolean);
+  }
+
   // node_modules/d3-array/src/ascending.js
   function ascending_default(a, b) {
     return a < b ? -1 : a > b ? 1 : a >= b ? 0 : NaN;
@@ -5820,7 +6163,7 @@
     return vizType === "code";
   }
   function graphSvgExportEnabled(vizType) {
-    return vizType !== "code";
+    return vizType !== "code" && vizType !== "graph3d";
   }
   function vizUsesLineThickness(vizType) {
     return vizType === "graph" || vizType === "code" || vizType === "graph3d" || vizType === "dendro" || vizType === "sankey" || vizType === "disjoint" || vizType === "bundle";
@@ -6086,8 +6429,28 @@
       }, []);
       return size;
     }
-    const TreemapView2 = React2.forwardRef(function TreemapView3({ files: sourceFiles, folderFilter, colorMap, selectedPath, blastRadius, onSelect }, ref) {
-      const containerRef = useRef2(null), cameraRef = useRef2(d3.zoomIdentity), paintRef = useRef2(null), stateRef = useRef2(null);
+    function useViewCamera(restoredCamera, onCameraChange, initialCamera) {
+      const cameraRef = useRef2(restoredCamera ? asTransform(restoredCamera) : initialCamera);
+      const applyRef = useRef2(null), reportRef = useRef2(onCameraChange);
+      reportRef.current = onCameraChange;
+      function asTransform(camera) {
+        const { x: x2, y: y2, k } = snapshotZoomTransform(camera);
+        return d3.zoomIdentity.translate(x2, y2).scale(k);
+      }
+      useEffect2(() => {
+        if (!restoredCamera) return;
+        cameraRef.current = asTransform(restoredCamera);
+        applyRef.current?.(cameraRef.current);
+      }, [restoredCamera]);
+      function bindCamera(svg, zoom) {
+        applyRef.current = (transform) => svg.call(zoom.transform, transform);
+        zoom.on("zoom.workspace", (event) => reportRef.current?.(snapshotZoomTransform(event.transform)));
+      }
+      return { cameraRef, bindCamera };
+    }
+    const TreemapView2 = React2.forwardRef(function TreemapView3({ files: sourceFiles, folderFilter, colorMap, selectedPath, blastRadius, onSelect, restoredCamera, onCameraChange }, ref) {
+      const containerRef = useRef2(null), paintRef = useRef2(null), stateRef = useRef2(null);
+      const { cameraRef, bindCamera } = useViewCamera(restoredCamera, onCameraChange, d3.zoomIdentity);
       stateRef.current = { onSelect, colorMap, selected: selectedPath ? { path: selectedPath } : null, blastRadius };
       useImperativeHandle(ref, () => ({ get svgElement() {
         return containerRef.current?.querySelector("svg") || null;
@@ -6103,6 +6466,7 @@
           g.attr("transform", e.transform);
           svg.style("cursor", e.transform.k > 1 ? "grab" : "default");
         });
+        bindCamera(svg, zoom);
         svg.call(zoom);
         function cleanup() {
           cameraRef.current = d3.zoomTransform(svg.node());
@@ -6197,8 +6561,9 @@
       }, [colorMap, selectedPath, blastRadius]);
       return React2.createElement("div", { ref: containerRef, className: "treemap-container", style: { width: "100%", height: "100%", position: "relative", overflow: "hidden" } });
     });
-    const MatrixView2 = React2.forwardRef(function MatrixView3({ files: sourceFiles, connections, folderFilter, onSelect }, ref) {
-      const containerRef = useRef2(null), cameraRef = useRef2(d3.zoomIdentity), paintRef = useRef2(null), stateRef = useRef2(null);
+    const MatrixView2 = React2.forwardRef(function MatrixView3({ files: sourceFiles, connections, folderFilter, onSelect, restoredCamera, onCameraChange }, ref) {
+      const containerRef = useRef2(null), paintRef = useRef2(null), stateRef = useRef2(null);
+      const { cameraRef, bindCamera } = useViewCamera(restoredCamera, onCameraChange, d3.zoomIdentity);
       stateRef.current = { onSelect };
       useImperativeHandle(ref, () => ({ get svgElement() {
         return containerRef.current?.querySelector("svg") || null;
@@ -6322,6 +6687,7 @@
           clearHover();
           if (frame === null) frame = requestAnimationFrame(drawViewport);
         });
+        bindCamera(svg, zoom);
         svg.call(zoom).call(zoom.transform, transform);
         function cleanup() {
           if (frame !== null) cancelAnimationFrame(frame);
@@ -6339,8 +6705,9 @@
       }, [sourceFiles, connections, folderFilter, size.width, size.height]);
       return React2.createElement("div", { ref: containerRef, className: "matrix-container", style: { width: "100%", height: "100%", position: "relative", overflow: "auto", display: "flex", alignItems: "center", justifyContent: "center" } });
     });
-    const DendrogramView2 = React2.forwardRef(function DendrogramView3({ files: sourceFiles, folderFilter, colorMap, lineThickness, onSelect, onScope }, ref) {
-      const containerRef = useRef2(null), cameraRef = useRef2(d3.zoomIdentity), paintRef = useRef2(null), stateRef = useRef2(null);
+    const DendrogramView2 = React2.forwardRef(function DendrogramView3({ files: sourceFiles, folderFilter, colorMap, lineThickness, onSelect, onScope, restoredCamera, onCameraChange }, ref) {
+      const containerRef = useRef2(null), paintRef = useRef2(null), stateRef = useRef2(null);
+      const { cameraRef, bindCamera } = useViewCamera(restoredCamera, onCameraChange, d3.zoomIdentity);
       stateRef.current = { onSelect, onScope, colorMap, lineThickness };
       useImperativeHandle(ref, () => ({ get svgElement() {
         return containerRef.current?.querySelector("svg") || null;
@@ -6355,6 +6722,7 @@
         var zoom = d3.zoom().scaleExtent([0.3, 3]).on("zoom", function(e) {
           g.attr("transform", "translate(" + (80 + e.transform.x) + "," + (20 + e.transform.y) + ") scale(" + e.transform.k + ")");
         });
+        bindCamera(svg, zoom);
         svg.call(zoom);
         function cleanup() {
           cameraRef.current = d3.zoomTransform(svg.node());
@@ -6436,8 +6804,9 @@
       }, [colorMap, lineThickness]);
       return React2.createElement("div", { ref: containerRef, className: "dendro-container", style: { width: "100%", height: "100%", position: "relative", overflow: "hidden" } });
     });
-    const SankeyView2 = React2.forwardRef(function SankeyView3({ files: sourceFiles, connections, folderFilter, colorMap, lineThickness, onScope }, ref) {
-      const containerRef = useRef2(null), cameraRef = useRef2(null), paintRef = useRef2(null), stateRef = useRef2(null);
+    const SankeyView2 = React2.forwardRef(function SankeyView3({ files: sourceFiles, connections, folderFilter, colorMap, lineThickness, onScope, restoredCamera, onCameraChange }, ref) {
+      const containerRef = useRef2(null), paintRef = useRef2(null), stateRef = useRef2(null);
+      const { cameraRef, bindCamera } = useViewCamera(restoredCamera, onCameraChange, null);
       stateRef.current = { onScope, colorMap, lineThickness };
       useImperativeHandle(ref, () => ({ get svgElement() {
         return containerRef.current?.querySelector("svg") || null;
@@ -6452,6 +6821,7 @@
         var zoom = d3.zoom().scaleExtent([0.5, 2]).on("zoom", function(e) {
           g.attr("transform", "translate(" + (20 + e.transform.x) + "," + (20 + e.transform.y) + ") scale(" + e.transform.k + ")");
         });
+        bindCamera(svg, zoom);
         svg.call(zoom);
         function cleanup() {
           cameraRef.current = d3.zoomTransform(svg.node());
@@ -6462,16 +6832,11 @@
           container.selectAll("*").remove();
         }
         svg.call(zoom.transform, cameraRef.current || d3.zoomIdentity);
-        var filteredFiles = folderFilter ? sourceFiles.filter(function(f) {
-          return f.folder === folderFilter || f.folder.startsWith(folderFilter + "/");
-        }) : sourceFiles;
+        var filteredFiles = sourceFiles.filter((file) => fileMatchesFolderFilter(file, folderFilter));
         var folders = [...new Set(filteredFiles.map(function(f) {
           return f.folder || "root";
         }))];
-        var folderIdx = {};
-        folders.forEach(function(f, i) {
-          folderIdx[f] = i;
-        });
+        var filesByPath = new Map(sourceFiles.map((file) => [file.path, file]));
         var filteredPaths = new Set(filteredFiles.map(function(f) {
           return f.path;
         }));
@@ -6480,24 +6845,28 @@
           var src = typeof c.source === "object" ? c.source.id : c.source;
           var tgt = typeof c.target === "object" ? c.target.id : c.target;
           if (!filteredPaths.has(src) && !filteredPaths.has(tgt)) return;
-          var srcFile = sourceFiles.find(function(f) {
-            return f.path === src;
-          });
-          var tgtFile = sourceFiles.find(function(f) {
-            return f.path === tgt;
-          });
+          var srcFile = filesByPath.get(src);
+          var tgtFile = filesByPath.get(tgt);
           if (srcFile && tgtFile && srcFile.folder !== tgtFile.folder) {
-            var key = srcFile.folder + "|" + tgtFile.folder;
+            var key = JSON.stringify([srcFile.folder || "root", tgtFile.folder || "root"]);
             flowMap[key] = (flowMap[key] || 0) + (c.count || 1);
           }
         });
+        folders = [.../* @__PURE__ */ new Set([...folders, ...Object.keys(flowMap).flatMap((key) => JSON.parse(key))])];
+        var folderIdx = {};
+        folders.forEach(function(f, i) {
+          folderIdx[f] = i;
+        });
+        var folderCounts = /* @__PURE__ */ new Map();
+        sourceFiles.forEach((file) => {
+          const folder = file.folder || "root";
+          folderCounts.set(folder, (folderCounts.get(folder) || 0) + 1);
+        });
         var nodes = folders.map(function(f, i) {
-          return { id: i, name: f.split("/").pop() || "root", fullPath: f, fileCount: filteredFiles.filter(function(x2) {
-            return x2.folder === f;
-          }).length };
+          return { id: i, name: f.split("/").pop() || "root", fullPath: f, fileCount: folderCounts.get(f) || 0 };
         });
         var links = Object.entries(flowMap).flatMap(function([key, value2]) {
-          var [source, target] = key.split("|").map((folder) => folderIdx[folder]);
+          var [source, target] = JSON.parse(key).map((folder) => folderIdx[folder]);
           return source !== void 0 && target !== void 0 && source !== target ? [{ source, target, value: value2 }] : [];
         });
         if (links.length === 0) {
@@ -6589,8 +6958,9 @@
       }, [colorMap, lineThickness]);
       return React2.createElement("div", { ref: containerRef, className: "sankey-container", style: { width: "100%", height: "100%", position: "relative", overflow: "hidden" } });
     });
-    const DisjointView2 = React2.forwardRef(function DisjointView3({ files: sourceFiles, connections, folderFilter, colorMap, lineThickness, onSelect }, ref) {
-      const containerRef = useRef2(null), cameraRef = useRef2(null), paintRef = useRef2(null), stateRef = useRef2(null);
+    const DisjointView2 = React2.forwardRef(function DisjointView3({ files: sourceFiles, connections, folderFilter, colorMap, lineThickness, onSelect, restoredCamera, onCameraChange }, ref) {
+      const containerRef = useRef2(null), paintRef = useRef2(null), stateRef = useRef2(null);
+      const { cameraRef, bindCamera } = useViewCamera(restoredCamera, onCameraChange, null);
       stateRef.current = { onSelect, colorMap, lineThickness };
       useImperativeHandle(ref, () => ({ get svgElement() {
         return containerRef.current?.querySelector("svg") || null;
@@ -6605,6 +6975,7 @@
         var zoom = d3.zoom().scaleExtent([0.2, 4]).on("zoom", function(e) {
           g.attr("transform", e.transform);
         });
+        bindCamera(svg, zoom);
         svg.call(zoom);
         function cleanup() {
           cameraRef.current = d3.zoomTransform(svg.node());
@@ -6751,8 +7122,9 @@
       }, [colorMap, lineThickness]);
       return React2.createElement("div", { ref: containerRef, className: "disjoint-container", style: { width: "100%", height: "100%", position: "relative", overflow: "hidden" } });
     });
-    const BundleView2 = React2.forwardRef(function BundleView3({ files: sourceFiles, connections, folderFilter, colorMap, selectedPath, blastRadius, lineThickness, onSelect, onScope }, ref) {
-      const containerRef = useRef2(null), cameraRef = useRef2(null), paintRef = useRef2(null), stateRef = useRef2(null);
+    const BundleView2 = React2.forwardRef(function BundleView3({ files: sourceFiles, connections, folderFilter, colorMap, selectedPath, blastRadius, lineThickness, onSelect, onScope, restoredCamera, onCameraChange }, ref) {
+      const containerRef = useRef2(null), paintRef = useRef2(null), stateRef = useRef2(null);
+      const { cameraRef, bindCamera } = useViewCamera(restoredCamera, onCameraChange, null);
       stateRef.current = { onSelect, onScope, colorMap, selected: selectedPath ? { path: selectedPath } : null, blastRadius, lineThickness };
       useImperativeHandle(ref, () => ({ get svgElement() {
         return containerRef.current?.querySelector("svg") || null;
@@ -6767,6 +7139,7 @@
         var zoom = d3.zoom().scaleExtent([0.4, 3]).on("zoom", function(e) {
           mainG.attr("transform", "translate(" + (w / 2 + e.transform.x) + "," + (h / 2 + e.transform.y) + ") scale(" + e.transform.k + ")");
         });
+        bindCamera(svg, zoom);
         svg.call(zoom);
         function cleanup() {
           cameraRef.current = d3.zoomTransform(svg.node());
@@ -7052,116 +7425,6 @@
       return escaped;
     });
     return result;
-  }
-
-  // src/views/card-size.mjs
-  function codeCardSizeForDiff(file, prefs, diffRows) {
-    prefs = normalizeCodeCardPrefs(prefs);
-    var base = codeCardSize(file, prefs);
-    if (!diffRows || !diffRows.length) return base;
-    var painted = codeCardSize(fileForCodeCardDiff(file, diffRows), prefs);
-    if (prefs.expand) return painted;
-    return Object.assign({}, base, {
-      naturalHeight: Math.max(base.naturalHeight || 0, painted.naturalHeight || 0),
-      naturalWidth: Math.max(base.naturalWidth || 0, painted.naturalWidth || 0),
-      clipped: !!(base.clipped || painted.naturalHeight > base.height || painted.naturalWidth > base.width)
-    });
-  }
-  var CODE_CARD_MIN_WIDTH = 320;
-  var CODE_CARD_MIN_HEIGHT = 160;
-  var CODE_CARD_MAX_HEIGHT = 1840;
-  var CODE_CARD_LINE_HEIGHT = 19;
-  var CODE_CARD_CHAR_WIDTH = 7;
-  var CODE_CARD_HEAD_HEIGHT = 42;
-  var CODE_CARD_BODY_PAD = 16;
-  var CODE_CARD_GUTTER = 72;
-  function codeCardContentMetrics(file) {
-    var content = file && typeof file.content === "string" ? file.content : "";
-    var lines = content ? content.split("\n") : [""];
-    var maxLineChars = 0;
-    var lineChars = [];
-    for (var i = 0; i < lines.length; i++) {
-      var n = String(lines[i]).length;
-      lineChars.push(n);
-      if (n > maxLineChars) maxLineChars = n;
-    }
-    return { lines: Math.max(1, lines.length), maxLineChars, lineChars };
-  }
-  var CODE_CARD_WIDTH = 440;
-  function normalizeCodeCardPrefs(prefs) {
-    prefs = prefs || {};
-    return { expand: !!prefs.expand, wrap: !!prefs.wrap };
-  }
-  function codeCardWrapColumns() {
-    return Math.max(1, Math.floor((CODE_CARD_WIDTH - CODE_CARD_GUTTER - CODE_CARD_BODY_PAD) / CODE_CARD_CHAR_WIDTH));
-  }
-  function codeCardWrappedLineCount(metrics, prefs) {
-    metrics = metrics || codeCardContentMetrics(null);
-    prefs = normalizeCodeCardPrefs(prefs);
-    if (!prefs.wrap) return Math.max(1, metrics.lines || 1);
-    var cols = codeCardWrapColumns();
-    var chars = metrics.lineChars || [];
-    var count = 0;
-    if (!chars.length) return Math.max(1, metrics.lines || 1);
-    for (var i = 0; i < chars.length; i++) {
-      count += Math.max(1, Math.ceil((chars[i] || 0) / cols) || 1);
-    }
-    return Math.max(1, count);
-  }
-  function codeCardVisualLineIndex(file, line, prefs) {
-    var n = Math.max(1, Number(line) || 1);
-    prefs = normalizeCodeCardPrefs(prefs);
-    if (!prefs.wrap) return n;
-    var metrics = codeCardContentMetrics(file);
-    var cols = codeCardWrapColumns();
-    var chars = metrics.lineChars || [];
-    var visual = 0;
-    var lim = Math.min(chars.length, n - 1);
-    for (var i = 0; i < lim; i++) {
-      visual += Math.max(1, Math.ceil((chars[i] || 0) / cols) || 1);
-    }
-    return visual + 1;
-  }
-  function codeCardVisualLineEndIndex(file, line, prefs) {
-    var n = Math.max(1, Number(line) || 1);
-    prefs = normalizeCodeCardPrefs(prefs);
-    if (!prefs.wrap) return n;
-    var metrics = codeCardContentMetrics(file);
-    var total = codeCardWrappedLineCount(metrics, prefs);
-    if (n >= Math.max(1, metrics.lines || 1)) return total;
-    return Math.max(n, codeCardVisualLineIndex(file, n + 1, prefs) - 1);
-  }
-  function codeCardNaturalWidth(metrics) {
-    metrics = metrics || { maxLineChars: 0 };
-    return CODE_CARD_GUTTER + CODE_CARD_BODY_PAD + (metrics.maxLineChars || 0) * CODE_CARD_CHAR_WIDTH;
-  }
-  function codeCardSize(file, prefs) {
-    prefs = normalizeCodeCardPrefs(prefs);
-    var metrics = codeCardContentMetrics(file);
-    var width = CODE_CARD_WIDTH;
-    var naturalWidth = codeCardNaturalWidth(metrics);
-    var visualLines = codeCardWrappedLineCount(metrics, prefs);
-    var naturalHeight = CODE_CARD_HEAD_HEIGHT + CODE_CARD_BODY_PAD + visualLines * CODE_CARD_LINE_HEIGHT;
-    var height = Math.max(CODE_CARD_MIN_HEIGHT, prefs.expand ? naturalHeight : Math.min(CODE_CARD_MAX_HEIGHT, naturalHeight));
-    var heightClipped = !prefs.expand && naturalHeight > CODE_CARD_MAX_HEIGHT;
-    var widthClipped = !prefs.wrap && naturalWidth > width;
-    return { width, height, clipped: heightClipped || widthClipped, expand: prefs.expand, wrap: prefs.wrap, naturalHeight, naturalWidth };
-  }
-  var CODE_CARD_RESIZE_MAX_WIDTH = 1200;
-  function clampCodeCardResize(width, height, prefs) {
-    prefs = normalizeCodeCardPrefs(prefs);
-    var w = Math.max(CODE_CARD_MIN_WIDTH, Math.min(CODE_CARD_RESIZE_MAX_WIDTH, Number(width) || CODE_CARD_WIDTH));
-    var h = Math.max(CODE_CARD_MIN_HEIGHT, Number(height) || CODE_CARD_MIN_HEIGHT);
-    if (!prefs.expand) h = Math.min(CODE_CARD_MAX_HEIGHT, h);
-    return { width: w, height: h };
-  }
-  function applyCodeCardUserSize(base, override) {
-    base = base || codeCardSize(null);
-    if (!override) return base;
-    var next = clampCodeCardResize(override.width != null ? override.width : base.width, override.height != null ? override.height : base.height, base);
-    var heightClipped = (base.naturalHeight || 0) > next.height;
-    var widthClipped = !base.wrap && (base.naturalWidth || 0) > next.width;
-    return Object.assign({}, base, { width: next.width, height: next.height, clipped: heightClipped || widthClipped });
   }
 
   // src/views/canvas-layout.mjs
@@ -7747,202 +8010,6 @@
     return nodes;
   }
 
-  // src/investigation/navigation.mjs
-  function searchProject(data, query) {
-    var normalize = function(value2) {
-      return String(value2 || "").toLowerCase().replace(/[._/\\-]+/g, " ");
-    };
-    var terms = normalize(query).trim().split(/\s+/).filter(Boolean);
-    if (!terms.length) return [];
-    var results = [];
-    function add(item, text) {
-      var haystack = normalize(text);
-      if (!terms.every(function(term) {
-        return haystack.includes(term);
-      })) return;
-      var title = normalize(item.label), needle = terms.join(" ");
-      item.rank = title === needle ? 0 : title.startsWith(needle) ? 1 : 2;
-      results.push(item);
-    }
-    (data.files || []).forEach(function(file) {
-      add({ kind: "file", path: file.path, label: file.name, line: 1 }, file.path);
-      (file.functions || []).forEach(function(fn) {
-        add({ kind: "symbol", path: file.path, label: fn.name, line: fn.line || 1 }, fn.name + " " + file.path);
-      });
-      (file.elixir && file.elixir.modules || []).forEach(function(module) {
-        var name = typeof module === "string" ? module : module.name;
-        add({ kind: "module", path: file.path, label: name, line: module.line || 1 }, name);
-      });
-    });
-    return results.sort(function(a, b) {
-      return a.rank - b.rank || (a.kind === "file" ? -1 : 1) - (b.kind === "file" ? -1 : 1) || a.label.localeCompare(b.label) || a.path.localeCompare(b.path);
-    });
-  }
-  function navigationWithCamera(history, camera) {
-    if (history.index < 0 || !camera) return history;
-    var entries = history.entries.slice();
-    entries[history.index] = Object.assign({}, entries[history.index], { camera });
-    return { entries, index: history.index };
-  }
-  function recordNavigation(history, location, camera) {
-    var entries = navigationWithCamera(history, camera).entries.slice(0, history.index + 1), previous = entries[entries.length - 1];
-    if (previous && previous.path === location.path && previous.scope === location.scope && previous.view === location.view && JSON.stringify(previous.range || null) === JSON.stringify(location.range || null)) {
-      entries[entries.length - 1] = location;
-    } else entries.push(location);
-    return { entries, index: entries.length - 1 };
-  }
-  function stepNavigation(history, delta, camera) {
-    var index = history.index + delta;
-    if (index < 0 || index >= history.entries.length) return null;
-    return { entries: navigationWithCamera(history, camera).entries, index };
-  }
-  var CODE_CARD_MAX = 12;
-  function defaultCodeViewSeed(data, folderFilter) {
-    if (!data || !data.files || !data.files.length) return null;
-    var filtered = folderFilter ? data.files.filter(function(f) {
-      return f.folder === folderFilter || f.folder.startsWith(folderFilter + "/");
-    }) : data.files;
-    if (!filtered.length) return null;
-    var byPath = /* @__PURE__ */ Object.create(null);
-    filtered.forEach(function(f) {
-      byPath[f.path] = f;
-    });
-    var counts = /* @__PURE__ */ Object.create(null);
-    (data.connections || []).forEach(function(c) {
-      var src = typeof c.source === "object" ? c.source.id : c.source;
-      var tgt = typeof c.target === "object" ? c.target.id : c.target;
-      if (byPath[src]) counts[src] = (counts[src] || 0) + 1;
-      if (byPath[tgt]) counts[tgt] = (counts[tgt] || 0) + 1;
-    });
-    var best = filtered[0];
-    var bestN = counts[best.path] || 0;
-    filtered.forEach(function(file) {
-      var n = counts[file.path] || 0;
-      if (n > bestN) {
-        best = file;
-        bestN = n;
-      }
-    });
-    return best.path;
-  }
-  function fileMatchesFolderFilter(file, folderFilter) {
-    if (!folderFilter) return true;
-    if (!file) return false;
-    return file.folder === folderFilter || !!file.folder && file.folder.startsWith(folderFilter + "/");
-  }
-  function pathMatchesFolderFilter(path2, data, folderFilter) {
-    if (!folderFilter) return true;
-    if (!data || !data.files || !path2) return false;
-    for (var i = 0; i < data.files.length; i++) {
-      if (data.files[i].path === path2) return fileMatchesFolderFilter(data.files[i], folderFilter);
-    }
-    return false;
-  }
-  function folderFilterAfterCodeNav(path2, data, folderFilter) {
-    if (pathMatchesFolderFilter(path2, data, folderFilter)) return folderFilter || null;
-    return null;
-  }
-  function codeViewSeedPath(selectedPath, data, folderFilter) {
-    if (!data || !data.files || !data.files.length) return null;
-    if (selectedPath) {
-      var selected = null;
-      for (var i = 0; i < data.files.length; i++) {
-        if (data.files[i].path === selectedPath) {
-          selected = data.files[i];
-          break;
-        }
-      }
-      if (selected && fileMatchesFolderFilter(selected, folderFilter)) return selectedPath;
-    }
-    return defaultCodeViewSeed(data, folderFilter);
-  }
-  function hiddenOpenedCodePaths(paths, data, folderFilter) {
-    var hidden = /* @__PURE__ */ Object.create(null);
-    if (!folderFilter) return hidden;
-    var visible = /* @__PURE__ */ Object.create(null);
-    filesForOpenedCodePaths(paths, data, folderFilter).forEach(function(file) {
-      if (file && file.path) visible[file.path] = true;
-    });
-    (paths || []).forEach(function(path2) {
-      if (path2 && !visible[path2]) hidden[path2] = true;
-    });
-    return hidden;
-  }
-  function codeCardPlacementKeepSet(openedPaths, visibleFiles) {
-    var keep = /* @__PURE__ */ Object.create(null);
-    (openedPaths || []).forEach(function(path2) {
-      if (path2) keep[path2] = true;
-    });
-    (visibleFiles || []).forEach(function(file) {
-      if (file && file.path) keep[file.path] = true;
-    });
-    return keep;
-  }
-  function pruneCodeCardPlacements(placements, keep) {
-    var departed = /* @__PURE__ */ Object.create(null);
-    Object.keys(placements || {}).forEach(function(path2) {
-      if (keep && keep[path2]) return;
-      departed[path2] = true;
-      delete placements[path2];
-    });
-    return departed;
-  }
-  function evictHiddenCodeCards(list, hidden, count) {
-    var need = Number(count);
-    if (!isFinite(need) || need <= 0) return (list || []).slice();
-    var removed = 0;
-    return (list || []).filter(function(path2) {
-      if (removed >= need) return true;
-      if (pathIsFlagged(hidden, path2)) {
-        removed++;
-        return false;
-      }
-      return true;
-    });
-  }
-  function openCodeCardPaths(prev, path2, limit, replace, hidden) {
-    var list = (prev || []).slice();
-    if (!path2) return list;
-    if (list.indexOf(path2) >= 0) return list;
-    var max = limit == null ? CODE_CARD_MAX : Number(limit);
-    if (isFinite(max) && list.length >= max) {
-      var need = list.length - max + 1;
-      if (hidden) list = evictHiddenCodeCards(list, hidden, need);
-      if (list.length >= max) {
-        if (!replace) return list;
-        list = list.slice(Math.max(0, list.length - max + 1));
-      }
-    }
-    list.push(path2);
-    return list;
-  }
-  function resolveOpenCodeCard(prev, path2, limit, replace, hidden) {
-    var before = prev || [];
-    var next = openCodeCardPaths(before, path2, limit, replace, hidden);
-    var already = !!(path2 && before.indexOf(path2) >= 0);
-    var inserted = !!(path2 && !already && next.indexOf(path2) >= 0);
-    return { paths: next, already, inserted, opened: already || inserted };
-  }
-  function ensureCodeViewOpenedPaths(openedPaths, selectedPath, data, folderFilter) {
-    var seed = codeViewSeedPath(selectedPath, data, folderFilter);
-    if (!seed) return { paths: openedPaths || [], seed: null, opened: false, inserted: false };
-    var resolved = resolveOpenCodeCard(openedPaths, seed, Infinity, false, hiddenOpenedCodePaths(openedPaths, data, folderFilter));
-    return { paths: resolved.paths, seed, opened: resolved.opened, inserted: resolved.inserted };
-  }
-  function filesForOpenedCodePaths(paths, data, folderFilter) {
-    if (!data || !data.files) return [];
-    var filtered = folderFilter ? data.files.filter(function(f) {
-      return f.folder === folderFilter || f.folder.startsWith(folderFilter + "/");
-    }) : data.files;
-    var byPath = /* @__PURE__ */ Object.create(null);
-    filtered.forEach(function(file) {
-      byPath[file.path] = file;
-    });
-    return (paths || []).map(function(path2) {
-      return byPath[path2];
-    }).filter(Boolean);
-  }
-
   // src/views/card-interaction.mjs
   function noteCodeCardPointerEnd(moved) {
     return { select: !moved, ignoreNextClick: !!moved };
@@ -8203,43 +8270,6 @@
     var p1 = codeCardLinkEndpoint(src, srcSize, srcFile, tgt, fn, srcIsCard, vertical);
     var p2 = codeCardLinkEndpoint(tgt, tgtSize, tgtFile, src, fn, tgtIsCard, vertical);
     return codeEdgeBezier(p1.x, p1.y, p2.x, p2.y);
-  }
-
-  // src/views/camera.mjs
-  var CODE_VIEW_MIN_FIT_SCALE = 0.4;
-  var CODE_VIEW_MAX_FIT_SCALE = 1.15;
-  function snapshotZoomTransform(transform) {
-    var t = transform || {};
-    var k = Number(t.k);
-    if (!isFinite(k) || k <= 0) k = 1;
-    var x2 = Number(t.x);
-    if (!isFinite(x2)) x2 = 0;
-    var y2 = Number(t.y);
-    if (!isFinite(y2)) y2 = 0;
-    return { k, x: x2, y: y2 };
-  }
-  function shouldFitCodeCamera(cameraReady, vizType) {
-    return vizType === "code" && !cameraReady;
-  }
-  function clampCodeViewFitScale(scale2) {
-    var value2 = Number(scale2);
-    if (!isFinite(value2) || value2 <= 0) return CODE_VIEW_MIN_FIT_SCALE;
-    if (value2 < CODE_VIEW_MIN_FIT_SCALE) return CODE_VIEW_MIN_FIT_SCALE;
-    if (value2 > CODE_VIEW_MAX_FIT_SCALE) return CODE_VIEW_MAX_FIT_SCALE;
-    return value2;
-  }
-  function codeCardFitBounds(nodes, sizesByPath, cardPaths) {
-    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    (nodes || []).forEach(function(node) {
-      if (!node || !cardPaths || !cardPaths.has(node.id) || !isFinite(node.x) || !isFinite(node.y)) return;
-      var size = sizesByPath && sizesByPath[node.id] || codeCardSize(null);
-      minX = Math.min(minX, node.x - size.width / 2);
-      minY = Math.min(minY, node.y - size.height / 2);
-      maxX = Math.max(maxX, node.x + size.width / 2);
-      maxY = Math.max(maxY, node.y + size.height / 2);
-    });
-    if (!isFinite(minX)) return null;
-    return { minX, minY, maxX, maxY, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
   }
 
   // src/views/minimap.mjs
@@ -10471,6 +10501,16 @@
         },
         fit() {
           graph3dInstanceRef.current?.zoomToFit(600);
+        },
+        snapshotImage() {
+          const graph = graph3dInstanceRef.current;
+          if (!graph) return Promise.reject(new Error("The 3D view is not ready."));
+          const renderer = graph.renderer();
+          renderer.render(graph.scene(), graph.camera());
+          return new Promise((resolve, reject) => renderer.domElement.toBlob((blob) => {
+            if (blob) resolve(blob);
+            else reject(new Error("Could not capture the 3D view."));
+          }, "image/png"));
         }
       }), []);
       useEffect2(function() {
@@ -11508,6 +11548,11 @@
       pinned: [],
       camera: snapshotZoomTransform(saved.camera)
     };
+    result.viewCameras = {};
+    for (const view of ["treemap", "matrix", "dendro", "sankey", "disjoint", "bundle"]) {
+      const camera = saved.viewCameras?.[view];
+      if (camera && typeof camera === "object") result.viewCameras[view] = snapshotZoomTransform(camera);
+    }
     Object.keys(saved.placements || {}).forEach(function(path2) {
       var p = saved.placements[path2];
       if (paths.has(path2) && p && Number.isFinite(p.x) && Number.isFinite(p.y)) result.placements[path2] = p;
@@ -62860,6 +62905,7 @@ This problem is likely caused by another plugin injecting
     }, []);
     var currentHydrationId = project.hydrationId;
     const loadedSourceIdentity = project.identity;
+    const workspaceCameras = useMemo(() => ({}), [loadedSourceIdentity?.sourceType, loadedSourceIdentity?.sourceKey]);
     analysisHydrationIdRef.current = currentHydrationId;
     const runtimeInspection = useRuntimeInspection(localTools, cliStatus?.runtimeNode || "");
     const runtimeIndex = useMemo(() => indexRuntime(runtimeInspection.snapshot, data?.files || []), [runtimeInspection.snapshot, data]);
@@ -63232,6 +63278,7 @@ This problem is likely caused by another plugin injecting
       }
       if (!restored) return;
       workspaceRestoreRef.current = ["graph", "code"].includes(restored.view) ? restored : null;
+      Object.assign(workspaceCameras, restored.viewCameras);
       setSelectedArchitectureBlock(restored.architectureBlockId);
       setRestoredNativeScene(restored);
       dispatchInvestigation({ type: "restore", workspace: restored });
@@ -63249,6 +63296,7 @@ This problem is likely caused by another plugin injecting
             view: graphConfig.vizType,
             architectureBlockId: selectedArchitectureBlock,
             navigation,
+            viewCameras: workspaceCameras,
             ...nativeCanvasRef.current?.snapshotScene()
           }));
         } catch (e) {
@@ -63310,6 +63358,18 @@ This problem is likely caused by another plugin injecting
       });
       root += "}";
       return root + "text{font-family:JetBrains Mono,monospace;pointer-events:none}";
+    }
+    async function export3DImage() {
+      try {
+        const blob = await graph3dViewRef.current.snapshotImage();
+        const url = URL.createObjectURL(blob), link2 = document.createElement("a");
+        link2.href = url;
+        link2.download = "codeflow-" + Date.now() + ".png";
+        link2.click();
+        URL.revokeObjectURL(url);
+      } catch (error2) {
+        showNotification(error2.message || "Could not export the 3D view.", "error");
+      }
     }
     function exportSVG() {
       if (!graphSvgExportEnabled(graphConfig.vizType)) {
@@ -63558,6 +63618,13 @@ This problem is likely caused by another plugin injecting
     function filterByFolder(path2) {
       setFolderFilter(function(prev) {
         return prev === path2 ? null : path2;
+      });
+      if (path2 && path2 !== folderFilter) setExpandedPaths(function(prev) {
+        const expanded = new Set(prev);
+        expanded.add("");
+        const parts = path2.split("/");
+        parts.forEach((_, index) => expanded.add(parts.slice(0, index + 1).join("/")));
+        return expanded;
       });
     }
     function renderRecentsList() {
@@ -64361,36 +64428,48 @@ This problem is likely caused by another plugin injecting
                 setBlastRadius(null);
               }
             } }),
-            graphConfig.vizType === "treemap" && React.createElement(TreemapView, { ref: alternateViewRef, files: data.files, folderFilter, onSelect: (path2) => {
+            graphConfig.vizType === "treemap" && React.createElement(TreemapView, { ref: alternateViewRef, key: loadedSourceIdentity?.sourceType + ":" + loadedSourceIdentity?.sourceKey, restoredCamera: workspaceCameras.treemap, onCameraChange: (camera) => {
+              workspaceCameras.treemap = camera;
+            }, files: data.files, folderFilter, onSelect: (path2) => {
               if (path2) selectFile(path2);
               else {
                 setSelected(null);
                 setBlastRadius(null);
               }
             }, colorMap: folderColors, selectedPath: selected?.path, blastRadius }),
-            graphConfig.vizType === "matrix" && React.createElement(MatrixView, { ref: alternateViewRef, files: data.files, folderFilter, onSelect: (path2) => {
+            graphConfig.vizType === "matrix" && React.createElement(MatrixView, { ref: alternateViewRef, key: loadedSourceIdentity?.sourceType + ":" + loadedSourceIdentity?.sourceKey, restoredCamera: workspaceCameras.matrix, onCameraChange: (camera) => {
+              workspaceCameras.matrix = camera;
+            }, files: data.files, folderFilter, onSelect: (path2) => {
               if (path2) selectFile(path2);
               else {
                 setSelected(null);
                 setBlastRadius(null);
               }
             }, connections: data.connections }),
-            graphConfig.vizType === "dendro" && React.createElement(DendrogramView, { ref: alternateViewRef, files: data.files, folderFilter, onSelect: (path2) => {
+            graphConfig.vizType === "dendro" && React.createElement(DendrogramView, { ref: alternateViewRef, key: loadedSourceIdentity?.sourceType + ":" + loadedSourceIdentity?.sourceKey, restoredCamera: workspaceCameras.dendro, onCameraChange: (camera) => {
+              workspaceCameras.dendro = camera;
+            }, files: data.files, folderFilter, onSelect: (path2) => {
               if (path2) selectFile(path2);
               else {
                 setSelected(null);
                 setBlastRadius(null);
               }
             }, colorMap: folderColors, lineThickness, onScope: filterByFolder }),
-            graphConfig.vizType === "sankey" && React.createElement(SankeyView, { ref: alternateViewRef, files: data.files, folderFilter, connections: data.connections, colorMap: folderColors, lineThickness, onScope: filterByFolder }),
-            graphConfig.vizType === "disjoint" && React.createElement(DisjointView, { ref: alternateViewRef, files: data.files, folderFilter, onSelect: (path2) => {
+            graphConfig.vizType === "sankey" && React.createElement(SankeyView, { ref: alternateViewRef, key: loadedSourceIdentity?.sourceType + ":" + loadedSourceIdentity?.sourceKey, restoredCamera: workspaceCameras.sankey, onCameraChange: (camera) => {
+              workspaceCameras.sankey = camera;
+            }, files: data.files, folderFilter, connections: data.connections, colorMap: folderColors, lineThickness, onScope: filterByFolder }),
+            graphConfig.vizType === "disjoint" && React.createElement(DisjointView, { ref: alternateViewRef, key: loadedSourceIdentity?.sourceType + ":" + loadedSourceIdentity?.sourceKey, restoredCamera: workspaceCameras.disjoint, onCameraChange: (camera) => {
+              workspaceCameras.disjoint = camera;
+            }, files: data.files, folderFilter, onSelect: (path2) => {
               if (path2) selectFile(path2);
               else {
                 setSelected(null);
                 setBlastRadius(null);
               }
             }, connections: data.connections, colorMap: folderColors, lineThickness }),
-            graphConfig.vizType === "bundle" && React.createElement(BundleView, { ref: alternateViewRef, files: data.files, folderFilter, onSelect: (path2) => {
+            graphConfig.vizType === "bundle" && React.createElement(BundleView, { ref: alternateViewRef, key: loadedSourceIdentity?.sourceType + ":" + loadedSourceIdentity?.sourceKey, restoredCamera: workspaceCameras.bundle, onCameraChange: (camera) => {
+              workspaceCameras.bundle = camera;
+            }, files: data.files, folderFilter, onSelect: (path2) => {
               if (path2) selectFile(path2);
               else {
                 setSelected(null);
@@ -65092,11 +65171,14 @@ This problem is likely caused by another plugin injecting
               React.Fragment,
               null,
               React.createElement("div", { style: { fontSize: 10, fontWeight: 600, color: "var(--t3)", textTransform: "uppercase", marginBottom: 8, marginTop: data && data.architectureDiagram ? 16 : 0 } }, "Graph Visualization"),
-              !graphSvgExportEnabled(graphConfig.vizType) && React.createElement("div", { style: { fontSize: 9, color: "var(--t2)", marginBottom: 10, lineHeight: 1.4 } }, "Code cards are HTML overlays, not SVG. Switch to Graph to export an image."),
+              graphConfig.vizType === "code" && React.createElement("div", { style: { fontSize: 9, color: "var(--t2)", marginBottom: 10, lineHeight: 1.4 } }, "Code cards are HTML overlays, not SVG. Switch to Graph to export an image."),
               React.createElement(
                 "div",
                 { className: "export-options" },
-                React.createElement("div", { className: "export-option" + (graphSvgExportEnabled(graphConfig.vizType) ? "" : " disabled"), "aria-disabled": graphSvgExportEnabled(graphConfig.vizType) ? void 0 : "true", onClick: function() {
+                graphConfig.vizType === "graph3d" ? React.createElement("div", { className: "export-option", onClick: function() {
+                  export3DImage();
+                  setShowExport(false);
+                } }, React.createElement("div", { className: "export-option-icon" }, React.createElement(Icon, { name: "image", size: "xl" })), React.createElement("div", { className: "export-option-label" }, "PNG Image")) : React.createElement("div", { className: "export-option" + (graphSvgExportEnabled(graphConfig.vizType) ? "" : " disabled"), "aria-disabled": graphSvgExportEnabled(graphConfig.vizType) ? void 0 : "true", onClick: function() {
                   if (!graphSvgExportEnabled(graphConfig.vizType)) return;
                   exportSVG();
                   setShowExport(false);

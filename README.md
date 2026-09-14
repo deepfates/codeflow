@@ -49,7 +49,9 @@ Graph keeps Codeflow's file nodes, connections, layouts and folder filtering.
 Matrix retains every file while rendering cells in the visible viewport. Dendrogram,
 Bundle and Disjoint allocate a larger pan/zoom world for large inventories; Flow
 uses the released circular Sankey layout to retain cyclic and reciprocal folder
-dependencies with their original weights. These views no longer take fixed-size file samples.
+dependencies with their original weights. Scoping Flow to a folder keeps its
+connections to neighboring folders and reveals its files in the existing tree.
+These views no longer take fixed-size file samples.
 Compiler references enrich the same graph alongside source-analysis relationships,
 including links from tests, documentation and other languages. Mix dependency and
 build directories (`deps`, `_build`, `.elixir_ls`) are excluded by default, including
@@ -69,9 +71,10 @@ Patterns, Security, Actions, Block Diagram and reports remain available. Tool
 failure is reported as unavailable, not as a clean assessment.
 
 Workspace view, scope, selection, navigation history, open cards, placement, sizes
-and Graph/Code camera are saved in
-this browser for each project, including projects without Elixir. Source contents
-are loaded from the local server.
+and Graph/Code camera are saved in this browser for each project, including
+projects without Elixir. Treemap, Matrix, Dendrogram, Flow, Disjoint and Bundle
+also retain their latest camera when switching views or reloading. Source
+contents are loaded from the local server.
 
 To inspect a running local BEAM node:
 
@@ -297,7 +300,8 @@ Export your analysis in multiple formats for further processing:
 
 - **Markdown Report** - Human-readable formatted report
 - **Plain Text Report** - Simple text format
-- **SVG Image** - Export the dependency graph visualization
+- **SVG Image** - Export the current SVG visualization
+- **PNG Image** - Export the current 3D scene
 - **PDF Document** - Export the dependency graph as a printable PDF
 - **Raw JSON** - Simplified data export
 
