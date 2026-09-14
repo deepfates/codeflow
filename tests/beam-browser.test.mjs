@@ -389,6 +389,41 @@ test('3D graph mounts the native renderer and returns to the same file graph', {
   const orbitAfter=await page.evaluate(()=>window.__graph3dTest.cameraPosition());
   assert.notDeepEqual(orbitAfter,orbitBefore,'orbit controls remain usable after node dragging');
   assert.deepEqual(errors,[],'native drag and orbit pointerup finish cleanly');
+  // Real browser touch input guards against removing a touch-control cleanup
+  // while correcting the library's synthetic pointerup after mouse input.
+  const touch=await page.context().newCDPSession(page);
+  await touch.send('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:2});
+  const touchFrame=()=>page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  async function touchGesture(from,to){
+    await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:from.x,y:from.y,id:7}]});
+    await touchFrame();
+    if(to)for(let step=1;step<=12;step++){
+      await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:from.x+(to.x-from.x)*step/12,y:from.y+(to.y-from.y)*step/12,id:7}]});
+    }
+    await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+    await touchFrame();
+  }
+  const tap=await pointFor('provider.js');
+  await touchGesture(tap);
+  await page.locator('.tree-file.active').filter({hasText:'provider.js'}).waitFor();
+  assert.deepEqual(errors,[],'native touch node selection finishes cleanly');
+  await page.waitForTimeout(1250);
+  const touchPoint=await pointFor('provider.js');
+  const touchNodeBefore=await page.evaluate(()=>{const n=window.__graph3dTest.graphData().nodes.find(n=>n.id==='provider.js');return {x:n.x,y:n.y,z:n.z};});
+  await touchGesture(touchPoint,{x:touchPoint.x+60,y:touchPoint.y+30});
+  const touchNodeAfter=await page.evaluate(()=>{const n=window.__graph3dTest.graphData().nodes.find(n=>n.id==='provider.js');return {x:n.x,y:n.y,z:n.z};});
+  assert.notDeepEqual(touchNodeAfter,touchNodeBefore,'native touch dragging moves the node');
+  const touchOrbitBefore=await page.evaluate(()=>window.__graph3dTest.cameraPosition());
+  await touchGesture({x:bounds.x+30,y:bounds.y+200},{x:bounds.x+140,y:bounds.y+250});
+  const touchOrbitAfter=await page.evaluate(()=>window.__graph3dTest.cameraPosition());
+  assert.notDeepEqual(touchOrbitAfter,touchOrbitBefore,'touch orbit remains usable after node touch dragging');
+  const laterTap=await pointFor('consumer.js');
+  await touchGesture(laterTap);
+  await page.locator('.tree-file.active').filter({hasText:'consumer.js'}).waitFor();
+  assert.deepEqual(errors,[],'subsequent touch still selects without stuck controls');
+  await touch.send('Emulation.setTouchEmulationEnabled',{enabled:false});
+  await touch.detach();
+
 
   await mode.selectOption('graph');
   await page.waitForFunction(()=>document.querySelectorAll('.canvas-area svg circle.nc').length===2&&[...document.querySelectorAll('.canvas-area svg path')].some(el=>el.__data__?.source?.id==='provider.js'&&el.__data__?.target?.id==='consumer.js'));
