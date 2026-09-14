@@ -131,6 +131,82 @@
     }
   });
 
+  // src/project/cli-analysis.mjs
+  function subscribeCliAnalysis({ onUpdate, fetch: request = globalThis.fetch, interval = 2500 }) {
+    const controller = new AbortController();
+    let timer, graphRevision, diagnosticsRevision, lastAnalysis;
+    async function read(path) {
+      const response = await request(path, { signal: controller.signal });
+      if (!response.ok) throw new Error(`Local project service returned ${response.status}`);
+      return response.json();
+    }
+    function diagnosticsFor(analysis) {
+      return [
+        {
+          id: "elixir-ls",
+          name: "ElixirLS",
+          status: analysis.language.state,
+          reason: analysis.language.reason,
+          findings: analysis.language.diagnostics
+        },
+        {
+          id: "credo",
+          name: "Credo",
+          status: analysis.assessment.status,
+          reason: analysis.assessment.reason,
+          findings: analysis.assessment.findings
+        }
+      ];
+    }
+    async function poll() {
+      try {
+        const analysis = await read("/__codeflow/analysis");
+        if (controller.signal.aborted) return;
+        lastAnalysis = analysis;
+        const diagnostics = diagnosticsFor(analysis);
+        const revision = JSON.stringify(diagnostics);
+        onUpdate({ analysis, diagnostics: revision === diagnosticsRevision ? null : diagnostics });
+        diagnosticsRevision = revision;
+        if (analysis.graphRevision && analysis.graphRevision !== graphRevision) {
+          try {
+            const graph = await read("/__codeflow/beam");
+            if (controller.signal.aborted) return;
+            onUpdate({ graph, diagnostics: [{
+              id: "mix",
+              name: "Mix compiler graph",
+              status: graph.status,
+              reason: (graph.warnings || []).join("\n") || null
+            }] });
+            graphRevision = analysis.graphRevision;
+          } catch (error) {
+            if (controller.signal.aborted) return;
+            onUpdate({ diagnostics: [{
+              id: "mix",
+              name: "Mix compiler graph",
+              status: "unavailable",
+              reason: error.message
+            }] });
+          }
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        const analysis = {
+          language: { ...lastAnalysis?.language, state: "unavailable", reason: error.message },
+          assessment: { ...lastAnalysis?.assessment, status: "unavailable", reason: error.message }
+        };
+        onUpdate({ analysis, diagnostics: diagnosticsFor(analysis) });
+        diagnosticsRevision = null;
+      } finally {
+        if (!controller.signal.aborted) timer = setTimeout(poll, interval);
+      }
+    }
+    void poll();
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }
+
   // src/project/export.mjs
   function exportAnalysis(data) {
     return {
@@ -55887,74 +55963,10 @@ This problem is likely caused by another plugin injecting
       };
     }, [viewportWidth]);
     var [beamAnalysis, setBeamAnalysis] = useState(null);
-    var beamGraphRevisionRef = useRef(null), providerRevisionRef = useRef(null);
     var [beamSymbols, setBeamSymbols] = useState([]), [beamLocations, setBeamLocations] = useState(null);
     var [beamNavigationError, setBeamNavigationError] = useState(null);
     var [runtimeFocus, setRuntimeFocus] = useState(null);
     var [runtimeNode, setRuntimeNode] = useState(""), [runtimeSnapshot, setRuntimeSnapshot] = useState(null), [runtimeBusy, setRuntimeBusy] = useState(false);
-    useEffect(function() {
-      if (!data || !data.beam || !cliStatus || !cliStatus.ok) return;
-      var cancelled = false, timer;
-      providerRevisionRef.current = null;
-      beamGraphRevisionRef.current = null;
-      async function poll() {
-        try {
-          var response = await fetch("/__codeflow/analysis");
-          if (response.ok) {
-            var result = await response.json();
-            if (!cancelled) {
-              setBeamAnalysis(result);
-              var providers = [
-                { id: "elixir-ls", name: "ElixirLS", status: result.language.state, reason: result.language.reason, findings: result.language.diagnostics },
-                { id: "credo", name: "Credo", status: result.assessment.status, reason: result.assessment.reason, findings: result.assessment.findings }
-              ];
-              var revision = JSON.stringify(providers);
-              if (providerRevisionRef.current !== revision) {
-                providerRevisionRef.current = revision;
-                setData(function(prev) {
-                  return prev ? enrichAnalysisFindings(prev, providers) : prev;
-                });
-              }
-              if (result.graphRevision && beamGraphRevisionRef.current !== result.graphRevision) {
-                var graphResponse = await fetch("/__codeflow/beam");
-                if (graphResponse.ok) {
-                  var graph = await graphResponse.json();
-                  if (!cancelled) {
-                    beamGraphRevisionRef.current = result.graphRevision;
-                    setData(function(prev) {
-                      return prev && prev.beam ? buildBeamAnalysisData({ data: prev, snapshot: graph }) : prev;
-                    });
-                  }
-                }
-              }
-            }
-          }
-        } catch (e) {
-        }
-        if (!cancelled) timer = setTimeout(poll, 2500);
-      }
-      poll();
-      setRuntimeNode(cliStatus.runtimeNode || "");
-      return function() {
-        cancelled = true;
-        clearTimeout(timer);
-      };
-    }, [currentHydrationId, cliStatus && cliStatus.root, !!(data && data.beam)]);
-    useEffect(function() {
-      setBeamSymbols([]);
-      setBeamLocations(null);
-      setBeamNavigationError(null);
-      if (!data || !data.beam || !selected || !/\.exs?$/.test(selected.path) || !beamAnalysis || beamAnalysis.language.state !== "ready") return;
-      var cancelled = false;
-      beamLanguage("symbols", selected.path).then(function(items) {
-        if (!cancelled) setBeamSymbols(items);
-      }).catch(function(error2) {
-        if (!cancelled) setBeamNavigationError(error2.message);
-      });
-      return function() {
-        cancelled = true;
-      };
-    }, [selected && selected.path, beamAnalysis && beamAnalysis.language.build && beamAnalysis.language.build.completedAt, beamAnalysis && beamAnalysis.language.state]);
     async function beamLanguage(method, path, position) {
       var query = new URLSearchParams({ method, path });
       if (position) {
@@ -56376,6 +56388,34 @@ This problem is likely caused by another plugin injecting
       return analysisHydrationIdFromParts(loadedSourceIdentity, analysisGraphIdentity);
     }, [loadedSourceIdentity, analysisGraphIdentity]);
     analysisHydrationIdRef.current = currentHydrationId;
+    useEffect(function() {
+      if (loading || !data || !data.beam || !cliStatus || !cliStatus.ok || !loadedSourceIdentity || loadedSourceIdentity.sourceType !== "cli") return;
+      setRuntimeNode(cliStatus.runtimeNode || "");
+      return subscribeCliAnalysis({ onUpdate: function(update) {
+        if (update.analysis) setBeamAnalysis(update.analysis);
+        if (update.diagnostics) setData(function(prev) {
+          return prev ? enrichAnalysisFindings(prev, update.diagnostics) : prev;
+        });
+        if (update.graph) setData(function(prev) {
+          return prev && prev.beam ? buildBeamAnalysisData({ data: prev, snapshot: update.graph }) : prev;
+        });
+      } });
+    }, [loading, loadedSourceIdentity && loadedSourceIdentity.sourceType, loadedSourceIdentity && loadedSourceIdentity.sourceKey, cliStatus && cliStatus.root, !!(data && data.beam)]);
+    useEffect(function() {
+      setBeamSymbols([]);
+      setBeamLocations(null);
+      setBeamNavigationError(null);
+      if (loading || !data || !data.beam || !selected || !/\.exs?$/.test(selected.path) || !beamAnalysis || beamAnalysis.language.state !== "ready") return;
+      var cancelled = false;
+      beamLanguage("symbols", selected.path).then(function(items) {
+        if (!cancelled) setBeamSymbols(items);
+      }).catch(function(error2) {
+        if (!cancelled) setBeamNavigationError(error2.message);
+      });
+      return function() {
+        cancelled = true;
+      };
+    }, [loading, loadedSourceIdentity && loadedSourceIdentity.sourceKey, selected && selected.path, beamAnalysis && beamAnalysis.language.build && beamAnalysis.language.build.completedAt, beamAnalysis && beamAnalysis.language.state]);
     function refreshRecentList() {
       listRecentAnalyses().then(function(rows) {
         setRecentAnalyses((rows || []).map(function(row) {

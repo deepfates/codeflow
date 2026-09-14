@@ -441,8 +441,8 @@ We love contributions! Here's how:
 
 The HTML file owns the document and styles. The application code lives in modules:
 
-- `src/project/`: shared exclusion policy, source identity, change tracking, tree and export; GitHub acquisition has an explicit adapter.
-- `src/analysis/`: parser runtime factory, shared file classification, project assembly, architecture, metrics and provider evidence enrichment.
+- `src/project/`: shared exclusion policy, source identity, change tracking, tree and export; GitHub access has an explicit adapter. `cli-analysis.mjs` polls local tool results and owns request cancellation, refresh timing and duplicate-update suppression.
+- `src/analysis/`: parser runtime factory, shared file classification, code indexing, architecture, metrics and merging compiler and linter results.
 - `src/investigation/`: source navigation, history, workspace, preferences and recent-analysis persistence.
 - `src/views/`: card geometry, graph styling, links, camera, minimap and source rendering.
 - `src/browser/app.mjs`: React composition and remaining view/controller code. `src/browser/analysis-client.mjs` owns worker transport; `src/worker/analysis-worker.mjs` and `src/node/analysis.mjs` configure the same analysis engine.
@@ -462,7 +462,7 @@ the engine loads grammars before extraction and owns definitions, classification
 and project assembly. Acquisition failures remain inventory entries. Source stays
 in the live project model; recent-analysis
 persistence makes its own compact projection. Raw JSON retains source evidence,
-including Elixir declarations and unresolved calls, alongside findings and links.
+including Elixir declarations and unresolved calls, alongside diagnostics and links.
 
 Node.js tests live under `tests/`. Install dependencies with `npm ci`. Test files
 run sequentially so other workers do not compete with the existing two-second
