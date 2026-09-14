@@ -11,18 +11,8 @@ import { collectBeamGraph, unavailableBeam } from './beam.mjs';
 import { collectRuntimeSnapshot } from './runtime.mjs';
 
 import exclusionPolicy from '../src/project/exclusion-policy.cjs';
+import {isIncluded} from '../src/analysis/file-types.mjs';
 const {IGNORE}=exclusionPolicy;
-
-const TEXT_EXT = new Set([
-  'js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs', 'py', 'java', 'go', 'rb', 'php',
-  'vue', 'svelte', 'rs', 'c', 'h', 'cpp', 'cc', 'cxx', 'hpp', 'hh', 'hxx',
-  'cs', 'swift', 'kt', 'kts', 'scala', 'sc', 'groovy', 'gvy', 'ex', 'exs',
-  'erl', 'hrl', 'hs', 'lhs', 'lua', 'r', 'jl', 'dart', 'pl', 'pm', 'sh',
-  'bash', 'zsh', 'fish', 'ps1', 'psm1', 'psd1', 'fs', 'fsi', 'fsx', 'ml',
-  'mli', 'clj', 'cljs', 'cljc', 'elm', 'vba', 'bas', 'cls', 'pas', 'pp',
-  'dpr', 'dpk', 'lpr', 'inc', 'html', 'htm', 'xhtml', 'md', 'markdown',
-  'json', 'yml', 'yaml', 'toml', 'css', 'scss', 'sql'
-]);
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
@@ -92,8 +82,7 @@ export function shouldSkipName(name) {
 }
 
 export function isWatchableFile(name) {
-  const ext = String(name || '').split('.').pop().toLowerCase();
-  return TEXT_EXT.has(ext);
+  return isIncluded(String(name || ''));
 }
 
 export function parseCliArgs(argv) {

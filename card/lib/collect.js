@@ -18,7 +18,6 @@ function walk(root, current, files, Parser, excludePatterns) {
     return;
   }
   for (const entry of entries) {
-    if (entry.name.startsWith('.git')) continue;
     if (DEFAULT_IGNORES.has(entry.name.toLowerCase())) continue;
     const full = path.join(current, entry.name);
     const repoPath = path.relative(root, full).split(path.sep).join('/');
