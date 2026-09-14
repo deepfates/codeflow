@@ -41917,6 +41917,12 @@ ${JSON.stringify(t2, null, 2)}`);
     } };
   }
 
+  // src/project/identity.mjs
+  function functionKey(fn) {
+    if (!fn) return "";
+    return [fn.file || "", fn.line || "", String(fn.name == null ? "" : fn.name)].join("|");
+  }
+
   // src/project/size-policy.mjs
   var maxAnalyzableFileBytes = 2 * 1024 * 1024;
   function isOversized(size) {
@@ -44376,10 +44382,7 @@ ${JSON.stringify(t2, null, 2)}`);
         });
         return byFile;
       },
-      functionKey: function(fn) {
-        if (!fn) return "";
-        return [fn.file || "", fn.line || "", String(fn.name == null ? "" : fn.name)].join("|");
-      },
+      functionKey,
       buildFunctionDefinitionIndex: function(fnDefs) {
         var byName = /* @__PURE__ */ Object.create(null);
         var byPascalName = /* @__PURE__ */ Object.create(null);
