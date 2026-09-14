@@ -1291,7 +1291,7 @@ function App(){
         var authPromise;
         if(authMethod==='github_app'){
             setProgress('Authenticating with GitHub App...');
-            authPromise=GitHub.authenticateApp(p.owner,p.repo).catch(function(err){
+            authPromise=GitHub.authenticateApp(p.owner,p.repo,loadSignal).catch(function(err){
                 throw new Error('GitHub App authentication failed: '+err.message);
             });
         }else{
@@ -1300,7 +1300,7 @@ function App(){
 
         authPromise.then(function(){loadSignal.throwIfAborted();
             setProgress('Checking rate limit...');
-            return GitHub.getRateLimit();
+            return GitHub.getRateLimit(loadSignal);
         }).then(function(rl){loadSignal.throwIfAborted();
             var hasAuth=!!GitHub.token||authMethod==='github_app';
             var estimatedRequests=50;// Conservative estimate for a small-medium repo
@@ -1328,12 +1328,12 @@ function App(){
                         return Promise.reject('cancelled');
                     }
                     setProgress('Scanning repository...');
-                    return GitHub.scan(p.owner,p.repo,function(message){if(!loadSignal.aborted)setProgress(message);},currentExcludePatterns);
+                    return GitHub.scan(p.owner,p.repo,function(message){if(!loadSignal.aborted)setProgress(message);},currentExcludePatterns,loadSignal);
                 });
             }
 
             setProgress('Scanning repository...');
-            return GitHub.scan(p.owner,p.repo,function(message){if(!loadSignal.aborted)setProgress(message);},currentExcludePatterns);
+            return GitHub.scan(p.owner,p.repo,function(message){if(!loadSignal.aborted)setProgress(message);},currentExcludePatterns,loadSignal);
         }).then(function(files){loadSignal.throwIfAborted();
             if(!files)return;// Cancelled
             if(!files.length)throw new Error(currentExcludePatterns.length?'No code files found after applying exclude patterns':'No code files found');
@@ -1341,8 +1341,8 @@ function App(){
             async function beginRepoAnalysis(){
                 const analyzed=await readCollectedFiles(files.map(file=>({...file,read:async()=>{
                     const [content,commits]=await Promise.all([
-                        GitHub.getFile(p.owner,p.repo,file.path),
-                        Parser.isCode(file.name)?GitHub.getCommits(p.owner,p.repo,file.path,10).catch(()=>[]):Promise.resolve([])
+                        GitHub.getFile(p.owner,p.repo,file.path,loadSignal),
+                        Parser.isCode(file.name)?GitHub.getCommits(p.owner,p.repo,file.path,10,loadSignal):Promise.resolve([])
                     ]);
                     if(typeof content!=='string')throw new Error('GitHub source request failed');
                     return {content,churn:Array.isArray(commits)?commits.length:0};

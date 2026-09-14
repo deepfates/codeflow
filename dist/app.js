@@ -56014,10 +56014,11 @@ This problem is likely caused by another plugin injecting
           return null;
         }
       },
-      getRepoInstallation: function(owner, repo) {
+      getRepoInstallation: function(owner, repo, signal) {
         var jwt = this.generateJWT();
         if (!jwt) return Promise.reject(new Error("Failed to generate JWT"));
         return this.request(buildGitHubApiUrl(["repos", owner, repo, "installation"]), {
+          signal,
           headers: {
             "Accept": "application/vnd.github.v3+json",
             "Authorization": "Bearer " + jwt
@@ -56025,11 +56026,12 @@ This problem is likely caused by another plugin injecting
         }, { 401: "Invalid App credentials", 404: "This GitHub App is not installed on the selected repository" });
       },
       // Get installation access token
-      getInstallationToken: function(installationId) {
+      getInstallationToken: function(installationId, signal) {
         var self = this;
         var jwt = this.generateJWT();
         if (!jwt) return Promise.reject(new Error("Failed to generate JWT"));
         return this.request(buildGitHubApiUrl(["app", "installations", String(installationId), "access_tokens"]), {
+          signal,
           method: "POST",
           headers: {
             "Accept": "application/vnd.github.v3+json",
@@ -56043,17 +56045,17 @@ This problem is likely caused by another plugin injecting
         });
       },
       // Authenticate with GitHub App for a specific repo
-      authenticateApp: function(owner, repo) {
+      authenticateApp: function(owner, repo, signal) {
         var self = this;
         if (this.installationToken && this.installationTokenExpiry && Date.now() < this.installationTokenExpiry - 6e4) {
           this.token = this.installationToken;
           return Promise.resolve(this.installationToken);
         }
-        return this.getRepoInstallation(owner, repo).then(function(installation) {
+        return this.getRepoInstallation(owner, repo, signal).then(function(installation) {
           if (!installation || !installation.id) {
             throw new Error("No installation found for this repository");
           }
-          return self.getInstallationToken(installation.id);
+          return self.getInstallationToken(installation.id, signal);
         });
       },
       request: function(url, options, errorMap) {
@@ -56061,11 +56063,20 @@ This problem is likely caused by another plugin injecting
         var h = Object.assign({ "Accept": "application/vnd.github.v3+json" }, options && options.headers ? options.headers : {});
         if (this.token && !h.Authorization) h.Authorization = "Bearer " + this.token;
         var controller = new AbortController();
+        var signal = options && options.signal;
+        if (signal && signal.aborted) return Promise.reject(signal.reason);
+        var cancel = function() {
+          controller.abort(signal.reason);
+        };
+        if (signal) signal.addEventListener("abort", cancel, { once: true });
+        var timedOut = false;
         var timeoutId = setTimeout(function() {
+          timedOut = true;
           controller.abort();
         }, this.requestTimeoutMs);
         var requestOptions = Object.assign({}, options || {}, { headers: h, signal: controller.signal });
         return fetch2(url, requestOptions).then(function(r) {
+          controller.signal.throwIfAborted();
           var rem = r.headers.get("x-ratelimit-remaining");
           var lim = r.headers.get("x-ratelimit-limit");
           var rst = r.headers.get("x-ratelimit-reset");
@@ -56077,22 +56088,27 @@ This problem is likely caused by another plugin injecting
               errorMap && errorMap[r.status] ? errorMap[r.status] : r.status === 401 ? "Invalid token" : r.status === 403 ? "Rate limited - add a GitHub token for 5000 req/hour" : r.status === 404 ? "Repository not found" : r.status === 429 ? "Rate limited (429) - add a GitHub token" : "Error " + r.status
             );
           }
-          return r.json();
+          return r.json().then(function(data) {
+            controller.signal.throwIfAborted();
+            return data;
+          });
         }).catch(function(err) {
-          if (err && err.name === "AbortError") {
+          if (signal && signal.aborted) throw signal.reason;
+          if (timedOut && err && err.name === "AbortError") {
             throw new Error("GitHub request timed out. Please try again.");
           }
           throw err;
         }).finally(function() {
           clearTimeout(timeoutId);
+          if (signal) signal.removeEventListener("abort", cancel);
         });
       },
       fetch: function(url, options, errorMap) {
         return this.request(url, options, errorMap);
       },
-      getRateLimit: function() {
+      getRateLimit: function(signal) {
         var self = this;
-        return this.request(buildGitHubApiUrl(["rate_limit"])).then(function(d) {
+        return this.request(buildGitHubApiUrl(["rate_limit"]), { signal }).then(function(d) {
           if (d.resources && d.resources.core) {
             self.rateLimit.remaining = d.resources.core.remaining;
             self.rateLimit.limit = d.resources.core.limit;
@@ -56100,19 +56116,22 @@ This problem is likely caused by another plugin injecting
           }
           return self.rateLimit;
         }).catch(function() {
+          if (signal) signal.throwIfAborted();
           return self.rateLimit;
         });
       },
-      getFile: function(o, r, p) {
-        return this.fetch(buildRepoApiUrl(o, r, ["contents"].concat(splitRepoPath(p)))).then(function(d) {
+      getFile: function(o, r, p, signal) {
+        return this.fetch(buildRepoApiUrl(o, r, ["contents"].concat(splitRepoPath(p))), { signal }).then(function(d) {
           return typeof d.content === "string" ? decodeBase64Utf8(d.content) : null;
         }).catch(function() {
+          if (signal) signal.throwIfAborted();
           return null;
         });
       },
-      getCommits: function(o, r, path, limit) {
+      getCommits: function(o, r, path, limit, signal) {
         if (this.rateLimit.remaining < 20 && !this.token) return Promise.resolve([]);
-        return this.fetch(buildRepoApiUrl(o, r, ["commits"], { per_page: limit || 30, path: path || void 0 })).catch(function() {
+        return this.fetch(buildRepoApiUrl(o, r, ["commits"], { per_page: limit || 30, path: path || void 0 }), { signal }).catch(function() {
+          if (signal) signal.throwIfAborted();
           return [];
         });
       },
@@ -56144,13 +56163,13 @@ This problem is likely caused by another plugin injecting
         });
       },
       // Fast scan using Git Trees API (single request for all files!)
-      scanTree: function(o, r, cb, compiledPatterns) {
+      scanTree: function(o, r, cb, compiledPatterns, signal) {
         var self = this;
         if (cb) cb("Fetching repository tree...");
-        return this.fetch(buildRepoApiUrl(o, r)).then(function(repo) {
+        return this.fetch(buildRepoApiUrl(o, r), { signal }).then(function(repo) {
           var branch = repo.default_branch || "main";
           if (cb) cb("Loading file tree (" + branch + ")...");
-          return self.fetch(buildRepoApiUrl(o, r, ["git", "trees", branch], { recursive: 1 }));
+          return self.fetch(buildRepoApiUrl(o, r, ["git", "trees", branch], { recursive: 1 }), { signal });
         }).then(function(tree) {
           if (!tree.tree) throw new Error("Invalid tree response");
           var f = [];
@@ -56172,12 +56191,12 @@ This problem is likely caused by another plugin injecting
         });
       },
       // Fallback: recursive scan using Contents API (many requests)
-      scanRecursive: function(o, r, cb, p, d, compiledPatterns) {
+      scanRecursive: function(o, r, cb, p, d, compiledPatterns, signal) {
         var self = this;
         p = p || "";
         d = d || 0;
         if (d > 10) return Promise.resolve([]);
-        return this.fetch(buildRepoApiUrl(o, r, ["contents"].concat(splitRepoPath(p)))).then(function(c) {
+        return this.fetch(buildRepoApiUrl(o, r, ["contents"].concat(splitRepoPath(p))), { signal }).then(function(c) {
           var f = [];
           var promises = [];
           c.forEach(function(i) {
@@ -56185,7 +56204,8 @@ This problem is likely caused by another plugin injecting
               f.push({ path: i.path, name: i.name, folder: i.path.includes("/") ? i.path.substring(0, i.path.lastIndexOf("/")) : "root", size: i.size, isCode: isCode(i.name) });
             } else if (i.type === "dir" && !shouldIgnoreDirectory(i.path, i.name, compiledPatterns)) {
               if (cb) cb("/" + i.path);
-              promises.push(self.scanRecursive(o, r, cb, i.path, d + 1, compiledPatterns).catch(function() {
+              promises.push(self.scanRecursive(o, r, cb, i.path, d + 1, compiledPatterns, signal).catch(function() {
+                if (signal) signal.throwIfAborted();
                 return [];
               }));
             }
@@ -56197,16 +56217,18 @@ This problem is likely caused by another plugin injecting
             return f;
           });
         }).catch(function(e) {
+          if (signal) signal.throwIfAborted();
           if (d === 0) throw e;
           return [];
         });
       },
       // Smart scan: try tree API first (1 request), fallback to recursive
-      scan: function(o, r, cb, compiledPatterns) {
+      scan: function(o, r, cb, compiledPatterns, signal) {
         var self = this;
-        return this.scanTree(o, r, cb, compiledPatterns).catch(function(e) {
+        return this.scanTree(o, r, cb, compiledPatterns, signal).catch(function(e) {
+          if (signal) signal.throwIfAborted();
           if (cb) cb("Tree API failed, using fallback...");
-          return self.scanRecursive(o, r, cb, "", 0, compiledPatterns);
+          return self.scanRecursive(o, r, cb, "", 0, compiledPatterns, signal);
         });
       }
     };
@@ -57596,7 +57618,7 @@ This problem is likely caused by another plugin injecting
       var authPromise;
       if (authMethod === "github_app") {
         setProgress("Authenticating with GitHub App...");
-        authPromise = GitHub.authenticateApp(p.owner, p.repo).catch(function(err) {
+        authPromise = GitHub.authenticateApp(p.owner, p.repo, loadSignal).catch(function(err) {
           throw new Error("GitHub App authentication failed: " + err.message);
         });
       } else {
@@ -57605,7 +57627,7 @@ This problem is likely caused by another plugin injecting
       authPromise.then(function() {
         loadSignal.throwIfAborted();
         setProgress("Checking rate limit...");
-        return GitHub.getRateLimit();
+        return GitHub.getRateLimit(loadSignal);
       }).then(function(rl) {
         loadSignal.throwIfAborted();
         var hasAuth = !!GitHub.token || authMethod === "github_app";
@@ -57627,13 +57649,13 @@ This problem is likely caused by another plugin injecting
             setProgress("Scanning repository...");
             return GitHub.scan(p.owner, p.repo, function(message) {
               if (!loadSignal.aborted) setProgress(message);
-            }, currentExcludePatterns);
+            }, currentExcludePatterns, loadSignal);
           });
         }
         setProgress("Scanning repository...");
         return GitHub.scan(p.owner, p.repo, function(message) {
           if (!loadSignal.aborted) setProgress(message);
-        }, currentExcludePatterns);
+        }, currentExcludePatterns, loadSignal);
       }).then(function(files) {
         loadSignal.throwIfAborted();
         if (!files) return;
@@ -57642,8 +57664,8 @@ This problem is likely caused by another plugin injecting
         async function beginRepoAnalysis() {
           const analyzed = await readCollectedFiles(files.map((file) => ({ ...file, read: async () => {
             const [content, commits] = await Promise.all([
-              GitHub.getFile(p.owner, p.repo, file.path),
-              Parser.isCode(file.name) ? GitHub.getCommits(p.owner, p.repo, file.path, 10).catch(() => []) : Promise.resolve([])
+              GitHub.getFile(p.owner, p.repo, file.path, loadSignal),
+              Parser.isCode(file.name) ? GitHub.getCommits(p.owner, p.repo, file.path, 10, loadSignal) : Promise.resolve([])
             ]);
             if (typeof content !== "string") throw new Error("GitHub source request failed");
             return { content, churn: Array.isArray(commits) ? commits.length : 0 };
